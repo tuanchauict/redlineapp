@@ -1,0 +1,33 @@
+# Cloudflare Pages reads this file out of the uploaded directory and turns each
+# block into response headers for the paths that match it. It is committed
+# rather than generated: it is the page's own configuration, not something
+# copied in from elsewhere.
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+
+# None of these filenames carry a content hash, so nothing here can be
+# immutable: a screenshot regenerated for the README has to be able to reach
+# somebody who has already been here. A day, and the CDN revalidates after it.
+#
+# An image can lag the page it is on and still be an image. The stylesheet and
+# the module cannot: the markup ships in its finished state and they are the
+# whole of what makes it look like anything, so one deploy's HTML against the
+# previous deploy's CSS is unstyled buttons, scenes with no frame and diagrams
+# drawing in SVG's default black. The HTML carries no Cache-Control and so
+# revalidates, and holding these two for an hour -- served stale for a day
+# after that -- is exactly how a returning reader gets that pair.
+/images/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+# no-cache is not no-store: both are still cached, and the usual answer is a
+# 304 with no body. Two files on a one-page site, versus a skew that only
+# appears for people who have been here before -- which is to say, never in
+# the tab you are checking the deploy in.
+/*.css
+  Cache-Control: no-cache
+
+/*.js
+  Cache-Control: no-cache

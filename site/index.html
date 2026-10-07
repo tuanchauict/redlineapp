@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Redline — a markdown reader with a memory</title>
+    <meta
+      name="description"
+      content="Redline is a markdown reader for the files on your Mac. It renders them the way you expect, and because it remembers every version it has shown you, it can also mark what moved since you last read — word by word, without touching git."
+    />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Redline — a markdown reader with a memory" />
+    <meta
+      property="og:description"
+      content="A markdown reader for your local files. It also remembers every version it has shown you, so it can tell you which four paragraphs moved while you were away."
+    />
+    <!--
+      Absolute, origin and all. The Open Graph spec asks for a full URL, and an
+      unfurler does not resolve a relative one against the page: Slack drew an
+      empty grey box for `images/hero.png`. build:site strips this origin back
+      off to find the file it has to copy. The size is given so a preview can lay
+      the card out before it has fetched the image.
+    -->
+    <meta property="og:url" content="https://redline.iamtuna.org/" />
+    <meta property="og:image" content="https://redline.iamtuna.org/images/hero.png" />
+    <meta property="og:image:width" content="1770" />
+    <meta property="og:image:height" content="1320" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="stylesheet" href="landing.css" />
+
+    <!--
+      The theme is mirrored onto <html> before the stylesheet can paint, for the
+      same reason the reader itself does it (docs/architecture.md, layout state is
+      applied "before first paint"): read it in landing.js instead and every open
+      flashes the wrong one. Inline and synchronous is the whole point — do not
+      move this into the module.
+    -->
+    <script>
+      /* Arms the scroll reveal. Without it every .reveal section stays at full
+         opacity, so a blocked or failed module is a complete page rather than a
+         column of invisible ones. */
+      document.documentElement.classList.add('js');
+      try {
+        var t = localStorage.getItem('redline:site-theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch (e) {
+        /* Safari in private mode throws on localStorage; the default is fine. */
+      }
+    </script>
+  </head>
+
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="nav">
+      <a class="nav-brand" href="#top">
+        <img src="icon.svg" alt="" width="26" height="26" />
+        <span>Redline</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#reading">Reading</a>
+        <a href="#review">Review mode</a>
+        <a href="#get">Download</a>
+      </nav>
+      <div class="nav-right">
+        <button
+          class="icon-btn"
+          id="theme"
+          type="button"
+          aria-label="Switch between light, dark and system theme"
+        >
+          <svg class="i-sun" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+            <circle cx="8" cy="8" r="3.25" />
+            <path
+              d="M8 .9v2.2M8 12.9v2.2M.9 8h2.2M12.9 8h2.2M3 3l1.6 1.6M11.4 11.4L13 13M13 3l-1.6 1.6M4.6 11.4L3 13"
+            />
+          </svg>
+          <svg class="i-moon" viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+            <path d="M13.5 9.8A5.8 5.8 0 0 1 6.2 2.5a5.8 5.8 0 1 0 7.3 7.3Z" />
+          </svg>
+        </button>
+        <a class="btn btn-ghost" href="#get">
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+            <path d="M8 1.5v9M4.5 7 8 10.5 11.5 7M2.5 13.5h11" />
+          </svg>
+          Download
+        </a>
+      </div>
+    </header>
+
+    <main id="main">
+      <!-- ---------- hero ---------- -->
+
+      <section class="hero" id="top">
+        <div class="hero-glow" aria-hidden="true"></div>
+
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="dot"></span> A markdown reader for macOS</p>
+          <h1>A markdown reader<br />with a memory.</h1>
+          <p class="lede">
+            Redline renders the markdown on your disk the way you want it rendered. And because it
+            quietly keeps every version it has ever shown you, it can also answer the question an
+            AI rewrite leaves behind — <em>which four paragraphs moved?</em> — word by word,
+            without touching git.
+          </p>
+
+          <div class="cta">
+            <button
+              class="copy"
+              type="button"
+              data-copy="brew install --cask tuanchauict/tap/redline"
+            >
+              <code><span class="prompt">$</span> brew install --cask tuanchauict/tap/redline</code>
+              <span class="copy-state" aria-hidden="true">
+                <svg class="i-copy" viewBox="0 0 16 16" width="14" height="14">
+                  <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+                  <path d="M10.5 2.5H3a.5.5 0 0 0-.5.5v7.5" />
+                </svg>
+                <svg class="i-done" viewBox="0 0 16 16" width="14" height="14">
+                  <path d="M3 8.5 6.5 12 13 4.5" />
+                </svg>
+              </span>
+              <span class="sr" id="copy-live" role="status"></span>
+            </button>
+            <a class="btn btn-solid" href="#get">Get it</a>
+          </div>
+
+          <p class="fineprint">
+            Your file is only ever read. Nothing is written next to it, and nothing in it leaves
+            the machine.
+          </p>
+        </div>
+
+        <!--
+          The live demo. Every mark below is the finished state, written out in
+          full; what the animation does is take it away and give it back, which
+          is the same thing the reader's own `no-diff` class does. That way the
+          page is readable and correct with JavaScript off, and the script only
+          ever removes and restores one attribute.
+        -->
+        <figure class="demo-wrap">
+          <figcaption class="sr">
+            An animation of Redline marking a document: a modified paragraph, a modified list, an
+            added line and a removed paragraph, with the change counter and the ruler filling in.
+          </figcaption>
+
+          <div class="demo" id="demo" data-phase="marked">
+            <div class="demo-bar">
+              <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="demo-file">
+                <strong>ingest-pipeline.md</strong>
+                <small>~/Projects/atlas/docs</small>
+              </span>
+              <span class="demo-spacer"></span>
+              <span class="demo-count" aria-hidden="true">
+                <b class="c-add">+<span data-count="1">1</span></b>
+                <b class="c-mod">~<span data-count="2">2</span></b>
+                <b class="c-del">−<span data-count="1">1</span></b>
+              </span>
+              <span class="demo-tools" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="13" height="13">
+                  <path d="M8 12.5V3.5M4.5 7 8 3.5 11.5 7" />
+                </svg>
+                <svg viewBox="0 0 16 16" width="13" height="13">
+                  <path d="M8 3.5v9M4.5 9 8 12.5 11.5 9" />
+                </svg>
+                <svg viewBox="0 0 16 16" width="13" height="13">
+                  <path d="M6 11 3 8l3-3M10 5l3 3-3 3" />
+                </svg>
+              </span>
+            </div>
+
+            <div class="demo-body">
+              <article class="demo-doc">
+                <h2 class="demo-h1">Ingest pipeline</h2>
+
+                <div class="chg chg-mod" style="--i: 0">
+                  <span class="chg-tag">changed</span>
+                  <p>
+                    Atlas takes in about <span class="w-del" style="--i: 1">40</span>
+                    <span class="w-add" style="--i: 2">60</span> million events a day from the
+                    mobile clients and the edge workers. This document is the design of the path an
+                    event takes between
+                    <span class="w-del" style="--i: 3">arriving and being queryable.</span>
+                    <span class="w-add" style="--i: 4"
+                      >accept and queryable, and the back pressure that keeps it there.</span
+                    >
+                  </p>
+                </div>
+
+                <h3 class="demo-h2">Goals</h3>
+
+                <div class="chg chg-mod" style="--i: 5">
+                  <span class="chg-tag">changed</span>
+                  <ul>
+                    <li>
+                      <strong>Never drop a well-formed event.</strong> A backlog is recoverable; a
+                      gap is not.
+                    </li>
+                    <li>
+                      <strong>Bound the tail.</strong> p99 from accept to queryable under
+                      <span class="w-del" style="--i: 6">90</span>
+                      <span class="w-add" style="--i: 7">60</span> seconds.
+                    </li>
+                  </ul>
+                </div>
+
+                <div class="chg chg-add" style="--i: 8">
+                  <span class="chg-tag">added</span>
+                  <ul>
+                    <li>Keep the operational surface small enough for one on-call engineer.</li>
+                  </ul>
+                </div>
+
+                <div class="chg chg-del" style="--i: 9">
+                  <span class="chg-tag">removed</span>
+                  <p>
+                    An earlier draft promised exactly-once delivery from the edge to the warehouse.
+                  </p>
+                </div>
+
+                <h3 class="demo-h2">Stages</h3>
+                <p class="demo-tail">
+                  An event passes through four stages. Each one is idempotent and keyed on the event
+                  id, so a replay of any prefix is safe.
+                </p>
+              </article>
+
+              <div class="demo-ruler" aria-hidden="true">
+                <i class="r-mod" style="--top: 14%; --i: 0"></i>
+                <i class="r-mod" style="--top: 46%; --i: 5"></i>
+                <i class="r-add" style="--top: 62%; --i: 8"></i>
+                <i class="r-del" style="--top: 71%; --i: 9"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="demo-legend" aria-hidden="true">
+            <span><i class="sw-add"></i> added</span>
+            <span><i class="sw-mod"></i> changed</span>
+            <span><i class="sw-del"></i> removed</span>
+            <span class="demo-replay">
+              <button type="button" id="replay">Replay</button>
+            </span>
+          </div>
+        </figure>
+      </section>
+
+      <!-- ---------- reading ---------- -->
+
+      <section class="band" id="reading">
+        <header class="band-head reveal">
+          <h2>A reader first.</h2>
+          <p>
+            GitHub-style rendering, syntax highlighting, tables, task lists and
+            <code>&gt; [!NOTE]</code> alerts. Light and dark follow your system theme, or whichever
+            you pin. Open a file and it stays open — your place in it is kept across reloads,
+            across quits, and across the document being rewritten under you.
+          </p>
+        </header>
+
+        <div class="split reveal">
+          <div class="split-copy">
+            <h3>Rendered or raw, one key apart</h3>
+            <p>
+              <kbd>r</kbd> swaps the prose for the markdown that made it: highlighted,
+              line-numbered, and marked line by line rather than block by block.
+            </p>
+            <p>
+              Your place survives the swap, because the thing being kept is the
+              <em>line of the file</em> you were on and not the pixel you had scrolled to — which
+              is a different part of the document once the same text is set as prose.
+            </p>
+          </div>
+
+          <p class="sr">
+            A demonstration: the same passage shown as rendered prose and as highlighted markdown
+            source, with the changed line struck through above the line that replaced it.
+          </p>
+
+          <div class="sim sim-view" id="sim-view" data-view="rendered">
+            <div class="sim-bar">
+              <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sim-file"><strong>back-pressure.md</strong></span>
+              <span class="sim-spacer"></span>
+              <span class="seg">
+                <button type="button" class="is-on" data-set="view" data-to="rendered">
+                  Rendered
+                </button>
+                <button type="button" data-set="view" data-to="raw">Raw</button>
+              </span>
+            </div>
+
+            <div class="sim-body">
+              <article class="sim-doc pane pane-rendered">
+                <h3 class="sim-h">Back pressure</h3>
+                <div class="chg chg-mod is-marked">
+                  <span class="chg-tag">changed</span>
+                  <p>
+                    When the queue holds more than <span class="w-del">90</span>
+                    <span class="w-add">60</span> seconds of work, the accept endpoint answers
+                    <code>429</code> with a <code>Retry-After</code>.
+                  </p>
+                </div>
+                <p class="sim-dim">
+                  Shedding at the edge is cheaper than shedding at the warehouse, and a client that
+                  is told to wait will.
+                </p>
+              </article>
+
+              <div class="pane pane-raw" aria-hidden="true">
+                <p class="rl">
+                  <span class="rn">11</span>
+                  <span class="rt t-head">## Back pressure</span>
+                </p>
+                <p class="rl">
+                  <span class="rn">12</span>
+                  <span class="rt"></span>
+                </p>
+                <p class="rl rl-del">
+                  <span class="rn">13</span>
+                  <span class="rt">When the queue holds more than 90 seconds of work, the</span>
+                </p>
+                <p class="rl rl-add">
+                  <span class="rn">13</span>
+                  <span class="rt">When the queue holds more than 60 seconds of work, the</span>
+                </p>
+                <p class="rl">
+                  <span class="rn">14</span>
+                  <span class="rt"
+                    >accept endpoint answers <span class="t-code">`429`</span> with a</span
+                  >
+                </p>
+                <p class="rl">
+                  <span class="rn">15</span>
+                  <span class="rt"><span class="t-code">`Retry-After`</span>.</span>
+                </p>
+                <p class="rl">
+                  <span class="rn">16</span>
+                  <span class="rt"></span>
+                </p>
+                <p class="rl">
+                  <span class="rn">17</span>
+                  <span class="rt">Shedding at the edge is cheaper than shedding at the</span>
+                </p>
+                <p class="rl">
+                  <span class="rn">18</span>
+                  <span class="rt">warehouse, and a client that is told to wait will.</span>
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="split split-flip reveal">
+          <div class="split-copy">
+            <h3>Light or dark, diagrams included</h3>
+            <p>
+              <code>mermaid</code> fences render in the page; <code>plantuml</code> fences render to
+              inline SVG locally, never over the network. Both follow the theme, and both are
+              redrawn when you change it rather than left in the colours of the theme you left.
+            </p>
+          </div>
+
+          <p class="sr">
+            A demonstration: a document with a flowchart in it, redrawn as the theme is switched
+            between light and dark.
+          </p>
+
+          <div class="sim sim-tone" id="sim-tone" data-tone="light">
+            <div class="sim-bar">
+              <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sim-file"><strong>stages.md</strong></span>
+              <span class="sim-spacer"></span>
+              <span class="seg">
+                <button type="button" class="is-on" data-set="tone" data-to="light">Light</button>
+                <button type="button" data-set="tone" data-to="dark">Dark</button>
+              </span>
+            </div>
+
+            <div class="sim-body">
+              <article class="sim-doc">
+                <h3 class="sim-h">Stages</h3>
+                <p class="sim-dim">
+                  An event passes through three stages. Each one is idempotent and keyed on the
+                  event id, so a replay of any prefix is safe.
+                </p>
+                <figure class="dia" aria-hidden="true">
+                  <svg viewBox="0 0 520 108" width="520" height="108">
+                    <g class="dia-node">
+                      <rect x="5" y="30" width="120" height="48" rx="8" />
+                      <text x="65" y="59">accept</text>
+                    </g>
+                    <g class="dia-node">
+                      <rect x="200" y="30" width="120" height="48" rx="8" />
+                      <text x="260" y="59">queue</text>
+                    </g>
+                    <g class="dia-node">
+                      <rect x="395" y="30" width="120" height="48" rx="8" />
+                      <text x="455" y="59">warehouse</text>
+                    </g>
+                    <path class="dia-edge" d="M131 54h57m0 0-7-5m7 5-7 5" />
+                    <path class="dia-edge" d="M326 54h57m0 0-7-5m7 5-7 5" />
+                  </svg>
+                </figure>
+              </article>
+            </div>
+          </div>
+        </div>
+
+        <div class="cards cards-tight cards-wide">
+          <article class="card reveal">
+            <h3>Two sidebars, one down each side</h3>
+            <p>
+              The files you have open and every version of this one on the left
+              <span class="nb">(<kbd>⌘B</kbd>)</span>; the document's own headings on the right
+              <span class="nb">(<kbd>⌥⌘B</kbd>)</span>, with the one you are reading under
+              marked as you scroll.
+            </p>
+          </article>
+          <article class="card reveal">
+            <h3>Live reload that keeps your scroll</h3>
+            <p>
+              An editor on one side, Redline on the other, in step. Nothing on the bar says so,
+              because that is the normal state; a red dot appears only if the watch drops.
+            </p>
+          </article>
+          <article class="card reveal">
+            <h3>Links to the file next door work</h3>
+            <p>
+              <code>./api.md</code>, <code>../adr/0004.md</code>, resolved against the directory
+              your document came out of. Hover one and its destination appears written the way its
+              author would recognise it.
+            </p>
+          </article>
+          <article class="card reveal">
+            <h3>Tabs and no chrome</h3>
+            <p>
+              Several files in one window, one watcher each, each named over its directory so two
+              <code>README.md</code>s are told apart. The window has no OS title bar.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <!-- ---------- review mode ---------- -->
+
+      <section class="band band-alt" id="review">
+        <header class="band-head reveal">
+          <h2>Review mode: the diff is in the prose, not beside it.</h2>
+          <p>
+            No two-column wall to read twice. A changed paragraph gets a thin bar in the left
+            margin, and inside it only the words that actually moved are struck through and tinted
+            — everything else keeps its normal colour, so the document still reads as a document.
+          </p>
+        </header>
+
+        <div class="cards">
+          <article class="card reveal">
+            <h3>Word by word, in place</h3>
+            <p>
+              The word diff runs over <em>rendered HTML</em> rather than markdown source, so marking
+              up an edit never cuts through an emphasis run, a link destination or a fence.
+            </p>
+            <div class="mini" aria-hidden="true">
+              <span class="mini-bar mod"></span>
+              <p>
+                p99 under <span class="w-del">90</span> <span class="w-add">60</span> seconds.
+              </p>
+            </div>
+          </article>
+
+          <article class="card reveal">
+            <h3>Check a change off as you read it</h3>
+            <p>
+              Click the word in the margin that names it, or press <kbd>c</kbd>, and the mark
+              goes — it stops being counted, and <kbd>n</kbd> / <kbd>p</kbd> walk past it. A
+              heavily edited file is worked <em>down</em> to nothing left.
+            </p>
+            <div class="mini" aria-hidden="true">
+              <span class="mini-bar ok"></span>
+              <p class="mini-ok">
+                p99 under 60 seconds. <span class="mini-tick">✓ checked</span>
+              </p>
+            </div>
+          </article>
+
+          <article class="card reveal">
+            <h3>Every change on the scrollbar</h3>
+            <p>
+              The same three colours down the right edge, at the scale of the whole file. The margin
+              speaks for the screen you are on; the ruler says <em>whereabouts</em> — edited
+              throughout, or three paragraphs near the end.
+            </p>
+            <div class="mini mini-ruler" aria-hidden="true">
+              <span class="mini-line"></span><span class="mini-line"></span>
+              <span class="mini-line short"></span><span class="mini-line"></span>
+              <i class="r-mod" style="--top: 10%"></i>
+              <i class="r-add" style="--top: 44%"></i>
+              <i class="r-del" style="--top: 58%"></i>
+              <i class="r-mod" style="--top: 80%"></i>
+            </div>
+          </article>
+        </div>
+
+        <figure class="sim-wrap reveal">
+          <figcaption class="sr">
+            A demonstration of walking a file's changes: each press of n scrolls to the next marked
+            block and lights its mark on the ruler, and each press of c puts one away and drops the
+            count on the bar.
+          </figcaption>
+
+          <div class="sim sim-jump" id="sim-jump">
+            <div class="sim-bar">
+              <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sim-file"><strong>ingest-pipeline.md</strong></span>
+              <span class="sim-spacer"></span>
+              <span class="sim-count">
+                <b class="c-add">+<span data-c="add">1</span></b>
+                <b class="c-mod">~<span data-c="mod">2</span></b>
+                <b class="c-del">−<span data-c="del">1</span></b>
+              </span>
+            </div>
+
+            <div class="sim-body">
+              <div class="sim-scroll">
+                <article class="sim-doc">
+                  <h3 class="sim-h">Ingest pipeline</h3>
+                  <div class="chg chg-mod is-marked" data-n="1" data-kind="mod">
+                    <span class="chg-tag">changed</span>
+                    <span class="chg-done">✓ checked</span>
+                    <p>
+                      Atlas takes in about <span class="w-del">40</span>
+                      <span class="w-add">60</span> million events a day from the mobile clients
+                      and the edge workers.
+                    </p>
+                  </div>
+                  <p class="sim-dim">
+                    This document is the design of the path an event takes between accept and
+                    queryable, and the back pressure that keeps it there. Nothing here is specific
+                    to a warehouse vendor.
+                  </p>
+
+                  <h3 class="sim-h">Goals</h3>
+                  <div class="chg chg-mod is-marked" data-n="2" data-kind="mod">
+                    <span class="chg-tag">changed</span>
+                    <span class="chg-done">✓ checked</span>
+                    <p>
+                      Bound the tail: p99 from accept to queryable under
+                      <span class="w-del">90</span> <span class="w-add">60</span> seconds, measured
+                      at the warehouse rather than at the queue.
+                    </p>
+                  </div>
+                  <p class="sim-dim">
+                    Never drop a well-formed event. A backlog is recoverable; a gap is not, because
+                    nothing downstream can tell a gap from a quiet hour.
+                  </p>
+
+                  <div class="chg chg-add is-marked" data-n="3" data-kind="add">
+                    <span class="chg-tag">added</span>
+                    <span class="chg-done">✓ checked</span>
+                    <p>
+                      Keep the operational surface small enough for one on-call engineer to hold in
+                      their head at three in the morning.
+                    </p>
+                  </div>
+
+                  <h3 class="sim-h">Non-goals</h3>
+                  <div class="chg chg-del is-marked" data-n="4" data-kind="del">
+                    <span class="chg-tag">removed</span>
+                    <span class="chg-done">✓ checked</span>
+                    <p>
+                      An earlier draft promised exactly-once delivery from the edge all the way to
+                      the warehouse.
+                    </p>
+                  </div>
+                  <p class="sim-dim">
+                    At-least-once with an idempotent write is the same thing from the reader's side
+                    and a tenth of the machinery.
+                  </p>
+                </article>
+              </div>
+
+              <div class="sim-ruler" aria-hidden="true">
+                <i class="r-mod" data-n="1" style="--top: 7%"></i>
+                <i class="r-mod" data-n="2" style="--top: 37%"></i>
+                <i class="r-add" data-n="3" style="--top: 57%"></i>
+                <i class="r-del" data-n="4" style="--top: 80%"></i>
+              </div>
+            </div>
+
+            <div class="sim-keys">
+              <button type="button" data-key="p"><kbd>p</kbd> previous</button>
+              <button type="button" data-key="n"><kbd>n</kbd> next</button>
+              <button type="button" data-key="c"><kbd>c</kbd> check off</button>
+              <span class="sim-left" data-left>change 1 of 4</span>
+            </div>
+          </div>
+
+          <figcaption>
+            <code>+1 ~2 −1</code> on the bar is what is still outstanding, not what the edit was.
+            Work the file down and it reaches nothing left.
+          </figcaption>
+        </figure>
+
+        <div class="split reveal">
+          <div class="split-copy">
+            <h3>You choose what <em>since</em> means</h3>
+            <p>
+              Since you last read it, since <code>HEAD</code>, or since any version in the list.
+              <kbd>m</kbd> moves the read mark; <kbd>d</kbd> puts the marks away for a clean read
+              and forgets nothing while they are gone.
+            </p>
+            <p>
+              Every version is in a list, and a tracked file arrives with its git history already in
+              it — up to 50 commits, read with <code>--follow</code> so a rename does not end the
+              trail. A row is named by its commit subject, or by the clock time it was saved.
+            </p>
+            <ul class="ticks">
+              <li>Snapshots the file itself — no commits, nothing written beside it</li>
+              <li>Two windows on one file share a watcher and a history</li>
+              <li>A checked-off change survives the document moving around it</li>
+            </ul>
+          </div>
+
+          <p class="sr">
+            A demonstration of choosing a baseline: picking an older version from the history list
+            widens what counts as changed, and the count on the bar grows with it.
+          </p>
+
+          <div class="sim sim-history" id="sim-history">
+            <div class="sim-bar">
+              <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="sim-file"><strong>ingest-pipeline.md</strong></span>
+              <span class="sim-spacer"></span>
+              <span class="sim-count">
+                <b class="c-add">+<span data-c="add">1</span></b>
+                <b class="c-mod">~<span data-c="mod">1</span></b>
+                <b class="c-del">−<span data-c="del">0</span></b>
+              </span>
+            </div>
+
+            <div class="sim-body">
+              <div class="sim-side">
+                <p class="side-head">Compare against</p>
+                <button type="button" class="is-on" data-pick="read" data-counts="1 1 0">
+                  <span class="row-name">When you last read it</span>
+                  <span class="row-when">20 minutes ago</span>
+                </button>
+                <button type="button" data-pick="head" data-counts="1 2 0">
+                  <span class="row-name">Git <code>HEAD</code></span>
+                  <span class="row-when">Bound the tail at p99</span>
+                </button>
+                <button type="button" data-pick="old" data-counts="1 2 1">
+                  <span class="row-name">Three versions back</span>
+                  <span class="row-when">Tuesday, 14:02</span>
+                </button>
+              </div>
+
+              <article class="sim-doc">
+                <h3 class="sim-h">Goals</h3>
+                <div class="chg chg-mod is-marked" data-in="read head old" data-kind="mod">
+                  <span class="chg-tag">changed</span>
+                  <p>
+                    Bound the tail: p99 from accept to queryable under
+                    <span class="w-del">90</span> <span class="w-add">60</span> seconds.
+                  </p>
+                </div>
+                <!--
+                  An insertion and not a replacement, deliberately. A .w-del
+                  leaves the flow when its block is not part of the baseline
+                  being compared against, and one word leaving the flow can
+                  cost the paragraph a line -- which would move this scene, and
+                  the .split row is centred, so it would move the page under it
+                  every time the list is clicked. A .w-add only loses its tint.
+                -->
+                <div class="chg chg-mod" data-in="head old" data-kind="mod">
+                  <span class="chg-tag">changed</span>
+                  <p>
+                    Never drop a well-formed event. A backlog is recoverable;
+                    <span class="w-add"
+                      >a gap is not, because nothing downstream can tell one from a quiet
+                      hour</span
+                    >.
+                  </p>
+                </div>
+                <div class="chg chg-add is-marked" data-in="read head old" data-kind="add">
+                  <span class="chg-tag">added</span>
+                  <p>Keep the operational surface small enough for one on-call engineer.</p>
+                </div>
+                <div class="chg chg-del" data-in="old" data-kind="del">
+                  <span class="chg-tag">removed</span>
+                  <p>An earlier draft promised exactly-once delivery to the warehouse.</p>
+                </div>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- get it ---------- -->
+
+      <section class="band get" id="get">
+        <header class="band-head reveal">
+          <h2>Get it.</h2>
+          <p>One app, and nothing else to install.</p>
+        </header>
+
+        <div class="installs">
+          <article class="install reveal">
+            <h3>With Homebrew</h3>
+            <p class="install-sub">Upgrades come with <code>brew upgrade</code>.</p>
+            <button
+              class="copy block"
+              type="button"
+              data-copy="brew install --cask tuanchauict/tap/redline"
+            >
+              <code><span class="prompt">$</span> brew install --cask tuanchauict/tap/redline</code>
+              <span class="copy-state" aria-hidden="true">
+                <svg class="i-copy" viewBox="0 0 16 16" width="14" height="14">
+                  <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+                  <path d="M10.5 2.5H3a.5.5 0 0 0-.5.5v7.5" />
+                </svg>
+                <svg class="i-done" viewBox="0 0 16 16" width="14" height="14">
+                  <path d="M3 8.5 6.5 12 13 4.5" />
+                </svg>
+              </span>
+            </button>
+            <p class="aside">
+              The cask fetches the same signed and notarized <code>.dmg</code> as the button
+              beside it.
+            </p>
+          </article>
+
+          <article class="install reveal">
+            <h3>Or download it</h3>
+            <p class="install-sub">macOS 11+ · Apple silicon and Intel in one app</p>
+            <a
+              class="btn btn-solid btn-dl"
+              href="https://github.com/tuanchauict/redlineapp/releases/download/v0.5.0/Redline-0.5.0-universal.dmg"
+              download
+            >
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                <path d="M8 1.5v9M4.5 7 8 10.5 11.5 7M2.5 13.5h11" />
+              </svg>
+              Download Redline <span class="dl-ver">0.5.0</span>
+            </a>
+            <p class="aside">
+              Drag it to Applications. Signed and notarized, so it opens on the first
+              double-click — no Gatekeeper detour.
+            </p>
+          </article>
+        </div>
+
+        <p class="get-foot reveal">
+          Nothing is ever written next to your markdown file — it is only ever read. The snapshots
+          live under <code>~/.redline</code> and nothing leaves the machine, including the git
+          import, which only reads the repository it finds.
+        </p>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="foot-brand">
+        <img src="icon.svg" alt="" width="30" height="30" />
+        <div>
+          <strong>Redline</strong>
+          <span>A markdown reader with a memory.</span>
+        </div>
+      </div>
+      <p class="foot-note">
+        Your files stay on your machine. Nothing is written next to them and no request leaves it.
+      </p>
+    </footer>
+
+    <script type="module" src="landing.js"></script>
+  </body>
+</html>

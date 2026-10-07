@@ -1,0 +1,24 @@
+# Cloudflare Pages, for the landing page in site/.
+#
+# This names the project and the directory to upload, and nothing else: there
+# are no Functions and no Worker here, so there is no runtime to configure. The
+# deploy itself is .github/workflows/pages.yml.
+#
+# `name` is the Pages project. It does not settle the hostname: the *.pages.dev
+# subdomain is global, not per-account, and `redline` belongs to somebody else,
+# so Cloudflare handed this project redline-1dq.pages.dev instead. Renaming the
+# project would move the site, so do not. The project has to exist before the
+# first deploy; wrangler will not create one for you in CI. Once, from a
+# checkout:
+#
+#   npx wrangler login
+#   npx wrangler pages project create redline --production-branch=main
+#
+# `pages_build_output_dir` is what gets uploaded, so `wrangler pages deploy`
+# needs no argument and the workflow and a local run cannot disagree about which
+# directory is the site. Run `npm run build:site` first either way: the
+# screenshots and the icon are copied in rather than committed, so an unbuilt
+# site/ is the page with no images.
+name = "redline"
+pages_build_output_dir = "site"
+compatibility_date = "2026-10-03"

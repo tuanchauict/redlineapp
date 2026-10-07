@@ -1,0 +1,1953 @@
+/* Redline — the landing page.
+ *
+ * One stylesheet, custom properties at the top, sections in the same order as
+ * index.html, matching the convention the reader's own stylesheet follows.
+ *
+ * The change colours and the mark shapes are deliberately the same values the
+ * product uses (public/styles.css) rather than approximations of them: the page
+ * is a picture of the thing, and a green that is nearly the app's green is worse
+ * than no picture. If those change there, change them here.
+ */
+
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* The icon's two colours; everything accented on this page is one of them. */
+  --brand: #1c2333;
+  --red: #e5484d;
+
+  --bg: #ffffff;
+  --bg-2: #f6f8fa;
+  --bg-3: #ffffff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --line: #d1d9e0;
+  --line-soft: #e4e8ec;
+
+  /* The three change colours, from the reader. */
+  --add: #1a7f37;
+  --del: #cf222e;
+  --mod: #0969da;
+
+  /* Syntax, for the one scene that shows the raw markdown rather than the
+     prose. Deliberately not one of the three above: a colour that means
+     "changed" somewhere on this page cannot also mean "this is a heading". */
+  --syn: #0550ae;
+
+  --shadow-sm: 0 1px 2px rgb(27 31 36 / 7%);
+  --shadow-md: 0 8px 24px rgb(27 31 36 / 9%), 0 2px 6px rgb(27 31 36 / 5%);
+  --shadow-lg: 0 32px 80px rgb(27 31 36 / 16%), 0 6px 18px rgb(27 31 36 / 7%);
+
+  --radius: 10px;
+  --page: 1140px;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* The dark values live once in a custom property block and are pulled in by
+   both selectors below, so a colour cannot be changed in one and missed in the
+   other. */
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] {
+    --bg: #0d1117;
+    --bg-2: #0b0f14;
+    --bg-3: #151b23;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --line: #3d444d;
+    --line-soft: #262c34;
+    --add: #3fb950;
+    --del: #f85149;
+    --mod: #58a6ff;
+    --syn: #79c0ff;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-md: 0 8px 24px rgb(0 0 0 / 50%), 0 2px 6px rgb(0 0 0 / 30%);
+    --shadow-lg: 0 32px 80px rgb(0 0 0 / 60%), 0 6px 18px rgb(0 0 0 / 35%);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0d1117;
+  --bg-2: #0b0f14;
+  --bg-3: #151b23;
+  --fg: #e6edf3;
+  --muted: #9198a1;
+  --line: #3d444d;
+  --line-soft: #262c34;
+  --add: #3fb950;
+  --del: #f85149;
+  --mod: #58a6ff;
+  --syn: #79c0ff;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 50%), 0 2px 6px rgb(0 0 0 / 30%);
+  --shadow-lg: 0 32px 80px rgb(0 0 0 / 60%), 0 6px 18px rgb(0 0 0 / 35%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  /* The nav is fixed, so an anchor jump has to clear it. */
+  scroll-padding-top: 84px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  letter-spacing: -0.021em;
+  line-height: 1.15;
+  font-weight: 650;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+code,
+kbd {
+  font-family: var(--font-mono);
+}
+
+:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  z-index: 100;
+  padding: 8px 14px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+.skip:focus {
+  left: 8px;
+}
+
+/* ---------- nav ---------- */
+
+.nav {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 58px;
+  padding: 0 clamp(16px, 4vw, 34px);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: saturate(170%) blur(14px);
+  -webkit-backdrop-filter: saturate(170%) blur(14px);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+/* Set by the scroll listener: the bar only needs a hairline once there is
+   something behind it to be told apart from. */
+.nav.is-stuck {
+  border-bottom-color: var(--line-soft);
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-weight: 650;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+.nav-brand img {
+  border-radius: 6px;
+}
+
+.nav-links {
+  display: flex;
+  gap: 4px;
+  margin-left: 10px;
+}
+
+.nav-links a {
+  padding: 6px 11px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 14px;
+  text-decoration: none;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-links a:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.icon-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-3);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.icon-btn:hover {
+  background: color-mix(in srgb, var(--fg) 6%, var(--bg-3));
+}
+
+.icon-btn svg {
+  grid-area: 1 / 1;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+/* One button, two glyphs: whichever the theme is *not* currently showing is the
+   one hidden, so the icon reads as the state rather than as the action. */
+.i-moon {
+  display: none;
+}
+
+:root[data-theme="dark"] .i-sun {
+  display: none;
+}
+
+:root[data-theme="dark"] .i-moon {
+  display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] .i-sun {
+    display: none;
+  }
+  :root[data-theme="auto"] .i-moon {
+    display: block;
+  }
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 14px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 550;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.12s;
+}
+
+.btn svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+}
+
+.btn-ghost {
+  border-color: var(--line);
+  background: var(--bg-3);
+}
+
+.btn-ghost:hover {
+  background: color-mix(in srgb, var(--fg) 6%, var(--bg-3));
+}
+
+.btn-solid {
+  background: var(--fg);
+  color: var(--bg);
+  height: 44px;
+  padding: 0 22px;
+  font-size: 15px;
+  border-radius: 10px;
+}
+
+.btn-solid:hover {
+  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--fg) 88%, var(--red));
+}
+
+/* ---------- hero ---------- */
+
+.hero {
+  position: relative;
+  /* The foot is the band padding below it, so the demo clears the first heading
+     by the same gap any two sections keep from each other. It used to be 0,
+     because the strip of numbers that stood here brought its own margin. */
+  padding: 128px clamp(16px, 4vw, 34px) clamp(70px, 10vw, 118px);
+  max-width: var(--page);
+  margin: 0 auto;
+  text-align: center;
+}
+
+/* Two soft washes, brand navy and the marker red, sat behind the headline. No
+   animation: it is behind type that has to stay readable. */
+.hero-glow {
+  position: absolute;
+  inset: -80px -40% 30%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      42% 46% at 32% 22%,
+      color-mix(in srgb, var(--red) 15%, transparent),
+      transparent 72%
+    ),
+    radial-gradient(
+      46% 44% at 70% 12%,
+      color-mix(in srgb, var(--brand) 16%, transparent),
+      transparent 70%
+    );
+  filter: blur(14px);
+}
+
+:root[data-theme="dark"] .hero-glow {
+  opacity: 0.55;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] .hero-glow {
+    opacity: 0.55;
+  }
+}
+
+.hero-copy {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 13px 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-3) 70%, transparent);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.eyebrow .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 20%, transparent);
+}
+
+h1 {
+  margin: 22px 0 0;
+  font-size: clamp(40px, 7.2vw, 72px);
+  letter-spacing: -0.035em;
+  font-weight: 680;
+}
+
+.lede {
+  margin: 20px auto 0;
+  max-width: 600px;
+  font-size: clamp(16px, 2.1vw, 19px);
+  color: var(--muted);
+}
+
+.lede em {
+  color: var(--fg);
+  font-style: normal;
+  font-weight: 550;
+}
+
+.cta {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+.fineprint {
+  margin-top: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.fineprint code {
+  font-size: 12.5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--bg-2);
+}
+
+/* ---------- copy buttons ---------- */
+
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-3);
+  color: var(--fg);
+  font: 13.5px/1 var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.copy:hover {
+  border-color: color-mix(in srgb, var(--fg) 26%, var(--line));
+}
+
+.copy code {
+  white-space: pre;
+  /* A flex item's default min-width is auto, not 0 -- which refuses to
+     shrink below the command's full length and pushes it out past the
+     pill's own border on a narrow phone instead of scrolling. */
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.copy .prompt {
+  color: var(--red);
+  user-select: none;
+}
+
+.copy.block {
+  display: flex;
+  width: 100%;
+  height: auto;
+  align-items: flex-start;
+  padding: 15px 16px;
+  line-height: 1.85;
+  background: var(--bg-2);
+}
+
+.copy.block code {
+  flex: 1;
+}
+
+.copy-state {
+  display: grid;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.copy-state svg {
+  grid-area: 1 / 1;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.i-done {
+  opacity: 0;
+  transform: scale(0.7);
+  color: var(--add);
+}
+
+.copy.is-done .i-copy {
+  opacity: 0;
+}
+
+.copy.is-done .i-done {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- the live demo ---------- */
+
+.demo-wrap {
+  margin: 56px 0 0;
+  perspective: 1600px;
+}
+
+.demo {
+  max-width: 940px;
+  margin: 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg-3);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  text-align: left;
+  /* A slight recline, straightened as it scrolls into place by .is-in below. */
+  transform: rotateX(7deg) scale(0.985);
+  transform-origin: 50% 0;
+  transition: transform 0.9s var(--ease);
+}
+
+.demo.is-in {
+  transform: none;
+}
+
+/* Set for the one synchronous frame landing.js borrows the marked phase in to
+   re-measure the document after a resize. Nothing should ease anywhere while
+   the height is being read and the phase put back. */
+.demo[data-measuring],
+.demo[data-measuring] *,
+.demo[data-measuring] *::before {
+  transition: none !important;
+}
+
+.demo-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 46px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--bg-2);
+}
+
+.lights {
+  display: flex;
+  gap: 6px;
+}
+
+.lights i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--line);
+}
+
+.lights i:nth-child(1) {
+  background: #ff5f57;
+}
+.lights i:nth-child(2) {
+  background: #febc2e;
+}
+.lights i:nth-child(3) {
+  background: #28c840;
+}
+
+.demo-file {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  margin-left: 6px;
+}
+
+.demo-file strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.demo-file small {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.demo-spacer {
+  flex: 1;
+}
+
+.demo-count {
+  display: flex;
+  gap: 9px;
+  font: 600 13px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.c-add {
+  color: var(--add);
+}
+.c-mod {
+  color: var(--mod);
+}
+.c-del {
+  color: var(--del);
+}
+
+.demo-tools {
+  display: flex;
+  gap: 10px;
+  padding-left: 11px;
+  border-left: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.demo-tools svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.demo-body {
+  position: relative;
+  display: flex;
+}
+
+.demo-doc {
+  flex: 1;
+  padding: 26px clamp(20px, 4vw, 46px) 30px;
+  font-size: 14.5px;
+  line-height: 1.62;
+  /* The reflow when the removed words come back is covered by this fade, the
+     way the reader's own re-render is: the document dims for one frame rather
+     than visibly shuffling itself. */
+  transition: opacity 0.26s var(--ease);
+}
+
+.demo[data-phase="reload"] .demo-doc {
+  opacity: 0.45;
+}
+
+.demo-doc p,
+.demo-doc ul {
+  margin: 0;
+}
+
+.demo-doc ul {
+  padding-left: 22px;
+}
+
+.demo-doc li + li {
+  margin-top: 5px;
+}
+
+.demo-h1 {
+  font-size: 25px;
+  font-weight: 650;
+  padding-bottom: 9px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.demo-h2 {
+  font-size: 18.5px;
+  font-weight: 650;
+  margin: 22px 0 12px;
+}
+
+.demo-tail {
+  color: var(--muted);
+}
+
+.demo-ruler {
+  position: relative;
+  width: 10px;
+  flex: none;
+  border-left: 1px solid var(--line-soft);
+  background: var(--bg-2);
+}
+
+.demo-ruler i,
+.sim-ruler i,
+.mini-ruler i {
+  position: absolute;
+  right: 2px;
+  top: var(--top);
+  width: 4px;
+  height: 26px;
+  border-radius: 2px;
+  background: var(--mark);
+  opacity: 0.85;
+  transition: opacity 0.35s var(--ease), transform 0.35s var(--ease);
+  transition-delay: calc(var(--i, 0) * 85ms + 120ms);
+}
+
+.r-add {
+  --mark: var(--add);
+}
+.r-mod {
+  --mark: var(--mod);
+}
+.r-del {
+  --mark: var(--del);
+}
+
+/* ---------- change marks, as the reader draws them ---------- */
+
+.chg {
+  position: relative;
+  padding: 2px 10px;
+  margin: 10px -10px;
+  border-radius: 3px;
+}
+
+.chg::before {
+  content: "";
+  position: absolute;
+  left: -2px;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--mark);
+  transform-origin: 50% 0;
+  transition: transform 0.4s var(--ease);
+  transition-delay: calc(var(--i, 0) * 85ms);
+}
+
+.chg-add {
+  --mark: var(--add);
+}
+.chg-mod {
+  --mark: var(--mod);
+}
+.chg-del {
+  --mark: var(--del);
+}
+
+.chg-del > p {
+  opacity: 0.55;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--del) 55%, transparent);
+  transition: opacity 0.35s var(--ease), text-decoration-color 0.35s var(--ease);
+  transition-delay: calc(var(--i, 0) * 85ms);
+}
+
+.chg-tag {
+  position: absolute;
+  right: 6px;
+  top: -0.72em;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--mark);
+  font: 600 9.5px/1.5 var(--font-sans);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  transition: opacity 0.3s var(--ease);
+  transition-delay: calc(var(--i, 0) * 85ms + 150ms);
+}
+
+/* The word diff. Both properties animate and both survive a line wrap, which
+   is why the tint is a background colour and the strike is a decoration colour
+   rather than anything cleverer drawn on a pseudo-element: a removed phrase
+   here is long enough to break across two lines, and an absolutely positioned
+   rule would only ever cover the first fragment of it. */
+.w-add,
+.w-del {
+  border-radius: 2px;
+  padding: 0 1px;
+  margin: 0 -1px;
+  transition: background-color 0.3s var(--ease), text-decoration-color 0.3s var(--ease),
+    opacity 0.3s var(--ease);
+  transition-delay: calc(var(--i, 0) * 85ms);
+}
+
+.w-add {
+  background-color: color-mix(in srgb, var(--add) 18%, transparent);
+}
+
+.w-del {
+  background-color: color-mix(in srgb, var(--del) 13%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--del) 55%, transparent);
+  opacity: 0.65;
+}
+
+.w-del + .w-add {
+  margin-left: 3px;
+}
+
+/* The clean state: the same document with nothing compared against it. This is
+   what the reader's own `no-diff` class does, and the animation is only ever
+   this attribute going on and coming off. */
+.demo[data-phase="clean"] .chg::before,
+.demo[data-phase="reload"] .chg::before {
+  transform: scaleY(0);
+}
+
+.demo[data-phase="clean"] .chg-tag,
+.demo[data-phase="reload"] .chg-tag {
+  opacity: 0;
+}
+
+.demo[data-phase="clean"] .w-del,
+.demo[data-phase="reload"] .w-del {
+  display: none;
+}
+
+.demo[data-phase="clean"] .w-add,
+.demo[data-phase="reload"] .w-add {
+  background-color: transparent;
+}
+
+.demo[data-phase="clean"] .chg-del,
+.demo[data-phase="reload"] .chg-del {
+  display: none;
+}
+
+.demo[data-phase="clean"] .chg-del > p,
+.demo[data-phase="reload"] .chg-del > p {
+  opacity: 0;
+  text-decoration-color: transparent;
+}
+
+.demo[data-phase="clean"] .demo-ruler i,
+.demo[data-phase="reload"] .demo-ruler i {
+  opacity: 0;
+  transform: translateX(6px);
+}
+
+.demo-legend {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 20px;
+  margin-top: 20px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.demo-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.demo-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.sw-add {
+  background: var(--add);
+}
+.sw-mod {
+  background: var(--mod);
+}
+.sw-del {
+  background: var(--del);
+}
+
+.demo-replay button {
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg-3);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.demo-replay button:hover {
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--fg) 26%, var(--line));
+}
+
+/* ---------- bands ---------- */
+
+.band {
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: clamp(70px, 10vw, 118px) clamp(16px, 4vw, 34px);
+}
+
+/* A band whose background runs the full width of the window while its content
+   stays in the page's column. The padding does the centring, and it has to:
+   handing each child `margin-inline: auto` instead puts the column at the mercy
+   of any child that writes a `margin` shorthand for its own top gap. `.sim-wrap`
+   does exactly that, and `margin: 52px 0 0` sets the inline margins back to 0
+   without saying so -- so on a window much wider than the column, one scene sat
+   against the left edge of the window while its siblings stayed centred, and the
+   gap between them grew with every pixel of width. The padding is out of reach
+   of a child, and the arithmetic reproduces `.band`'s own content box exactly,
+   so the two kinds of band line up with each other rather than sitting 34px
+   apart down both edges. */
+.band-alt {
+  max-width: none;
+  padding-inline: calc(clamp(16px, 4vw, 34px) + max(0px, (100% - var(--page)) / 2));
+  background: var(--bg-2);
+  border-block: 1px solid var(--line-soft);
+}
+
+.band-head {
+  max-width: 680px;
+  margin-bottom: 52px;
+}
+
+.band-head h2 {
+  font-size: clamp(27px, 4.2vw, 40px);
+  letter-spacing: -0.03em;
+}
+
+.band-head p {
+  margin-top: 16px;
+  font-size: clamp(15px, 2vw, 17.5px);
+  color: var(--muted);
+}
+
+.band-head em {
+  color: var(--fg);
+  font-style: italic;
+}
+
+/* ---------- cards ---------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: 18px;
+}
+
+.cards-tight {
+  margin-top: 22px;
+}
+
+/* Four cards in a row of three leave the fourth sitting alone under the gap
+   where two more would go, which reads as a card that did not fit rather than
+   the fourth thing worth saying. Two across makes four a square. Stated rather
+   than fitted, because `auto-fit` picks the count from a minimum width and the
+   number that gives two here would give three again on a slightly wider page. */
+.cards-wide {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.card:hover {
+  border-color: var(--line);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.card h3 {
+  font-size: 16.5px;
+}
+
+/* The card's own prose, and only that. Written as a descendant it also caught
+   the paragraph inside the illustration below, which is how a mock that asks to
+   be 13px was being set at 14.5 -- the same size as the prose it is supposed to
+   be a small picture beside -- and given a 10px top margin inside a box padded
+   16px all round, so its one line sat visibly below the middle of it. */
+.card > p {
+  margin-top: 10px;
+  font-size: 14.5px;
+  color: var(--muted);
+}
+
+/* Cards in a row are stretched to the tallest of them, and the slack has to go
+   somewhere. Left alone it collects at the bottom of the card, below the
+   illustration, so three mocks sit at three different heights over a difference
+   of one line of prose — the row reads as misaligned rather than as cards of
+   unequal text. Handed to the paragraph, the slack opens above the mock instead
+   and the mocks land on the floor of their cards together.
+
+   `.mini` says `margin-top: auto`, which would do the same job, except that
+   `.cards .mini` immediately overrides it to keep the 20px gap in the tallest
+   card — you cannot have both from one declaration, so the two live on either
+   side of the gap. A card with no mock is untouched: its last paragraph is
+   already the last thing in it, and `auto` against the floor is 0. */
+.card > p:last-of-type {
+  margin-bottom: auto;
+}
+
+.card em {
+  color: var(--fg);
+  font-style: italic;
+}
+
+/* The small illustration under a card: a scrap of document showing the thing
+   the card just described. */
+.mini {
+  position: relative;
+  margin-top: auto;
+  padding: 16px 14px 16px 18px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--bg-2);
+  font-size: 13px;
+  /* Stated, because it used to arrive from `.card p` along with the size and
+     the margin that rule should never have reached in here. Scoping that rule
+     took all three away; this is the one of the three that was right. */
+  color: var(--muted);
+}
+
+.cards .mini {
+  margin-top: 20px;
+}
+
+.mini-bar {
+  position: absolute;
+  left: 8px;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--mod);
+}
+
+.mini-bar.ok {
+  opacity: 0.2;
+  width: 1px;
+}
+
+.mini-ok {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.mini-tick {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.mini-ruler {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-height: 108px;
+  padding-right: 22px;
+}
+
+.mini-line {
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.mini-line.short {
+  width: 62%;
+}
+
+.mini-ruler i {
+  right: 8px;
+  height: 17px;
+  transition: none;
+}
+
+/* ---------- the scenes ---------- */
+
+/*
+  Four small windows further down the page. Each one is a scenario rather than a
+  screenshot: the content is static markup and a script moves one attribute or
+  one class to show what a key does. They are drawn out of the same change-mark
+  classes the hero demo uses, so the picture is in the product's own colours
+  rather than near them.
+
+  `is-marked` is the mirror of the demo's phases. The demo arrives marked and a
+  phase takes the marks away; a scene arrives on its first step with only that
+  step's marks in the markup, because a scene's whole subject is *which* of them
+  belong to the state it is in. Both ship in the state a reader sees with the
+  script dead, which is the rule that matters.
+*/
+
+.sim-wrap {
+  margin: 52px 0 0;
+}
+
+.sim-wrap figcaption {
+  margin-top: 14px;
+  font-size: 13.5px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.sim-wrap figcaption code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--bg-2);
+  font-size: 12.5px;
+}
+
+.sim {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-3);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  text-align: left;
+}
+
+.sim-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 42px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--bg-2);
+}
+
+.sim-bar .lights i {
+  width: 9px;
+  height: 9px;
+}
+
+.sim-file strong {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.sim-spacer {
+  flex: 1;
+}
+
+.sim-count {
+  display: flex;
+  gap: 9px;
+  font: 600 12.5px/1 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-body {
+  position: relative;
+  display: flex;
+}
+
+.sim-doc {
+  /* Positioned so that the jump scene can read each change's offsetTop against
+     it, and translate the whole document by that much. */
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 20px 22px 24px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.sim-doc > * + * {
+  margin-top: 11px;
+}
+
+.sim-doc > * + .sim-h {
+  margin-top: 22px;
+}
+
+.sim-h {
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.sim-dim {
+  color: var(--muted);
+}
+
+/* ---------- the marks a scene turns on and off ---------- */
+
+/* The four properties the demo's `clean` phase turns off, written the other way
+   round: here nothing is marked until the scene says it is. */
+.sim .chg {
+  transition: background-color 0.3s var(--ease);
+}
+
+.sim .chg:not(.is-marked)::before {
+  transform: scaleY(0);
+}
+
+.sim .chg:not(.is-marked) .chg-tag {
+  opacity: 0;
+}
+
+.sim .chg:not(.is-marked) .w-del {
+  display: none;
+}
+
+.sim .chg:not(.is-marked) .w-add {
+  background-color: transparent;
+}
+
+/* A removed paragraph is not in the version being compared against, so when its
+   change is not part of this state it is not on the page at all.
+
+   Hidden rather than taken out of the flow, because a scene that changes height
+   moves the page under it -- .split is `align-items: center`, so the row and
+   everything below it would shift every time the baseline list is clicked. The
+   only scene where this toggles is the history one, where the removed paragraph
+   is the last block in the document, so the space it keeps reads as the
+   document's bottom padding and not as a hole. Keep it last. */
+.sim .chg-del:not(.is-marked) {
+  visibility: hidden;
+}
+
+/* The block `n` has walked to. The reader tints a block on hover and this is
+   the same tint, because arriving at a change and pointing at one should not
+   look like two different things. */
+.sim .chg.is-at {
+  background: color-mix(in srgb, var(--mark) 9%, transparent);
+}
+
+/* Checked off. The mark goes and the block stops counting; the paragraph itself
+   stays, because the point is to stop shouting about it, not to hide it. */
+.sim .chg.is-off::before {
+  transform: scaleY(0);
+}
+
+.sim .chg.is-off .chg-tag {
+  opacity: 0;
+}
+
+.sim .chg.is-off .w-add {
+  background-color: transparent;
+}
+
+.sim .chg.is-off .w-del,
+.sim .chg-del.is-off > p {
+  opacity: 0.3;
+}
+
+.chg-done {
+  position: absolute;
+  right: 6px;
+  top: -0.72em;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--muted);
+  font: 600 9.5px/1.5 var(--font-sans);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 0.3s var(--ease);
+}
+
+.sim .chg.is-off .chg-done {
+  opacity: 0.85;
+}
+
+/* ---------- the controls a scene offers ---------- */
+
+.seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.seg button {
+  padding: 3px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: 500 12px/1.5 var(--font-sans);
+  cursor: pointer;
+}
+
+.seg button.is-on {
+  background: var(--bg-3);
+  box-shadow: var(--shadow-sm);
+  color: var(--fg);
+}
+
+.sim-keys {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--bg-2);
+  font-size: 12.5px;
+}
+
+.sim-keys button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px 3px 5px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-3);
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+.sim-keys button:hover {
+  border-color: var(--muted);
+  color: var(--fg);
+}
+
+.sim-keys kbd {
+  min-width: 19px;
+  padding: 1px 5px;
+  font-size: 11px;
+}
+
+.sim-left {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- the jump scene ---------- */
+
+/* A window on a document taller than it, so that walking the changes has
+   somewhere to walk to. The document is translated rather than scrolled: a
+   scroll position is a thing the reader can fight with a trackpad halfway
+   through the animation, and a transform is not. */
+.sim-scroll {
+  flex: 1;
+  min-width: 0;
+  height: 300px;
+  overflow: hidden;
+}
+
+.sim-scroll .sim-doc {
+  transition: transform 0.55s var(--ease);
+}
+
+.sim-ruler {
+  position: relative;
+  width: 10px;
+  flex: none;
+  border-left: 1px solid var(--line-soft);
+  background: var(--bg-2);
+}
+
+.sim-ruler i {
+  transition-delay: 0ms;
+}
+
+.sim-ruler i.is-at {
+  right: 1px;
+  width: 6px;
+  opacity: 1;
+}
+
+.sim-ruler i.is-off {
+  opacity: 0.22;
+}
+
+/* ---------- the history scene ---------- */
+
+.sim-side {
+  width: 208px;
+  flex: none;
+  padding: 12px 10px;
+  border-right: 1px solid var(--line-soft);
+  background: var(--bg-2);
+}
+
+.side-head {
+  margin: 0 0 8px 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sim-side button {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sim-side button + button {
+  margin-top: 2px;
+}
+
+.sim-side button:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.sim-side button.is-on {
+  background: var(--bg-3);
+  box-shadow: inset 2px 0 0 var(--red), var(--shadow-sm);
+}
+
+.row-name {
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.row-when {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* ---------- the rendered / raw scene ---------- */
+
+/* The two panes share one grid cell rather than taking turns in the flow, so
+   the scene is as tall as the taller of them at every width and the swap moves
+   nothing. Eight lines of source against four lines of prose is a difference of
+   most of the box, and this row is centred: with `display: none` the copy
+   beside it and the whole page below would step up and down twice a lap. The
+   height is the max of the two and is never a number anybody has to maintain. */
+.sim-view .sim-body {
+  display: grid;
+}
+
+.pane {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+/* visibility rather than display, for the height above. It also takes the
+   hidden pane out of the tab order and out of the way of the pointer, which
+   `opacity: 0` would not. */
+.sim-view[data-view="rendered"] .pane-raw,
+.sim-view[data-view="raw"] .pane-rendered {
+  visibility: hidden;
+}
+
+.pane-raw {
+  padding: 18px 20px 22px;
+  font: 12.5px/1.8 var(--font-mono);
+}
+
+.rl {
+  display: flex;
+  gap: 14px;
+  margin: 0;
+  padding: 0 6px;
+  margin-inline: -6px;
+  border-radius: 3px;
+}
+
+.rn {
+  flex: none;
+  width: 20px;
+  text-align: right;
+  color: var(--muted);
+  opacity: 0.55;
+  user-select: none;
+}
+
+/* The source is source: a line that wrapped on its own would stop being the
+   line the number beside it names. */
+.rt {
+  min-width: 0;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rl-del {
+  background: color-mix(in srgb, var(--del) 11%, transparent);
+}
+
+.rl-add {
+  background: color-mix(in srgb, var(--add) 12%, transparent);
+}
+
+.rl-del .rt {
+  opacity: 0.7;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--del) 55%, transparent);
+}
+
+.t-head {
+  color: var(--syn);
+  font-weight: 650;
+}
+
+.t-code {
+  color: var(--syn);
+}
+
+/* ---------- the light / dark scene ---------- */
+
+/* The scene carries its own copy of the palette, so it can show the theme the
+   page is not in. The same values as the top of this file -- if those change,
+   change these. */
+.sim-tone {
+  /* Said here and not left to the page, because redefining `--fg` below does
+     not reach anything that has not asked for it: `body` resolves `var(--fg)`
+     once, and every element under it inherits that answer -- a colour, not the
+     reference that produced it. The paragraph and the diagram were right all
+     along because they name `--muted` and `--fg` themselves; the heading and
+     the filename, which set no colour, were still painted the page's. In the
+     dark tone that was #1f2328 on #0d1117, all but invisible, and in a page
+     already dark the light tone would have been the same failure the other way
+     up. One declaration re-resolves it inside the scene, for everything. */
+  color: var(--fg);
+  transition: color 0.45s var(--ease), background-color 0.45s var(--ease),
+    border-color 0.45s var(--ease);
+}
+
+.sim-tone[data-tone="light"] {
+  --bg-2: #f6f8fa;
+  --bg-3: #ffffff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --line: #d1d9e0;
+  --line-soft: #e4e8ec;
+  background: #ffffff;
+}
+
+.sim-tone[data-tone="dark"] {
+  --bg-2: #0b0f14;
+  --bg-3: #151b23;
+  --fg: #e6edf3;
+  --muted: #9198a1;
+  --line: #3d444d;
+  --line-soft: #262c34;
+  background: #0d1117;
+}
+
+.sim-tone .sim-doc,
+.sim-tone .sim-bar,
+.sim-tone .dia {
+  transition: background-color 0.45s var(--ease), color 0.45s var(--ease),
+    border-color 0.45s var(--ease);
+}
+
+.dia {
+  margin: 16px 0 0;
+  padding: 14px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: var(--bg-2);
+  text-align: center;
+}
+
+.dia svg {
+  width: 100%;
+  max-width: 440px;
+  height: auto;
+}
+
+.dia-node rect {
+  fill: var(--bg-3);
+  stroke: var(--line);
+  stroke-width: 1.2;
+}
+
+.dia-node text {
+  fill: var(--fg);
+  font: 500 13px var(--font-sans);
+  text-anchor: middle;
+}
+
+.dia-edge {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- split rows ---------- */
+
+.split {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  align-items: center;
+  gap: clamp(28px, 5vw, 64px);
+  margin-top: 72px;
+}
+
+.split-flip .split-copy {
+  order: 2;
+}
+
+.split-copy h3 {
+  font-size: clamp(20px, 2.8vw, 25px);
+  letter-spacing: -0.025em;
+}
+
+.split-copy h3 em {
+  font-style: italic;
+}
+
+.split-copy p {
+  margin-top: 14px;
+  font-size: 15.5px;
+  color: var(--muted);
+}
+
+.split-copy em {
+  color: var(--fg);
+  font-style: italic;
+}
+
+.ticks {
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14.5px;
+}
+
+.ticks li {
+  position: relative;
+  padding-left: 25px;
+  color: var(--muted);
+}
+
+.ticks li + li {
+  margin-top: 8px;
+}
+
+.ticks li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.52em;
+  width: 11px;
+  height: 6px;
+  border-left: 1.8px solid var(--add);
+  border-bottom: 1.8px solid var(--add);
+  transform: rotate(-45deg);
+}
+
+/* ---------- inline code and keys ---------- */
+
+.band code {
+  padding: 1.5px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  font-size: 0.88em;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: var(--bg-3);
+  box-shadow: var(--shadow-sm);
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+/* A key cap is a box, and a line break will happily be taken in front of one —
+   leaving the opening bracket of "(⌘B)" at the end of one line and the cap at
+   the start of the next, which looks like a typo rather than a wrap. Hold the
+   bracket, the cap and its closer together as one unwrappable word. */
+.nb {
+  white-space: nowrap;
+}
+
+.aside {
+  font-size: 13px !important;
+  opacity: 0.85;
+}
+
+/* ---------- get it ---------- */
+
+.installs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 22px;
+}
+
+.install {
+  padding: 28px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: var(--bg-3);
+}
+
+.install h3 {
+  font-size: 18px;
+}
+
+.install-sub {
+  margin: 8px 0 18px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.install .aside {
+  margin-top: 14px;
+  color: var(--muted);
+}
+
+/* Full width so the two cards balance: the card beside it is a copy button that
+   stretches, and a download button hugging its text would read as the lesser of
+   the two when it is the one most people want. */
+.btn-dl {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  height: 48px;
+}
+
+.dl-ver {
+  font-weight: 450;
+  opacity: 0.65;
+}
+
+.get-foot {
+  margin-top: 34px;
+  padding: 20px 24px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--add) 7%, transparent);
+  font-size: 14px;
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ---------- footer ---------- */
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px 44px;
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 64px clamp(16px, 4vw, 34px) 72px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.foot-brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.foot-brand img {
+  border-radius: 7px;
+}
+
+.foot-brand div {
+  display: flex;
+  flex-direction: column;
+}
+
+.foot-brand strong {
+  font-size: 15px;
+}
+
+.foot-brand span {
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.foot-note {
+  max-width: 42ch;
+  font-size: 13.5px;
+  color: var(--muted);
+  text-align: right;
+}
+
+/* ---------- scroll reveal ---------- */
+
+/* Only armed once the inline head script has said there is JavaScript to
+   disarm it again, so the page with the script blocked is the page in full
+   rather than a column of invisible sections. */
+.js .reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+}
+
+.js .reveal.is-in {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---------- narrow ---------- */
+
+@media (max-width: 860px) {
+  .nav-links {
+    display: none;
+  }
+
+  .split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Wrapped onto its own row, the note is no longer opposite anything to be
+     right-aligned against. */
+  .foot-note {
+    text-align: left;
+  }
+
+  .split-flip .split-copy {
+    order: 0;
+  }
+
+  .hero {
+    padding-top: 100px;
+  }
+
+  .demo {
+    transform: none;
+  }
+
+  .demo-file small,
+  .demo-tools {
+    display: none;
+  }
+
+  .sim-side {
+    width: 168px;
+  }
+
+  .sim-scroll {
+    height: 260px;
+  }
+}
+
+@media (max-width: 560px) {
+  .copy {
+    width: 100%;
+  }
+
+  /* Two columns stated above have to be taken back by hand, because a stated
+     count does not know how narrow it has got. This is where `auto-fit` would
+     have dropped to one anyway: two 270px columns and the gap want 558px, and
+     the page has 528 to give here. */
+  .cards-wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cta .btn-solid {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .demo-doc {
+    font-size: 13.5px;
+  }
+
+  .demo-legend {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  /* The version list goes across the top rather than down the side: at this
+     width a 168px column leaves the document it is meant to be changing too
+     narrow to show a word diff wrapping, which is the thing being demonstrated. */
+  .sim-history .sim-body {
+    flex-direction: column;
+  }
+
+  .sim-side {
+    display: flex;
+    gap: 6px;
+    width: auto;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .side-head {
+    display: none;
+  }
+
+  .sim-side button,
+  .sim-side button + button {
+    flex: none;
+    width: auto;
+    margin-top: 0;
+  }
+
+  .sim-keys {
+    flex-wrap: wrap;
+  }
+
+  .sim-left {
+    margin-left: 0;
+  }
+}
+
+/* ---------- reduced motion ---------- */
+
+/* The demo is information, not decoration, so it is not removed — it is simply
+   shown already finished, which is the state it spends most of its loop in
+   anyway. landing.js reads the same query and does not start the loop. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .js .reveal {
+    opacity: 1;
+    transform: none;
+  }
+
+  .demo {
+    transform: none;
+  }
+}
