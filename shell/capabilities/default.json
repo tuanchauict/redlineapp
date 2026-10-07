@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the page is allowed to reach in the shell. The app's own commands are not listed: those are the ones declared in main.rs, and declaring them is the permission. This is only for the toolkit's built-in channels, and the reader needs three: the event stream the shell announces tabs, settings and menu commands over, and the two the toolbar needs in order to behave like the title bar it stands in for. `data-tauri-drag-region` in index.html is only half of that -- the script it arms ends in one of these two invokes, and an invoke that is not listed here is refused with no sign of it outside the webview console.",
+  "windows": ["*"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
+}

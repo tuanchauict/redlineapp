@@ -1,0 +1,56 @@
+[package]
+name = "redline"
+version = "0.5.0"
+edition = "2021"
+description = "Redline: a markdown reader that marks what changed since you last read it"
+authors = ["Tuan Chau"]
+license = "Apache-2.0"
+repository = "https://github.com/tuanchauict/redlineapp"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+# Both are already in tauri's own graph, so naming them costs nothing to build.
+# They are here because host.rs uses them directly, and depending on a
+# re-export that a minor version could stop making is not worth saving a line.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# The three native things a document reader cannot do for itself: ask for a
+# file, hand a link to the browser, and refuse to start twice.
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+
+# Already in wry's own graph at these exact versions -- naming them here adds
+# nothing to the build. menu.rs uses them to set a real NSPrintInfo margin:
+# wry's print() hardcodes one to zero, and WebKit's print pagination measures
+# page breaks against *that* margin, not whatever @page CSS asks for, so a
+# margin set only in CSS makes every page overflow its own bottom edge instead.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSResponder",
+  "NSView",
+  "NSWindow",
+  "NSPrintInfo",
+  "NSPrintOperation",
+] }
+objc2-web-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "objc2-app-kit",
+  "WKWebView",
+] }
+
+# Everything here is aimed at the binary being small: the whole point of
+# leaving Electron. panic="abort" drops the unwinding tables, and strip drops
+# the symbols -- neither is worth a megabyte in a document reader.
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
