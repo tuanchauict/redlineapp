@@ -1,0 +1,51 @@
+{
+  "name": "redline",
+  "version": "0.5.0",
+  "description": "Minimal GitHub-style markdown reader with review-mode change highlighting and live reload",
+  "license": "Apache-2.0",
+  "author": "Tuan Chau",
+  "homepage": "https://redline.iamtuna.org/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tuanchauict/redlineapp.git"
+  },
+  "bugs": "https://github.com/tuanchauict/redlineapp/issues",
+  "type": "module",
+  "bin": {
+    "redline": "bin/redline.js"
+  },
+  "scripts": {
+    "build:web": "node scripts/build-web.mjs",
+    "build:dist": "node scripts/build-dist.mjs",
+    "build:site": "node scripts/build-site.mjs",
+    "prestart": "npm run build:web",
+    "start": "node bin/redline.js",
+    "presite": "npm run build:site",
+    "site": "node scripts/serve-site.mjs",
+    "preapp": "npm run build:web && npm run build:dist",
+    "app": "cargo run --manifest-path shell/Cargo.toml --",
+    "dev": "node scripts/dev.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "notices": "node scripts/notices.mjs",
+    "bundle": "node scripts/bundle.mjs",
+    "pretest": "npm run build:web",
+    "test": "node test-smoke.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "diff": "^8.0.2",
+    "dompurify": "^3.4.16",
+    "github-markdown-css": "^5.8.1",
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.0",
+    "markdown-it-task-lists": "^2.1.1",
+    "mermaid": "^12.0.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/api": "^2.12.0",
+    "@tauri-apps/cli": "^2.12.0",
+    "esbuild": "^0.28.2"
+  }
+}

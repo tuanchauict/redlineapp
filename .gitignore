@@ -1,0 +1,31 @@
+node_modules/
+dist/
+out/
+
+# Built by scripts/build-web.mjs, from src/. Generated rather than committed:
+# it is a third of a megabyte of somebody else's minified code, and every npm
+# script that needs it builds it first.
+public/vendor/
+
+# Copied into the landing page by scripts/build-site.mjs, from docs/images and
+# assets/. Generated rather than committed for the same reason: they are a
+# megabyte of bytes this repository already has, and a second copy is a second
+# thing to remember to update.
+site/images/
+site/icon.svg
+
+shell/target/
+shell/gen/schemas/
+*.log
+.DS_Store
+.vscode/
+
+# Notes and guides for working on this with an agent. They can live in a
+# checkout without being part of the project; .gitignore does not touch a file
+# that is already tracked, so a checkout that does track them is unaffected.
+/.claude/
+/skills/
+/features/
+/CLAUDE.md
+/AGENT.md
+/AGENTS.md
