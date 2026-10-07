@@ -1,0 +1,2539 @@
+:root {
+  --bar-h: 34px;
+  /* Wide enough for two lines in a row — a name over its directory, a time
+     over its commit — without the second line being all ellipsis. */
+  --side-w: 236px;
+  --toc-w: 236px;
+  /* The document's own type, set in Settings. The UI keeps the system font
+     whatever the document is set to: only the prose changes. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  /* ui-serif is New York on Apple platforms — a screen serif, not Times. */
+  --font-serif: ui-serif, "New York", Charter, "Iowan Old Style", Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --doc-font: var(--font-sans);
+  --doc-size: 15px;
+  --doc-width: 900px;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --line: #d1d9e0;
+  --field: #f6f8fa;
+  /* The three states AppKit gives a control, as overlays rather than colours,
+     so they sit correctly on the bar, the sidebar and a menu alike. */
+  --hover: rgb(0 0 0 / 6%);
+  --press: rgb(0 0 0 / 12%);
+  --sel: rgb(0 0 0 / 8%);
+  --control: #ffffff;
+  --control-press: #ebecef;
+  --control-shadow: 0 1px 1px rgb(0 0 0 / 6%);
+  --add: #1a7f37;
+  --add-bg: #dafbe1;
+  --del: #cf222e;
+  --del-bg: #ffebe9;
+  --mod: #0969da;
+  --mod-bg: #ddf4ff;
+  /* The `[!WARNING]` alert's own amber — kept apart from `--mod` above so that
+     turning "changed" blue, to read apart from "removed" red, does not also
+     turn a warning the same blue as a `[!NOTE]`. */
+  --warn: #d97706;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #9198a1;
+    --line: #3d444d;
+    --field: #151b23;
+    --hover: rgb(255 255 255 / 8%);
+    --press: rgb(255 255 255 / 15%);
+    --sel: rgb(255 255 255 / 10%);
+    --control: #30363d;
+    --control-press: #3f464f;
+    --control-shadow: 0 1px 1px rgb(0 0 0 / 30%);
+    --add: #3fb950;
+    --add-bg: #12261e;
+    --del: #f85149;
+    --del-bg: #25171c;
+    --mod: #58a6ff;
+    --mod-bg: #102a43;
+    --warn: #d29922;
+  }
+}
+
+/* Sepia: paper rather than a screen, for reading at length. It is a tint over
+   the light scheme, not a third scheme — the shell pins the window light when
+   it is chosen (`appearance` in shell/src/prefs.rs), so the chrome, the
+   scrollbars and highlight.js's light stylesheet are already right and only
+   the colours here have to change. Set as `data-tint` on <html>, by the head
+   script in index.html before first paint and by `applySettings` after.
+
+   The change marks are re-picked rather than kept: GitHub's green, red and
+   blue were chosen against white, and their washes go muddy on cream. These
+   are each darkened until the mark clears 4.5:1 on the page and on its own
+   wash, the same bar the light ones meet.
+
+   `screen` only, because `:root[data-tint]` outranks the bare `:root` the
+   print block resets — paper is printed white, whatever the window is. */
+@media screen {
+  :root[data-tint="sepia"] {
+    color-scheme: light;
+    --bg: #f5ecd9;
+    --fg: #3d3024;
+    --muted: #76664f;
+    --line: #d9c9ab;
+    --field: #ece0c8;
+    --hover: rgb(90 60 20 / 7%);
+    --press: rgb(90 60 20 / 14%);
+    --sel: rgb(90 60 20 / 9%);
+    --control: #fbf6ec;
+    --control-press: #e6d9bf;
+    --control-shadow: 0 1px 1px rgb(60 40 15 / 12%);
+    --add: #2d6e1f;
+    --add-bg: #e1e6c2;
+    --del: #b02a1f;
+    --del-bg: #f3d6c4;
+    --mod: #1d5b9e;
+    --mod-bg: #dbe1e0;
+    --warn: #a85a05;
+  }
+
+  /* github-markdown-css keeps a palette of its own on `.markdown-body`, and it
+     is what draws code blocks, table stripes and rules — left alone they stay
+     GitHub's grey on white, a cold card in the middle of the page. */
+  :root[data-tint="sepia"] .markdown-body {
+    --bgColor-default: var(--bg);
+    --bgColor-muted: var(--field);
+    --bgColor-neutral-muted: rgb(118 102 79 / 14%);
+    --fgColor-default: var(--fg);
+    --fgColor-muted: var(--muted);
+    --borderColor-default: var(--line);
+    --borderColor-muted: color-mix(in srgb, var(--line) 70%, transparent);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+/* ---------- top bar ---------- */
+
+.bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--bar-h);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: saturate(150%) blur(8px);
+  border-bottom: 1px solid var(--line);
+  z-index: 10;
+  user-select: none;
+  /* The I-beam is the browser's promise of a drag-to-select, which `user-select:
+     none` just broke — `auto` still resolves to it over plain text. */
+  cursor: default;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* Between what this document is and what the app is doing with it. Hidden
+   when the left of the pair is empty, so it is never a line on its own. */
+.divide {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--line);
+  flex: none;
+}
+
+/* The name, on its own — the path was a permanent second line under every
+   title, which is a lot of the bar spent on something you mostly don't need
+   to see. It sits behind the name now instead of under it, and hovering
+   swaps one for the other in place, so the resting bar is one line tall and
+   the path is a pointer-move away rather than always on.
+
+   `.name-file` stays in flow rather than going absolute along with it: it is
+   still what gives this box its size, same as before. A box with nothing but
+   absolutely-positioned children has no content left to size itself on, and
+   collapses to nothing — which is exactly what going absolute on both did.
+
+   `flex: 1` is what lets the path have the room the name doesn't need: with
+   no grow, this box's width would still be the title's own shrink-to-fit
+   size, same as when the two sat on top of one another, and `.name-dir`
+   would be capped to it too -- a short title leaving a long path nowhere to
+   go even with the rest of the bar empty. Growing finds that spare width the
+   same way `.spacer` does, and splits it with `.spacer` exactly as before: a
+   short title leaves a blank stretch of bar either way, whichever of the two
+   flexible boxes it sits in. */
+.name {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  max-width: 40vw;
+}
+
+.name-file,
+.name-dir {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.1s ease;
+  /* Matched between the two, this is what centers the path vertically rather
+     than sitting at the top of the box: `.name`'s own height comes from this
+     line box (`.name-file` is the one left in flow), so a line-height equal
+     to it fills the box top to bottom, and a line box centers its text
+     within itself. `.name-dir` is absolute, outside the flex layout, so
+     `align-items` on a parent has nothing here to center. */
+  line-height: 18.2px;
+}
+
+.name-file {
+  font-weight: 600;
+}
+
+/* The tail of a path says more than its head, so that is the end kept when
+   there is not room for all of it: `rtl` puts the ellipsis at the front. The
+   text itself is wrapped in a left-to-right isolate (see `ltrPath`) — without
+   one, the leading slash is a neutral character and an rtl box moves it to the
+   far end, so `/tmp/x` reads `tmp/x/`. */
+.name-dir {
+  position: absolute;
+  inset: 0;
+  font-size: 12px;
+  color: var(--muted);
+  direction: rtl;
+  text-align: left;
+  opacity: 0;
+}
+
+.name:hover .name-file {
+  opacity: 0;
+}
+
+.name:hover .name-dir {
+  opacity: 1;
+}
+
+/* The one thing the bar has to be able to say about the connection: that there
+   isn't one. Kept in the layout rather than displayed away, so the button next
+   to it does not shift sideways the moment the watch drops. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--del);
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.dot.off {
+  opacity: 1;
+}
+
+/* A count, and the door to the list it is counted against — a toolbar button
+   like the others, so it reads as something to press without a bezel shouting
+   about it. */
+.count {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+  font-size: 12px;
+}
+
+/* An author `display` beats the browser's own `[hidden]` whatever its
+   specificity, so a counter has to say this itself — and both of these are
+   hidden far more often than not. */
+.count[hidden] {
+  display: none;
+}
+
+.count .c-add {
+  color: var(--add);
+}
+.count .c-mod {
+  color: var(--mod);
+}
+.count .c-del {
+  color: var(--del);
+}
+
+/* The changes already ticked off. Quiet — it is a count of things you have
+   dealt with, next to a count of things you have not — and it reads as one
+   glyph and a number so the two counts never compete. */
+.count.ack {
+  gap: 2px;
+  color: var(--muted);
+}
+
+.count.ack:hover {
+  color: var(--fg);
+}
+
+.count.ack .i {
+  width: 11px;
+  height: 11px;
+}
+
+/* ---------- controls ---------- */
+
+/* Two kinds, as the system has them. A push button is bezeled and answers the
+   click, not the pointer — hovering one on macOS does nothing. A toolbar
+   button carries no bezel at all until the pointer is over it. */
+
+button,
+.select {
+  font: inherit;
+  /* A button is never prose. Some of them sit inside the document — the label
+     on a changed block is one — and `inherit` alone would set them in whatever
+     the document is set in, so a custom typeface would leak into the tooling.
+     The size is still inherited: a control belongs to what it is next to. */
+  font-family: var(--font-sans);
+  color: var(--fg);
+  background: var(--control);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 8px;
+  box-shadow: var(--control-shadow);
+  /* The arrow stays an arrow over a control: the hand is a web convention. */
+  cursor: default;
+  white-space: nowrap;
+  transition: background-color 90ms ease, border-color 90ms ease;
+}
+
+button:active:not(:disabled) {
+  background: var(--control-press);
+}
+
+button:disabled {
+  opacity: 0.45;
+}
+
+button:focus-visible,
+.select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--muted) 70%, transparent);
+  outline-offset: 1px;
+}
+
+/* Left to itself a popup is drawn by the system, in the system's colours, and
+   in dark mode it comes out a grey slab with a blue arrow next to controls
+   that are neither. So it is drawn here instead, off the same three variables
+   as everything else, and `.popup` puts the chevron back. */
+.select {
+  -webkit-appearance: none;
+  appearance: none;
+  max-width: 140px;
+  /* Room on the right for the chevron the wrapper draws over it. */
+  padding: 3px 22px 3px 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The double chevron a Mac popup has, drawn instead of borrowed: two
+   triangles, both transparent to the pointer so a click on one still opens the
+   menu underneath. Quiet grey rather than the system's accent chip — every
+   other control here is flat, and one blue tab would be the loud thing. */
+.popup {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.popup::before,
+.popup::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  width: 0;
+  height: 0;
+  border-left: 3.5px solid transparent;
+  border-right: 3.5px solid transparent;
+  pointer-events: none;
+}
+
+.popup::before {
+  bottom: calc(50% + 1.5px);
+  border-bottom: 4px solid var(--muted);
+}
+
+.popup::after {
+  top: calc(50% + 1.5px);
+  border-top: 4px solid var(--muted);
+}
+
+/* Borderless until pointed at, then a soft rounded fill that deepens on the
+   press — the toolbar button every Mac app has along its top. */
+.icon {
+  padding: 3px 6px;
+  line-height: 1;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.icon:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.icon:active:not(:disabled) {
+  background: var(--press);
+}
+
+.icon:disabled {
+  background: none;
+}
+
+/* A toolbar toggle that is on stays filled, the way a selected segment does.
+   Only for the ones with an off state worth seeing at a glance: the marks are
+   on nearly always, and a permanently lit button says nothing.
+
+   The two panel toggles are deliberately *not* among them — see `.i-band`. */
+#view[aria-pressed="true"] {
+  background: var(--sel);
+  color: var(--fg);
+}
+
+/* The two panel toggles are a picture of the window, so the state belongs in
+   the picture: the band is the sidebar, empty when it is closed and filled when
+   it is open. That is what VS Code does, and it is the better answer twice
+   over. A selected *background* on a 16px frame icon puts a filled rounded
+   square around a drawing of a rounded square, which reads as a smudge rather
+   than as a state — and it says "this button is on" when what the reader wants
+   told is "that column is open". The icon says the second thing.
+
+   Filled, not stroked, which is why it is a `path` of its own rather than
+   anything `.i` can style: `.i` sets `fill: none` on the whole svg so the frame
+   draws as a frame. */
+.i-band {
+  fill: none;
+  stroke: none;
+}
+
+#side[aria-pressed="true"] .i-band,
+#tocBtn[aria-pressed="true"] .i-band {
+  fill: currentColor;
+}
+
+/* view toggle: one button, the icon shows what clicking it gives you */
+
+#view {
+  display: inline-flex;
+  padding: 4px;
+}
+
+.i {
+  width: 16px;
+  height: 16px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+#view[data-view="rendered"] .i-text,
+#view[data-view="raw"] .i-code {
+  display: none;
+}
+
+/* Nothing else lives on the bar. What the file is compared against, whether it
+   is compared at all, and whether it counts as read are all one question with
+   one answer — the history — so they are asked there, on the rows they are
+   about, rather than as a button and a dropdown that say the same thing twice.
+   See `.ver` below. */
+
+/* ---------- sidebar ---------- */
+
+/* Two columns, one either side of the document. The left answers *which file*
+   — the ones open in this window, and the versions of the one on screen. The
+   right answers *where am I in it*. That is the split that lets both be up at
+   once, which is how a long file under review is actually read: the versions
+   say what "changed" means and the contents are how you reach the change.
+   Vertical, like the browsers that went this way — a horizontal strip in a
+   window this narrow turns every name into an initial, and a version never
+   fits on one line at all. */
+/* Names and labels here are UI chrome to click, not prose to select — a drag
+   across a row should move a divider or extend a hover, not paint text. */
+.side {
+  display: none;
+  user-select: none;
+  cursor: default;
+}
+
+.side-open #files,
+.toc-open #tocSide {
+  position: fixed;
+  top: var(--bar-h);
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 2px;
+  background: var(--field);
+  overflow: hidden;
+  z-index: 9;
+}
+
+.side-open #files {
+  left: 0;
+  width: var(--side-w);
+  border-right: 1px solid var(--line);
+}
+
+.toc-open #tocSide {
+  right: 0;
+  width: var(--toc-w);
+  border-left: 1px solid var(--line);
+}
+
+/* The inner edge of each, as something to pull. Sits on top of the border
+   rather than being it: a 1px target is a target nobody can hit, so the strip
+   is 7px wide and straddles the line, and the line keeps drawing itself
+   underneath. */
+.side-grip {
+  display: none;
+}
+
+.side-open #sideGrip,
+.toc-open #tocGrip {
+  display: block;
+  position: fixed;
+  top: var(--bar-h);
+  bottom: 0;
+  width: 7px;
+  cursor: col-resize;
+  /* Above the sidebar it borders, below the bar and the peek. */
+  z-index: 10;
+}
+
+.side-open #sideGrip {
+  left: calc(var(--side-w) - 3px);
+}
+
+.toc-open #tocGrip {
+  right: calc(var(--toc-w) - 3px);
+}
+
+/* Nothing until it is pointed at, then the border thickens into a handle —
+   the same trick a pane divider plays: present when wanted, absent when not. */
+.side-grip::after {
+  content: "";
+  position: absolute;
+  inset: 0 3px;
+  background: var(--muted);
+  opacity: 0;
+  transition: opacity 0.12s ease 0.15s;
+}
+
+.side-grip:hover::after,
+.side-grip.dragging::after,
+.side-grip:focus-visible::after {
+  opacity: 0.55;
+}
+
+/* Held down, it answers immediately: the delay is there to keep a pointer
+   crossing the edge from flashing it, and a drag is not crossing. */
+.side-grip.dragging::after {
+  opacity: 0.75;
+  transition-delay: 0s;
+}
+
+.side-grip:focus-visible {
+  outline: none;
+}
+
+/* A drag that wanders over the document must not select it, and the cursor
+   must not turn back into a caret halfway through. */
+.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.resizing-v {
+  cursor: row-resize;
+  user-select: none;
+}
+
+/* The seam between Contents and History, the same straddle-the-line trick
+   as `.side-grip` turned on its side — except `.side-grip` sits on the edge
+   of the document and stays invisible until pointed at, where this one sits
+   between two lists with nothing else marking where one ends and the other
+   starts, so it keeps a quiet line of its own at rest and only the pill
+   brightens on hover. Hidden with the section it sits under (`.shut-toc
+   #histGrip`, `.shut-hist #histGrip`, below). */
+.hist-grip {
+  flex: none;
+  position: relative;
+  height: 9px;
+  border-top: 1px solid var(--line);
+  cursor: row-resize;
+  z-index: 1;
+}
+
+.hist-grip::after {
+  content: "";
+  position: absolute;
+  inset: 3px 8px;
+  border-radius: 2px;
+  background: var(--muted);
+  opacity: 0;
+  transition: opacity 0.12s ease 0.15s;
+}
+
+.hist-grip:hover::after,
+.hist-grip.dragging::after,
+.hist-grip:focus-visible::after {
+  opacity: 0.55;
+}
+
+.hist-grip.dragging::after {
+  opacity: 0.75;
+  transition-delay: 0s;
+}
+
+.hist-grip:focus-visible {
+  outline: none;
+}
+
+.side-sec {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The list at the bottom of a column takes whatever is left of it — the
+   open files, alone in their own column, and the versions under Contents. */
+.side-grow {
+  flex: 1 1 auto;
+}
+
+/* Contents is a height to drag (`.hist-grip`, below) rather than a share of
+   the column: a percentage fought the grip on every resize, settling back to
+   45% the moment the window moved. The number comes from `applyTocH` in
+   app.js and, before that file has loaded, the inline script in index.html —
+   the two have to agree, the same deal as `--side-w` and `--toc-w`. */
+#tocSec {
+  flex: none;
+  height: var(--toc-h);
+}
+
+/* A Finder sidebar heading: small, set back, and not a thing to click. */
+.side-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 4px;
+  padding: 0 8px;
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.side-count {
+  font-weight: 400;
+  letter-spacing: 0;
+  opacity: 0.8;
+}
+
+/* The heading is also its disclosure, the way a Finder sidebar's section
+   titles are. It has to look like the heading it replaced, so it borrows the
+   type from it and brings only the chevron of its own. */
+.side-twist {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: -5px;
+  padding: 1px 5px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
+.side-twist:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.side-twist:active {
+  background: var(--press);
+}
+
+.side-twist .i {
+  width: 11px;
+  height: 11px;
+  opacity: 0.7;
+  transition: transform 0.12s ease;
+}
+
+.side-twist[aria-expanded="true"] .i {
+  transform: rotate(90deg);
+}
+
+/* Put away: the heading stays, everything under it goes, and the section stops
+   asking for room — so the panel below gets the whole column. The height is
+   dropped along with it; it would otherwise hold the header down at whatever
+   the list was last dragged to and leave a gap under it. */
+.shut-files #filesSec,
+.shut-toc #tocSec,
+.shut-hist #histSec {
+  flex: none;
+  height: auto;
+}
+
+.shut-files #filesSec > :not(.side-head),
+.shut-toc #tocSec > :not(.side-head),
+.shut-hist #histSec > :not(.side-head) {
+  display: none;
+}
+
+.shut-toc #histGrip,
+.shut-hist #histGrip {
+  display: none;
+}
+
+/* Contents is a fixed, dragged height the rest of the time (above), but with
+   History put away and Contents still open there is nothing below it left to
+   divide the column with — so it takes the share History would otherwise be
+   holding, the same as putting Contents away hands its share to History. Not
+   when both are shut: then neither should stretch to fill a column that is
+   meant to read as empty. */
+.shut-hist:not(.shut-toc) #tocSec {
+  flex: 1 1 auto;
+  height: auto;
+}
+
+/* Under the list rather than over it, where `Open file…` is under the files:
+   it is about all of them, not about the one you are pointing at. Quiet until
+   pointed at — it is the one control here that throws something away. */
+.side-act {
+  flex: none;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  /* A shade smaller than "Open file…" above it: same shape, less invitation. */
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.side-act:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.side-act:active {
+  background: var(--press);
+}
+
+.side-empty {
+  margin: 2px 8px;
+  color: var(--muted);
+}
+
+.side-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  /* The add button below stays put; only the list scrolls. */
+  flex: 1 1 auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  box-shadow: none;
+  color: var(--fg);
+  text-align: left;
+}
+
+.tab:hover:not(.on) {
+  background: var(--hover);
+}
+
+.tab:active:not(.on) {
+  background: var(--press);
+}
+
+/* The current file is a filled rounded row and nothing else — a Finder
+   sidebar. No bolder text, no bar down the edge: the fill is the whole
+   signal, and it stays quiet next to the document. */
+.tab.on {
+  background: var(--sel);
+}
+
+/* Tinted with the system accent where that is known, as the real thing is. */
+@supports (color: AccentColor) {
+  .tab.on {
+    background: color-mix(in srgb, AccentColor 18%, transparent);
+  }
+}
+
+.tab .label {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.label-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Where the file is, under what it is called. Clipped from the left, because
+   the end of a path is the part that tells two files apart — same isolate as
+   `.name-dir`, for the same reason. */
+.label-dir {
+  font-size: 10.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.label-dir:empty {
+  display: none;
+}
+
+/* Selected, the directory has to stay legible against the accent fill. */
+.tab.on .label-dir {
+  color: color-mix(in srgb, var(--fg) 62%, transparent);
+}
+
+/* Out of the way until you point at the row, so a column of × does not shout.
+   Drawn rather than the `×` character: a glyph's ink is never quite centred in
+   its own em box — different fonts place it differently, and no amount of
+   `place-items: center` on the box fixes an offset baked into the font. An
+   SVG has no such slack. Round like the dot it closes, not the rounded-rect
+   rows it sits in. */
+.tab .x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  opacity: 0;
+}
+
+.tab .x .i {
+  width: 11px;
+  height: 11px;
+}
+
+.tab:hover .x,
+.tab.on .x {
+  opacity: 0.65;
+}
+
+.tab .x:hover {
+  opacity: 1;
+  background: var(--press);
+}
+
+.side-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  border-color: transparent;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  padding: 5px 8px;
+}
+
+.side-add:hover {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.side-add:active {
+  background: var(--press);
+}
+
+/* Secondary to the filename it hangs off, so it sits back a shade. */
+.chev {
+  flex: none;
+  color: var(--muted);
+}
+
+.chev:hover {
+  color: var(--fg);
+}
+
+.chev[aria-expanded="true"] {
+  background: var(--sel);
+  color: var(--fg);
+}
+
+#side {
+  display: inline-flex;
+  padding: 4px;
+}
+
+/* the overflow list */
+
+.menu {
+  position: fixed;
+  top: calc(var(--bar-h) + 2px);
+  z-index: 20;
+  min-width: 170px;
+  max-width: 320px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  box-shadow: none;
+  padding: 5px 8px;
+  text-align: left;
+}
+
+/* A menu row highlights whole, under the pointer, and follows it instantly —
+   a fade here would feel like a web page. */
+.menu button:hover {
+  background: var(--sel);
+  transition: none;
+}
+
+@supports (color: AccentColor) {
+  /* Not the opaque AccentColor + AccentColorText pairing `.switch` uses below —
+     AccentColorText does not reliably resolve to a readable color in every
+     WebKit, and an opaque fill with the wrong text color is unreadable rather
+     than merely off-brand. The translucent tint `.tab.on` and `.ver.on` use
+     needs no text-color override at all, because it never gets dark enough to
+     fight the inherited foreground. */
+  .menu button:hover {
+    background: color-mix(in srgb, AccentColor 18%, transparent);
+  }
+}
+
+.menu .label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.menu button:hover .label-dir {
+  color: inherit;
+  opacity: 0.75;
+}
+
+/* Holds the column aligned whether or not a row is the current one. */
+.menu .tick {
+  flex: none;
+  width: 12px;
+  color: var(--muted);
+}
+
+.menu button:hover .tick {
+  color: inherit;
+}
+
+/* ---------- contents ---------- */
+
+/* One row per heading, set in from the left by how deep it is: the indent is
+   the shape of the document, which is the thing you are navigating by. A row
+   is one line and clipped — the words at the front are what identify a
+   heading, and the full text is in the tooltip. */
+.toc {
+  position: relative;
+  display: block;
+  flex: none;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  box-shadow: none;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The shallowest headings are the document's own outline; everything under
+   them is detail, and sits back a shade as well as in. */
+.toc-top {
+  color: var(--fg);
+}
+
+.toc:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.toc:active {
+  background: var(--press);
+}
+
+/* Where you are now. Not a filled row like a chosen file or a chosen version:
+   nothing was picked here — the document scrolled — so this reports rather
+   than selects, and a mark in the margin says so more quietly than a fill. */
+.toc.on {
+  color: var(--fg);
+}
+
+.toc.on::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--muted);
+}
+
+@supports (color: AccentColor) {
+  .toc.on::before {
+    background: AccentColor;
+  }
+}
+
+/* ---------- history ---------- */
+
+/* One row per version: when it was, what it was, and how far it moved. Same
+   row shape as an open file — a filled row is the selected one — because it
+   is the same gesture, picking one thing out of a list down the left. */
+.ver {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 6px 6px 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  box-shadow: none;
+  color: var(--fg);
+  text-align: left;
+}
+
+.ver:hover:not(.on):not(:disabled) {
+  background: var(--hover);
+}
+
+.ver:active:not(.on):not(:disabled) {
+  background: var(--press);
+}
+
+.ver.on {
+  background: var(--sel);
+}
+
+@supports (color: AccentColor) {
+  .ver.on {
+    background: color-mix(in srgb, AccentColor 18%, transparent);
+  }
+}
+
+/* The version on disk, and the top of the list: picking it is picking nothing
+   to compare against. Weighted a little heavier so the list has a head. */
+.ver.head .ver-name {
+  font-weight: 600;
+}
+
+.ver-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.2;
+}
+
+.ver-top {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* What the version is called, and the one line of the row that holds still —
+   so it is the line set in the reading colour and the reading size, and the
+   chips are pushed off the end of it rather than sharing its billing. */
+.ver-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Quieter than a chip: the row already says which version it is by its name,
+   so "now"/"read" read as a note rather than a badge raising its voice. The
+   hash that used to sit beside them moved into the row's tooltip. */
+.ver-flags {
+  flex: none;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+.ver-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ver-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Out of the way until the row is pointed at, so a column of these does not
+   shout — the same manners as the × on an open file. */
+.ver-cut {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  color: inherit;
+  opacity: 0;
+}
+
+.ver:hover .ver-cut,
+.ver-cut:focus-visible {
+  opacity: 0.6;
+}
+
+/* Qualified by the row it is in only to outrank `.ver:hover .ver-cut` above,
+   which is a class heavier and would otherwise hold this at the hint's 0.6 —
+   the control you are actually pointing at staying half-lit. */
+.ver .ver-cut:hover {
+  opacity: 1;
+  color: var(--del);
+  background: var(--press);
+}
+
+.ver-cut .i {
+  width: 13px;
+  height: 13px;
+}
+
+/* What would go: the row pointed at and every row under it. The list is in
+   one order, newest first, and holds nothing but rows — so the sibling
+   combinator *is* the scope, and the preview costs no repaint and no state.
+
+   The dim is on the text rather than the row so that the shears being pointed
+   at stay lit; a control that fades as you reach it reads as a misclick. */
+.ver.cutting .ver-text,
+.ver.cutting ~ .ver .ver-text {
+  opacity: 0.3;
+}
+
+/* The row asks in place rather than throwing a dialog over the window: what
+   is about to go is the row you are pointing at. */
+.ver.ask {
+  gap: 5px;
+  padding: 4px 4px 4px 8px;
+  background: color-mix(in srgb, var(--del) 12%, transparent);
+}
+
+.ask-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ver.ask .btn {
+  flex: none;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.ask-go {
+  color: var(--del);
+  font-weight: 600;
+}
+
+/* ---------- settings ---------- */
+
+/* A sheet over the window, not a page you navigate to: settings here are few
+   enough to see at once, and every one of them takes effect as you set it. */
+.sheet {
+  width: min(500px, calc(100vw - 32px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 28%);
+}
+
+.sheet::backdrop {
+  background: rgb(0 0 0 / 25%);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sheet-head h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Done sits under the content rather than beside the title: a Mac preference
+   pane's default button is the thing your eye lands on after reading down the
+   page, not a header alongside a label with no relation to it. */
+.sheet-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.sheet-body {
+  padding: 2px 16px 16px;
+  max-height: min(74vh, 620px);
+  overflow-y: auto;
+}
+
+.sheet-body h3 {
+  margin: 16px 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Rows of a kind sit in one panel, hairlines between them, the way a Mac
+   preference pane groups them — so a section reads as one thing rather than
+   as a column of loose lines with a gap where a control happens to be tall. */
+.group {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  overflow: hidden;
+}
+
+/* Label left, control right — the two-column preference pane. */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 38px;
+  padding: 7px 12px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--line);
+}
+
+/* `hidden` has to win over the flex above. */
+.row[hidden] {
+  display: none;
+}
+
+.lab {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* What the setting does, for the ones two words cannot say. Quiet enough that
+   the labels still read as a column of labels. */
+.lab small {
+  display: block;
+  margin-top: 1px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+/* Wider than a popup on the bar: its entries are names, not words. */
+.row .popup {
+  flex: none;
+}
+
+.row .select {
+  max-width: 260px;
+  padding: 4px 24px 4px 8px;
+}
+
+/* A segmented control, for the choices short enough to all be on screen: the
+   answer is readable without opening anything, and changing it is one click
+   rather than press-aim-release down a popup. */
+.seg {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--sel);
+}
+
+.seg label {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The radio itself does the keyboard and the grouping; it is never drawn. */
+.seg input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: default;
+}
+
+.seg span {
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+  transition: background-color 90ms ease;
+}
+
+.seg input:not(:checked) + span:hover {
+  background: var(--hover);
+}
+
+.seg input:checked + span {
+  background: var(--control);
+  box-shadow: var(--control-shadow);
+}
+
+.seg input:focus-visible + span {
+  outline: 2px solid color-mix(in srgb, var(--muted) 70%, transparent);
+  outline-offset: 1px;
+}
+
+/* A stepper, not a slider. Text size is a number you nudge by one and read
+   back; a track is for a quantity with no units you care about. */
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--control);
+  box-shadow: var(--control-shadow);
+  overflow: hidden;
+}
+
+.step {
+  width: 28px;
+  padding: 3px 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.step:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.step:active:not(:disabled) {
+  background: var(--press);
+}
+
+.step-out {
+  width: 48px;
+  padding: 3px 0;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+
+/* The one on/off setting here, and it turns something on in the window
+   behind: a switch says which way it is from across the room. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: default;
+}
+
+.switch .track {
+  width: 38px;
+  height: 22px;
+  border-radius: 11px;
+  background: var(--sel);
+  box-shadow: inset 0 0 0 1px var(--line);
+  transition: background-color 130ms ease;
+}
+
+.switch .track::after {
+  content: "";
+  display: block;
+  width: 18px;
+  height: 18px;
+  margin: 2px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+  transition: transform 130ms ease;
+}
+
+.switch input:checked + .track {
+  box-shadow: none;
+  background: #2f81f7;
+  background: AccentColor;
+}
+
+.switch input:checked + .track::after {
+  transform: translateX(16px);
+}
+
+.switch input:focus-visible + .track {
+  outline: 2px solid color-mix(in srgb, var(--muted) 70%, transparent);
+  outline-offset: 2px;
+}
+
+/* The specimen under the reading rows: the document's own type, off the same
+   two variables the document itself reads, so no script keeps it in step. */
+.sample {
+  margin: 10px 2px 0;
+  font-family: var(--doc-font);
+  font-size: var(--doc-size);
+  line-height: 1.6;
+}
+
+/* Long, and not something to retype — small, wrapping, selectable. */
+.path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+  user-select: text;
+}
+
+/* Windows, Finder and launch belong to the desktop app; a browser tab has
+   none of them, so those rows are not shown there. */
+html:not(.native) [data-shell] {
+  display: none;
+}
+
+/* ---------- inside the native window ---------- */
+
+/* The window has no OS title bar: the bar below *is* the title bar, with the
+   traffic lights floated over its left end — the VS Code arrangement. */
+.native {
+  --bar-h: 38px;
+  --bar-lead: 78px; /* room the traffic lights need */
+}
+
+.native.fullscreen {
+  --bar-lead: 10px; /* no traffic lights in full screen */
+}
+
+/* Dragging the window by this strip is `data-tauri-drag-region` in index.html,
+   not a CSS property: `-webkit-app-region` is Chromium's, and the window here
+   is WebKit's. What is left for CSS is that a drag should not look like a text
+   selection. */
+.native .bar {
+  padding-left: var(--bar-lead);
+  overflow: hidden;
+  user-select: none;
+}
+
+.native .name {
+  min-width: 0;
+}
+
+@media (max-width: 620px) {
+  .native .count {
+    display: none;
+  }
+}
+
+.native.dropping main::after {
+  content: "Drop markdown files to open them";
+  position: fixed;
+  inset: var(--bar-h) 8px 8px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--muted);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  color: var(--muted);
+  font-weight: 600;
+  z-index: 20;
+  pointer-events: none;
+}
+
+/* Settings belongs in the application menu, which is where a Mac user goes to
+   look for it — and it is already there, under the app's own name, on ⌘,. A
+   button on the toolbar as well would be the same door twice. The button stays
+   for a browser tab, which has no menu bar to put it in. */
+.native #prefsBtn {
+  display: none;
+}
+
+/* ---------- link peek ---------- */
+
+/* The destination of the link under the pointer, bottom left, where a browser
+   keeps it. Flush into the corner with only the two inner edges drawn, so it
+   reads as something the window slid out rather than a box floating on the
+   page. */
+.peek {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  max-width: min(60%, 620px);
+  padding: 3px 8px 4px;
+  background: color-mix(in srgb, var(--field) 96%, transparent);
+  backdrop-filter: blur(6px);
+  border-top: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  border-top-right-radius: 5px;
+  color: var(--muted);
+  font-size: 11.5px;
+  /* A URL is one thing; broken over two lines it stops looking like one. The
+     end is what gets cut, as a browser cuts it. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* It sits over the document it is describing and must never take a click
+     meant for what is underneath — nor be something to select instead of the
+     prose. */
+  pointer-events: none;
+  user-select: none;
+  z-index: 11;
+}
+
+/* The sidebar owns that corner while it is open, so it starts where the
+   document does. */
+.side-open .peek {
+  left: var(--side-w);
+}
+
+/* A link low enough to be behind the peek would be hidden by the thing
+   describing it, so the peek moves out of its way. */
+.peek.away {
+  left: auto;
+  right: 0;
+  border-right: 0;
+  border-left: 1px solid var(--line);
+  border-top-right-radius: 0;
+  border-top-left-radius: 5px;
+}
+
+/* And the far corner is the contents' while they are open, the same way the
+   near one is the sidebar's. */
+.toc-open .peek.away {
+  right: var(--toc-w);
+}
+
+/* ---------- find ---------- */
+
+/* Find in the current document, ⌘F or the Edit menu. Floating rather than a
+   dialog: it must not block the document it searches, and Enter should step
+   between hits without a trip through a modal. */
+.find-bar {
+  position: fixed;
+  top: calc(var(--bar-h) + 8px);
+  right: 16px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 4px 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.find-bar[hidden] {
+  display: none;
+}
+
+/* The contents column owns that corner while it is open, the same way it
+   moves the link peek out of its way. */
+.toc-open .find-bar {
+  right: calc(var(--toc-w) + 16px);
+}
+
+#findInput {
+  width: 180px;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+}
+
+#findInput:focus {
+  outline: none;
+}
+
+.find-count {
+  min-width: 52px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* The toggle that opened the bar stays filled while it is open, the same
+   convention as the view switch. */
+#find[aria-pressed="true"] {
+  background: var(--sel);
+  color: var(--fg);
+}
+
+/* A match in the text, reusing the "modified" colour: a highlight is a kind
+   of change mark, and a third hue would be one more thing for a reader to
+   learn. The current match darkens the same way `.chg.flash` does, rather
+   than taking a colour of its own. */
+mark.search-hit {
+  background: color-mix(in srgb, var(--mod-bg) 70%, transparent);
+  color: inherit;
+  border-radius: 2px;
+}
+
+mark.search-hit.current {
+  background: color-mix(in srgb, var(--mod) 55%, var(--mod-bg));
+}
+
+/* ---------- document ---------- */
+
+/* The document scrolls itself, below the bar, rather than the page scrolling
+   under it: a window scrollbar runs the full height and would cross the bar,
+   which nothing on this desktop does. */
+main {
+  position: fixed;
+  inset: var(--bar-h) 0 0 0;
+  overflow-y: auto;
+  padding: 16px 24px 60vh;
+  scrollbar-width: thin;
+}
+
+/* It takes the arrow keys, so it has to be focusable; it is a scroll area, not
+   a control, so it should not draw a ring for the click that focuses it. */
+main:focus {
+  outline: none;
+}
+
+/* The platform scrollbar this page otherwise leaves alone grows on hover and
+   while scrolling -- fine on its own, but the ruler's marks share its track,
+   and the grown state is wide enough to swallow several of them at once.
+   Pinning the width stops the grow; `scrollbar-width: thin` above is the same
+   request for the one engine without a `::-webkit-scrollbar` to ask instead. */
+main::-webkit-scrollbar {
+  width: 10px;
+}
+
+main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+main::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 5px;
+}
+
+main::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* The document keeps its own margins; a sidebar takes width from the page, not
+   from the text. `.markdown-body` is centred inside the pane, so with both
+   columns up the prose sits between them instead of being pushed off to one
+   side, which is what one sidebar on its own used to do to it.
+
+   The left is padding and the right is the pane's own edge, which looks
+   inconsistent and is not: `main` is the scroll area, so its right edge is
+   where its scrollbar runs. Left full-width, the scrollbar — and the change
+   ruler drawn over it — would be behind the contents column, which is painted
+   above both. The 24px gap on this side is `main`'s own padding, already
+   there. */
+.side-open main {
+  padding-left: calc(var(--side-w) + 24px);
+}
+
+.toc-open main {
+  right: var(--toc-w);
+}
+
+/* ---------- change ruler ---------- */
+
+/* Where the changes are in the whole file, drawn down the track the scrollbar
+   runs in. The marks in the margin only speak for what is on screen, and the
+   count on the bar only says how many there are — neither answers "is the rest
+   of it like this, or is it all in one place near the end", which is the first
+   thing you want to know about a file you are reviewing.
+
+   Tried in the left gutter for one round, since a clickable mark competing
+   with the platform's own overlay scrollbar felt like the wrong trade. It
+   traded that for a worse one: the left gutter is where `.chg::before` already
+   draws the per-block margin mark (below), so the ruler was now a second
+   set of bars in the same few pixels as the first, reading as visual noise
+   rather than an overview. Back on the right, then, over the scrollbar as
+   before.
+
+   The hit box and the colour are two different widths, not one: `.ruler-mark`
+   claims the full track so there is an actual target to land a click on, and
+   `.ruler-mark::after` draws a narrower stripe centred inside it, so a hover
+   area generous enough to hit does not also make the ruler read as a thick
+   bar painted down the margin. Tying the two together -- one wide element,
+   its own colour as the background -- was the first pass at a bigger target,
+   and it made the mark itself look heavier every time the target did. */
+.ruler {
+  position: fixed;
+  top: var(--bar-h);
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  /* The scrollbar still belongs to whoever grabs it outside a mark's own
+     width: on this desktop it is an overlay that appears under the pointer. */
+  pointer-events: none;
+  z-index: 8;
+}
+
+.ruler[hidden] {
+  display: none;
+}
+
+/* A mark is only worth anything level with the thumb that reaches it, so the
+   ruler follows the scroll area it is drawn over rather than the window's
+   edge. With the contents up, the pane's scrollbar runs along their inner
+   edge; a ruler left at `right: 0` would be a column of marks drawn over the
+   contents list, lined up with nothing. */
+.toc-open .ruler {
+  right: var(--toc-w);
+}
+
+.ruler-mark {
+  position: absolute;
+  right: 0;
+  width: 16px;
+  opacity: 0.85;
+  /* So losing .ruler-current on unhover fades the mark back down rather than
+     snapping it, the way the mark it stands for already fades on hover. */
+  transition: opacity 0.15s ease;
+  /* `.ruler` itself stays `pointer-events: none` -- the scrollbar underneath
+     still belongs to whoever grabs it -- but the mark now claims the whole
+     width of the track to land a click on, same as the ruler itself: a target
+     actually worth pointing at, rather than the hairline the bar's colour
+     alone would be. */
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* The box above is the target; the colour is drawn narrower, by a pseudo-
+   element centred inside it, so a hover area generous enough to actually hit
+   does not also read as a thick, over-stated bar on the eye. `top`/`bottom: 0`
+   stretch it to the mark's own height, which paintRuler sets inline per band;
+   only the width is this rule's to set, and `.ruler-current` below is the one
+   place it changes. */
+.ruler-mark::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  border-radius: 2px;
+  background: var(--mark);
+  transition: width 0.15s ease;
+}
+
+.ruler-add {
+  --mark: var(--add);
+}
+.ruler-mod {
+  --mark: var(--mod);
+}
+.ruler-del {
+  --mark: var(--del);
+}
+
+/* Checked off, but not gone: the same fade the margin mark takes, so the ruler
+   keeps saying where the change was while making clear it is dealt with. */
+.ruler-ok {
+  opacity: 0.22;
+}
+
+/* The one change `n`/`p` last took you to, brought to full opacity and widened
+   — the stripe only, the hit box behind it stays put — so the ruler answers
+   "where am I" and not only "where are the changes" — never true together
+   with .ruler-ok, since a checked-off change drops out of the navigation list
+   that this class is drawn from. */
+.ruler-current {
+  opacity: 1;
+}
+.ruler-current::after {
+  width: 7px;
+}
+
+.markdown-body {
+  max-width: var(--doc-width);
+  margin: 0 auto;
+  background: transparent;
+  font-family: var(--doc-font);
+  font-size: var(--doc-size);
+}
+
+/* Code stays code whatever the prose is set to — github-markdown-css puts
+   monospace on `code`/`pre`, and those selectors outrank this one. */
+:root[data-font="serif"] {
+  --doc-font: var(--font-serif);
+  /* A serif at reading length wants a little more air between the lines. */
+  --doc-leading: 1.65;
+}
+:root[data-font="mono"] {
+  --doc-font: var(--font-mono);
+}
+
+.markdown-body p,
+.markdown-body li,
+.markdown-body blockquote {
+  line-height: var(--doc-leading, inherit);
+}
+
+/* Measure, in the typographic sense: a column you can read without losing the
+   line, a column that fills a wide window, and one in between. */
+:root[data-width="narrow"] {
+  --doc-width: 680px;
+}
+:root[data-width="wide"] {
+  --doc-width: 1200px;
+}
+
+/* A table cell must be allowed to break a long token *anywhere*, not just
+   `break-word`.
+
+   github-markdown-css makes a table `display: block; width: max-content;
+   max-width: 100%; overflow: auto`, so a table too wide for the column scrolls
+   inside itself. The column widths come from the table layout algorithm, which
+   sizes a column to its min-content — and `word-wrap: break-word`, which
+   `.markdown-body` sets, does not lower min-content: it breaks a token only
+   once the token has already overflowed a line. So one `code` span holding a
+   path with no spaces in it (`/Users/me/src/a-long-project-name`) pins its column
+   to the width of that path, the table overruns the prose column, and the rest
+   of the row is clipped — behind a macOS overlay scrollbar, which is invisible
+   until something scrolls it. The reader loses the text and is shown nothing
+   that says why.
+
+   `anywhere` is the one value that *does* lower min-content, so the column can
+   shrink and the path wraps instead of hiding. Scoped to the spans that hold
+   something unbreakable rather than to the cell: on the cell it also lets
+   ordinary words break, and the layout then squeezes a column until `Source`
+   reads `Sourc/e`. A table with many short columns is a different problem and
+   still scrolls, which is right. */
+.markdown-body table code,
+.markdown-body table a {
+  overflow-wrap: anywhere;
+}
+
+/* The raw view is code, and tracks the document's size a size or so down. */
+.markdown-body .raw {
+  font-size: calc(var(--doc-size) - 2.5px);
+  line-height: 1.55;
+  background: transparent;
+  padding: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- front matter ---------- */
+
+/* The `---` header block: fields that say what the document is rather than
+   part of what it says. So it is set as a card of labels and values above the
+   first heading — close to how GitHub shows one, and unlike prose, because
+   reading it is looking a field up rather than reading from the top.
+
+   Every selector here is qualified with `.markdown-body`, which is not
+   decoration: github-markdown-css styles `dl dt` and `dl dd` with two type
+   selectors, so a plain `.front-matter dt` is the lighter rule and loses —
+   silently, and the symptom is italic labels with 16px of air above each one.
+
+   The word diff reaches inside this: a header whose `description` was reworded
+   marks the two wordings in that one value, which is the whole point of
+   treating the block as a block and not stripping it out before the parse. */
+.markdown-body .front-matter {
+  margin: 0 0 24px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  /* Mono, and `--font-mono` rather than the document's font on purpose: a header
+     is machine-facing text — a slug, a tool call, a glob — and the reader's
+     question about it is what the file says, character for character. A
+     proportional face is for prose, and it makes `Skill(ste-style)` ambiguous
+     about its own punctuation. It also means a custom document font cannot drag
+     the card around with it, the same reason the tooling labels opt out.
+
+     0.85em rather than the 0.9em this was as prose: a mono face has the larger
+     x-height of the two, so matching the px would set the card *louder* than the
+     document it is a header for. */
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.5;
+}
+
+.markdown-body .front-matter dl {
+  /* `fit-content` so the labels take the width of the longest of them and no
+     more: `max-content` lets one unlucky field name eat the column the values
+     have to read in, and a fixed width leaves `name` sitting in a gap. */
+  display: grid;
+  grid-template-columns: fit-content(30%) minmax(0, 1fr);
+  gap: 5px 14px;
+  margin: 0;
+  padding: 0;
+}
+
+.markdown-body .front-matter dt {
+  margin: 0;
+  padding: 0;
+  font-size: inherit;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.markdown-body .front-matter dd {
+  margin: 0;
+  padding: 0;
+  /* A header carries the things prose does not: urls, package names, globs.
+     They have to wrap mid-token or they push the card past the column. */
+  overflow-wrap: anywhere;
+}
+
+/* A nested mapping is the same grid again, indented enough to read as being
+   under its label and with no card of its own — one box inside another box
+   says "two things" when there is only one. */
+.markdown-body .front-matter dd > dl {
+  gap: 3px 12px;
+}
+
+.markdown-body .front-matter dd > ul {
+  margin: 0;
+  padding-left: 1.05em;
+}
+
+/* github-markdown-css spaces list items a quarter-line apart, which is right
+   for prose and wrong here: a list of three one-word tags then costs three tall
+   rows and becomes the tallest thing in a card that is meant to be skimmed. */
+.markdown-body .front-matter dd > ul > li + li {
+  margin-top: 1px;
+}
+
+/* `|` keeps its line breaks, so the value is laid out as the lines it was
+   written as. It no longer needs a font of its own — the whole card is mono. */
+.markdown-body .front-matter .fm-pre {
+  display: block;
+  white-space: pre-wrap;
+}
+
+/* A line the header reader could not make a field of, shown as it was written.
+   It keeps the value column — it is a continuation of the field above it, not
+   a label — and is muted to say that nothing was made of it. */
+.markdown-body .front-matter .fm-raw {
+  grid-column: 2;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+/* ---------- change marks ---------- */
+
+/* A change is a thin bar in the left margin — the text itself is left alone,
+   so a document full of edits still reads as a document. */
+
+.chg {
+  position: relative;
+  padding: 2px 10px;
+  margin: 0 -10px;
+  border-radius: 3px;
+  scroll-margin-top: calc(var(--bar-h) + 48px);
+  transition: background 0.15s;
+}
+
+.chg::before {
+  content: "";
+  position: absolute;
+  left: -4px; /* clear of the text column, inside the page padding */
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--mark);
+}
+
+/* .chg-hot is this same hover, set from the ruler's pointer handlers instead
+   of the pointer actually being over the block -- a mark 2000 lines away
+   stands in for the real hover. */
+.chg:hover,
+.chg-hot {
+  background: color-mix(in srgb, var(--mark) 7%, transparent);
+}
+
+.chg > :first-child {
+  margin-top: 0;
+}
+
+/* Not on a checked change: that one is meant to space itself like the plain
+   paragraph it has gone back to being. */
+.chg:not(.chg-ok) > :last-child {
+  margin-bottom: 0;
+}
+
+.chg-add {
+  --mark: var(--add);
+}
+
+.chg-mod {
+  --mark: var(--mod);
+}
+
+.chg-del {
+  --mark: var(--del);
+  opacity: 0.55;
+}
+
+.chg-del > *:not(.chg-tag) {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--del) 55%, transparent);
+}
+
+/* The kind is spelled out only on hover, in the margin above the block — and
+   the word is also the button that ticks the change off. The label that says
+   what happened to a block is the most direct place to say "seen it", and it
+   costs the document no ink of its own: there is nothing there until you point
+   at the block, and nothing left once you have. */
+.chg-tag {
+  position: absolute;
+  right: 6px;
+  top: -0.5em;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--bg);
+  box-shadow: none;
+  color: var(--mark);
+  /* The app talking, not the document — so it reads in the app's font whatever
+     the document's own is set to, like every other label that is tooling. */
+  font-family: var(--font-sans);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0;
+  transition: opacity 0.15s;
+  /* Invisible and therefore not something to hit by accident; the pointer
+     reaches it only once the block it belongs to has been pointed at. */
+  pointer-events: none;
+}
+
+.chg:hover > .chg-tag,
+.chg-hot > .chg-tag,
+.chg > .chg-tag:focus-visible {
+  opacity: 0.7;
+  pointer-events: auto;
+}
+
+.chg > .chg-tag:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--mark) 14%, var(--bg));
+}
+
+.chg-tick {
+  width: 10px;
+  height: 10px;
+  /* Drawn but not inked until the change is checked: it holds its own width so
+     the label does not shift when the tick appears. */
+  opacity: 0.35;
+}
+
+.chg > .chg-tag:hover .chg-tick {
+  opacity: 1;
+}
+
+/* Checked off.
+ *
+ * Reads exactly as the document does with nothing compared — which is the whole
+ * point of it — so this is the same treatment as hiding the marks altogether
+ * (see "changes hidden" below), asked of one block instead of all of them. The
+ * marker bar stays at a trace, because a mark you cannot see at all is a mark
+ * you would never think to take back; the tick is what it says on hover. */
+.chg-ok {
+  padding: 0;
+  margin: 0;
+}
+
+.chg-ok::before {
+  opacity: 0.18;
+  width: 1px;
+  left: -3px;
+}
+
+.chg-ok:hover {
+  background: none;
+}
+
+.chg-ok.chg-del,
+.chg-ok .chg-before,
+.chg-ok .w-del {
+  display: none;
+}
+
+.chg-ok .w-add {
+  background: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* Once it is checked the kind no longer matters — what the tag is for now is
+   saying so, and being the way back. */
+.chg-ok > .chg-tag {
+  color: var(--muted);
+}
+
+.chg-ok > .chg-tag .chg-kind {
+  display: none;
+}
+
+/* Ahead of the tick, so it reads the same way round as the word it replaces. */
+.chg-ok > .chg-tag::after {
+  content: "checked";
+  order: -1;
+}
+
+.chg-ok > .chg-tag .chg-tick {
+  opacity: 1;
+}
+
+/* word-level marks inside a changed block */
+
+.w-add,
+.w-del {
+  border-radius: 2px;
+  padding: 0 1px;
+  margin: 0 -1px;
+  text-decoration: none;
+}
+
+.w-add {
+  background: color-mix(in srgb, var(--add) 18%, transparent);
+}
+
+.w-del {
+  background: color-mix(in srgb, var(--del) 13%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--del) 55%, transparent);
+  opacity: 0.65;
+}
+
+/* Old and new can meet with no space between them (mid-word, or against an
+   emphasis boundary) — keep the two tints from reading as one word. */
+.w-del + .w-add {
+  margin-left: 3px;
+}
+
+/* Inside a code block the tints must not fight the syntax colours, and a
+   gap there would imply whitespace the code does not have. */
+pre .w-add,
+pre .w-del,
+pre .w-del + .w-add {
+  padding: 0;
+  margin: 0;
+}
+
+.chg-before {
+  margin-top: 4px;
+  font-size: 0.95em;
+}
+
+.chg-before summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  width: fit-content;
+}
+
+.chg-before summary:hover {
+  color: var(--fg);
+}
+
+.chg-before[open] summary {
+  margin-bottom: 4px;
+}
+
+.chg-before > *:not(summary) {
+  opacity: 0.55;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--del) 45%, transparent);
+}
+
+/* jumping to a change: the bar thickens and the block glows briefly */
+.chg.flash::before {
+  width: 4px;
+  left: -5px;
+}
+
+.chg.flash {
+  animation: chg-flash 1.2s ease-out;
+}
+
+@keyframes chg-flash {
+  from {
+    background: color-mix(in srgb, var(--mark) 22%, transparent);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+/* raw view: same marker, per line, so a run of lines reads as one bar */
+.raw-line {
+  position: relative;
+  display: block;
+  min-height: 1.55em;
+}
+
+.raw-add,
+.raw-del {
+  background: color-mix(in srgb, var(--mark) 8%, transparent);
+}
+
+.raw-add::before,
+.raw-del::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--mark);
+}
+
+.raw-add {
+  --mark: var(--add);
+  scroll-margin-top: calc(var(--bar-h) + 48px);
+}
+
+.raw-del {
+  --mark: var(--del);
+  opacity: 0.55;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--del) 45%, transparent);
+}
+
+/* ---------- changes hidden ---------- */
+
+/* Suppressed in the page rather than re-fetched, so the toggle is instant and
+   the chosen baseline survives it. Anything not in the current file — a removed
+   block, replaced wording — goes away entirely, so what is left reads exactly
+   like the document with nothing to compare against.
+
+   `display: contents` takes the wrapper out of the box tree altogether, which
+   is what restores the normal paragraph spacing the marked-up layout overrides. */
+
+.no-diff .chg {
+  display: contents;
+}
+
+.no-diff .chg-del,
+.no-diff .chg-before,
+.no-diff .chg-tag,
+.no-diff .chg::before,
+.no-diff .w-del,
+.no-diff .raw-del,
+.no-diff .raw-add::before {
+  display: none;
+}
+
+.no-diff .w-add,
+.no-diff .raw-add {
+  background: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* diagrams */
+.diagram {
+  margin: 14px 0;
+  text-align: center;
+  overflow-x: auto;
+}
+
+.diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* PlantUML renders opaque black-on-white, so give it a light card in dark mode. */
+.diagram-plantuml svg {
+  background: #fff;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.diagram pre.mermaid {
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  /* the unrendered source should not flash before mermaid runs */
+  visibility: hidden;
+}
+
+.diagram pre.mermaid[data-processed],
+.diagram pre.mermaid.mermaid-failed {
+  visibility: visible;
+}
+
+.diagram pre.mermaid.mermaid-failed {
+  text-align: left;
+  color: var(--del);
+  border-left: 3px solid var(--del);
+  padding: 4px 10px;
+  background: var(--del-bg);
+}
+
+.diagram pre.mermaid.mermaid-failed::before {
+  content: 'mermaid: could not render';
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  opacity: 0.7;
+  margin-bottom: 2px;
+}
+
+/* The source of a PlantUML diagram, while whoever runs the jar is answering.
+   Hidden rather than absent so the block keeps its place in the page and the
+   document does not jump as diagrams land. Shown, as source, once a diagram is
+   known not to be coming — see `.diagram-unavailable`. */
+.diagram pre.plantuml {
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  visibility: hidden;
+}
+
+.diagram-unavailable {
+  text-align: left;
+}
+
+.diagram-unavailable pre.plantuml {
+  visibility: visible;
+  background: var(--field);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+/* The app talking, not the document — so it is set in the app's font whatever
+   the document is set in, like every other thing here that is the tooling. */
+.diagram-note {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 2px !important;
+}
+
+/* GitHub alerts */
+.markdown-alert {
+  border-left: 4px solid var(--line);
+  padding: 2px 14px;
+  color: inherit;
+}
+
+.markdown-alert-title {
+  font-weight: 600;
+  font-size: 0.95em;
+  margin-bottom: 2px !important;
+}
+
+.markdown-alert-note {
+  border-left-color: #0969da;
+}
+.markdown-alert-note .markdown-alert-title {
+  color: #0969da;
+}
+.markdown-alert-tip {
+  border-left-color: var(--add);
+}
+.markdown-alert-tip .markdown-alert-title {
+  color: var(--add);
+}
+.markdown-alert-important {
+  border-left-color: #8250df;
+}
+.markdown-alert-important .markdown-alert-title {
+  color: #8250df;
+}
+.markdown-alert-warning {
+  border-left-color: var(--warn);
+}
+.markdown-alert-warning .markdown-alert-title {
+  color: var(--warn);
+}
+.markdown-alert-caution {
+  border-left-color: var(--del);
+}
+.markdown-alert-caution .markdown-alert-title {
+  color: var(--del);
+}
+
+/* ---------- print ---------- */
+
+/* A printed page has no window to speak of: the bar, the two sidebars, their
+   grips, find, the change ruler and the link peek exist to navigate a window
+   and have nothing to put on paper, so they go. What is left — `main` and the
+   article in it — is freed from being a fixed-height scroll area, since paper
+   paginates instead of scrolling, and from the width the current window and
+   its sidebars happened to leave it.
+
+   Printing is also the one time this app overrides your own appearance choice
+   rather than following it: a dark window should not cost dark paper (and a
+   sepia one is simply not tinted here — its block is `screen` only), so the
+   variables a printed page reads are reset to their light values regardless
+   of the system's and regardless of which `prefers-color-scheme` block below
+   would otherwise win on specificity — `@media print` does not outrank it, so
+   this block repeats the light values rather than only asserting the scheme. */
+@media print {
+  /* No `@page` margin here on purpose. The margin comes from the native
+     print pipeline instead — see `print_window` in shell/src/menu.rs and
+     docs/reading.md#printing — because WebKit's print pagination decides how
+     much content fits on a page from the OS-level margin, not from `@page`,
+     and a margin asked for only in CSS made every page's content overflow
+     its own bottom edge by roughly twice the margin's size. `main`'s padding
+     is zeroed below rather than left to double up with the native margin. */
+
+  :root {
+    color-scheme: light;
+    --bg: #ffffff;
+    --fg: #1f2328;
+    --muted: #656d76;
+    --line: #d1d9e0;
+    --field: #f6f8fa;
+    --add: #1a7f37;
+    --add-bg: #dafbe1;
+    --del: #cf222e;
+    --del-bg: #ffebe9;
+    --mod: #0969da;
+    --mod-bg: #ddf4ff;
+    --warn: #d97706;
+  }
+
+  .bar,
+  #tabList,
+  #files,
+  #tocSide,
+  #sideGrip,
+  #tocGrip,
+  .find-bar,
+  .ruler,
+  .peek,
+  dialog {
+    display: none !important;
+  }
+
+  /* `!important` throughout this rule: `.side-open main` and `.toc-open main`
+     carry a class and outrank a bare `main`, and whichever sidebar a window
+     happened to have open when Print was chosen is no business of the page
+     that comes out of the printer. */
+  main {
+    position: static !important;
+    inset: auto !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* The width setting is a measure for a screen you scroll; a page does not
+     scroll, and a column kept at 1200px for "wide" would run off a letter or
+     A4 sheet rather than shrink to fit it. */
+  .markdown-body {
+    max-width: none;
+    margin: 0;
+  }
+
+  /* `overflow: auto` means a scrollbar on screen and silent clipping on paper
+     — there is nothing left to scroll with. A block that still does not fit
+     the sheet runs past its edge instead, which at least leaves every word on
+     the page somewhere. */
+  .markdown-body pre,
+  .markdown-body table,
+  .diagram {
+    overflow: visible;
+  }
+}

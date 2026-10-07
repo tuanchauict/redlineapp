@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Redline app icon: three text lines with a red change marker in the margin">
+  <!--
+    Apple's icon grid: the artwork is an 824px rounded square centred in a
+    1024px canvas, so it sits at the same size as every other icon in the dock.
+    Drawing full bleed and leaving the corners to macOS makes an icon that
+    looks oversized and square next to its neighbours.
+  -->
+  <rect x="100" y="100" width="824" height="824" rx="185.4" fill="#1c2333"/>
+
+  <!-- Three lines of text, and the marker the reader draws over the one
+       that changed. -->
+  <rect x="390" y="323" width="304" height="53" rx="26.5" fill="#f4f4f2"/>
+  <rect x="390" y="485" width="355" height="53" rx="26.5" fill="#f4f4f2"/>
+  <rect x="390" y="647" width="269" height="53" rx="26.5" fill="#f4f4f2"/>
+
+  <rect x="286" y="426" width="55" height="172" rx="27.5" fill="#e5484d"/>
+</svg>

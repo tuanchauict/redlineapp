@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Redline</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/vendor/github-markdown.css" />
+    <link rel="stylesheet" href="/vendor/hljs-light.css" media="(prefers-color-scheme: light)" />
+    <link rel="stylesheet" href="/vendor/hljs-dark.css" media="(prefers-color-scheme: dark)" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script>
+      // Set before first paint, so the native bar never flashes at the web
+      // size and the marks never flash on for someone who turned them off.
+      if (new URLSearchParams(location.search).has("native")) {
+        document.documentElement.classList.add("native");
+      }
+      // Contents used to share the left column with History, one of them
+      // showing at a time. Each has a sidebar of its own now, so whichever you
+      // were on is carried across once and the old key is dropped: an update
+      // that quietly took away the list you had open would read as a bug.
+      const wasPanel = localStorage.getItem("redline:panel");
+      if (wasPanel !== null) {
+        localStorage.removeItem("redline:panel");
+        if (wasPanel === "toc" && localStorage.getItem("redline:side") === "1") {
+          localStorage.setItem("redline:toc", "1");
+        }
+      }
+
+      // Two sidebars — the files and the versions down the left, the contents
+      // down the right — and the width each was dragged to. All four before
+      // first paint: the document's own padding is computed from them, so a
+      // value missing here is the whole document reflowing on every open.
+      const sideOn = localStorage.getItem("redline:side") === "1";
+      const tocOn = localStorage.getItem("redline:toc") === "1";
+      if (sideOn) document.documentElement.classList.add("side-open");
+      if (tocOn) document.documentElement.classList.add("toc-open");
+
+      // This mirrors `fitWidths` in app.js, which takes over from the first
+      // frame on; the two have to agree or opening the window is a visible
+      // correction. 150 and 560 are what a column can usefully be, and the
+      // document keeps 320px of the window however wide the pair were left.
+      // Contents gives way first: the prose and the files you are moving
+      // between are worth more of a narrow window than the map of one of them.
+      const storedW = (k) => {
+        const w = Number(localStorage.getItem(k));
+        return Math.round(Math.min(Math.max(w || 236, 150), 560));
+      };
+      const wantW = [storedW("redline:sidew"), storedW("redline:tocw")];
+      let sideW = sideOn ? wantW[0] : 0;
+      let tocW = tocOn ? wantW[1] : 0;
+      const room = Math.max(0, innerWidth - 320);
+      if (sideW + tocW > room && tocW) tocW = Math.max(150, room - sideW);
+      if (sideW + tocW > room && sideW) sideW = Math.max(150, room - tocW);
+      // A closed column keeps its chosen width in the variable rather than
+      // going to zero, the same way `applyWidths` leaves it: nothing lays it
+      // out while it is closed, and the two must not disagree.
+      const root = document.documentElement.style;
+      root.setProperty("--side-w", (sideOn ? sideW : wantW[0]) + "px");
+      root.setProperty("--toc-w", (tocOn ? tocW : wantW[1]) + "px");
+
+      // Contents' height, the same deal turned on its side: this mirrors
+      // `applyTocH` in app.js, which takes over from the first frame on. 90 is
+      // the least Contents can be and still be a list; 110 is what History
+      // needs below it to still be one too; 34/38 is the titlebar, web or native.
+      const tocH = Number(localStorage.getItem("redline:toch")) || 180;
+      const barH = document.documentElement.classList.contains("native") ? 38 : 34;
+      const tocHMax = Math.max(90, innerHeight - barH - 25 - 110);
+      root.setProperty("--toc-h", Math.round(Math.min(Math.max(tocH, 90), tocHMax)) + "px");
+
+      if (localStorage.getItem("redline:diff") === "0") {
+        document.documentElement.classList.add("no-diff");
+      }
+      // Whether Open files, Contents or History were put away, so they do
+      // not unfold and fold again on every open.
+      try {
+        for (const k of JSON.parse(localStorage.getItem("redline:shut") || "[]")) {
+          if (k === "files") document.documentElement.classList.add("shut-files");
+          if (k === "toc") document.documentElement.classList.add("shut-toc");
+          if (k === "hist") document.documentElement.classList.add("shut-hist");
+        }
+      } catch {}
+      try {
+        const s = JSON.parse(localStorage.getItem("redline:settings") || "{}");
+        if (s.textSize) {
+          document.documentElement.style.setProperty("--doc-size", s.textSize + "px");
+        }
+        if (s.width) document.documentElement.dataset.width = s.width;
+        if (s.font) document.documentElement.dataset.font = s.font;
+        // Sepia is the one appearance the page draws rather than the window:
+        // the shell pins the window light, and a cream that arrived a frame
+        // later would flash white on every open.
+        if (s.appearance === "sepia") document.documentElement.dataset.tint = "sepia";
+        if (s.font === "custom" && s.fontName) {
+          document.documentElement.style.setProperty(
+            "--doc-font",
+            JSON.stringify(s.fontName) + ", var(--font-sans)",
+          );
+        }
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <!-- The strip is the window's title bar in the app, so dragging it moves
+         the window and double-clicking it zooms, the way a title bar does. The
+         shell watches for this attribute; "deep" means anywhere in the strip
+         counts, except the buttons, which it excludes on its own. Inert in a
+         browser tab, where there is no window to move. -->
+    <header class="bar" data-tauri-drag-region="deep">
+      <!-- Nothing at all while the file is being watched, which is all of the
+           time: a light that is always on says nothing. It appears, red, only
+           when that connection has dropped and the page has stopped following
+           the file — the one state worth a mark on the bar. The box is held
+           either way so the buttons beside it never move. -->
+      <span id="live" class="dot" role="img" aria-hidden="true"></span>
+
+      <!-- With the sidebar closed, the same list one click away. Before the
+           name rather than after it: `.name` grows to fill the bar's spare
+           width (see its own comment), so a button placed after it sits
+           wherever that grown box happens to end — far past a short title,
+           reading as parked next to nothing. Before it, the button sits at a
+           fixed point right next to the dot, so it is always next to the
+           title and never adrift from it. -->
+      <button id="tabMenu" class="icon chev" title="All open files" hidden>
+        <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="m4 6.5 4 4 4-4" />
+        </svg>
+      </button>
+
+      <!-- Name over directory, the way a Finder window titles itself: with
+           files open from several places the name alone does not say which. -->
+      <span id="nameBox" class="name">
+        <span id="name" class="name-file">…</span>
+        <span id="nameDir" class="name-dir"></span>
+      </span>
+
+      <span class="spacer"></span>
+
+      <!-- How far the file has moved since the version it is being compared
+           against — and a way in to that list, because "changed since what?"
+           is answered in the sidebar and nowhere else. -->
+      <button id="count" class="icon count" title="Versions of this file (⌥⌘B)" hidden></button>
+
+      <!-- And how much of that you have already checked off, which no longer
+           counts towards the number on its left. Their marks are hidden, not
+           forgotten, and nothing else in the window would say so — so this is
+           also the way back to them. -->
+      <button id="ackCount" class="icon count ack" hidden></button>
+      <button id="prev" class="icon" title="Previous change (p)" hidden>↑</button>
+      <button id="next" class="icon" title="Next change (n)" hidden>↓</button>
+
+      <span id="divide" class="divide" hidden></span>
+
+      <!-- One button, two states: the icon shows the view it switches to. -->
+      <button id="view" class="icon" data-view="rendered" aria-pressed="false">
+        <svg class="i i-code" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M5.75 4.25 2 8l3.75 3.75M10.25 4.25 14 8l-3.75 3.75" />
+        </svg>
+        <svg class="i i-text" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.75 3.75h10.5M2.75 7h10.5M2.75 10.25h7.5M2.75 13.5h4.5" />
+        </svg>
+      </button>
+
+      <button id="find" class="icon" title="Find in document (⌘F)" aria-pressed="false">
+        <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="6.75" cy="6.75" r="4.25" />
+          <path d="m12.75 12.75-3.1-3.1" />
+        </svg>
+      </button>
+
+      <!-- Always drawn, unlike the one above it: what the window is made of is
+           a different kind of thing from what the app is doing with the file,
+           and the pair of panel toggles reads as part of the view switch
+           without something between them. -->
+      <span class="divide"></span>
+
+      <!-- The two sidebars, at the end of the bar and in the order they appear
+           on screen — the shape of the window, drawn as the shape of the
+           window. Each icon is the frame with the column it stands for marked
+           off, so which one a button means is the picture rather than the
+           tooltip. -->
+      <button id="side" class="icon" title="Show sidebar (⌘B)" aria-pressed="false">
+        <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
+          <path d="M6 2.75v10.5" />
+          <!-- The band is the column, filled while it is open; see `.i-band`. It
+               traces the *rect's own* geometry rather than the inside of its
+               stroke, so the frame paints over the fill's edge. Stopped at the
+               inner edge instead, the two shapes meet on a curve and antialiasing
+               leaves a hairline of background along the rounded corners. -->
+          <path class="i-band" d="M6 2.75H3.75A2 2 0 0 0 1.75 4.75v6.5A2 2 0 0 0 3.75 13.25H6z" />
+        </svg>
+      </button>
+
+      <button id="tocBtn" class="icon" title="Show contents (⌥⌘B)" aria-pressed="false">
+        <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="2" />
+          <path d="M10 2.75v10.5" />
+          <path
+            class="i-band"
+            d="M10 2.75h2.25A2 2 0 0 1 14.25 4.75v6.5A2 2 0 0 1 12.25 13.25H10z"
+          />
+        </svg>
+      </button>
+
+      <button id="prefsBtn" class="icon" title="Settings (⌘,)" aria-label="Settings">
+        <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="8" cy="8" r="2.15" />
+          <path
+            d="M8 1.75v1.6M8 12.65v1.6M1.75 8h1.6M12.65 8h1.6M3.6 3.6l1.13 1.13M11.27 11.27l1.13 1.13M12.4 3.6l-1.13 1.13M4.73 11.27L3.6 12.4"
+          />
+        </svg>
+      </button>
+    </header>
+
+    <div id="tabList" class="menu" hidden></div>
+
+    <!-- Down the side rather than across the top: names stay readable however
+         many there are, and the reader keeps its width.
+
+         Open files answers *which file* — the tabs of this window — which is a
+         question about the window, not about the document on screen, and it
+         is the one list you stop needing once you have picked a file. It gets
+         the left column to itself, so that choice fades once it is made
+         instead of sitting next to the document asking to be looked at again.
+
+         Contents and History both answer a question about *this* file: where
+         am I in it, and what has changed in it. Keeping them on the one
+         column together is what lets a long document under review be read
+         without picking between them — the versions say what "changed" means
+         and the contents are how you reach the change — the thing a stack of
+         both in the old single sidebar could not do, since a third of a short
+         window is room to see there is a list, not room to read one.
+
+         Both keep a disclosure, so either can hand its room to the other:
+         Contents when you already know a document's shape, History once a
+         review is settled and nothing is moving any more. Shutting one
+         leaves the other holding the whole column; shutting both leaves the
+         column empty rather than guessing which of the two you meant. -->
+    <aside id="files" class="side">
+      <!-- Only the desktop app has other files to list, or can open one. -->
+      <section id="filesSec" class="side-sec side-grow" data-shell>
+        <h2 class="side-head">
+          <button class="side-twist" type="button" data-shut="files" aria-expanded="true">
+            <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="m6.25 4 4 4-4 4" />
+            </svg>
+            Open files
+          </button>
+        </h2>
+        <nav id="fileList" class="side-list"></nav>
+        <button id="newTab" class="side-add" title="Open a file in a new tab (⌘T)">
+          <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 3.75v8.5M3.75 8h8.5" />
+          </svg>
+          Open file…
+        </button>
+      </section>
+    </aside>
+
+    <!-- The document by its own headings, then every version of it — see the
+         comment above for why the two share this column. Contents stays when
+         a document has nothing to put in it and says so. The alternative was
+         to take the column away, and that cannot be known before the payload
+         arrives — so it would mean opening the window with it up and shutting
+         it again a frame later, which is the one thing the script in the head
+         exists to prevent. -->
+    <aside id="tocSide" class="side side-r" aria-labelledby="tocHead">
+      <section id="tocSec" class="side-sec">
+        <h2 id="tocHead" class="side-head">
+          <button class="side-twist" type="button" data-shut="toc" aria-expanded="true">
+            <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="m6.25 4 4 4-4 4" />
+            </svg>
+            Contents<span id="tocCount" class="side-count"></span>
+          </button>
+        </h2>
+        <nav id="tocList" class="side-list" aria-label="Contents"></nav>
+      </section>
+
+      <!-- Contents is a height to drag rather than a fixed share of the
+           column, so the line between it and History moves. -->
+      <div
+        id="histGrip"
+        class="hist-grip"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Contents height"
+        aria-controls="tocSec"
+        tabindex="0"
+        title="Drag to resize Contents — double-click to reset"
+      ></div>
+
+      <!-- Every version of this file, newest first, and the only place a
+           version is chosen: clicking one compares the file against it, and
+           clicking the newest compares against nothing. A dropdown on the bar
+           had no room to say which version was which, and two half-lists
+           saying the same thing were one too many. The read mark and the cut
+           icon are actions on the rows they belong to; clearing the list is
+           about all of them, so it sits under them. -->
+      <section id="histSec" class="side-sec side-grow" aria-labelledby="histHead">
+        <h2 id="histHead" class="side-head">
+          <button class="side-twist" type="button" data-shut="hist" aria-expanded="true">
+            <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="m6.25 4 4 4-4 4" />
+            </svg>
+            History<span id="histCount" class="side-count"></span>
+          </button>
+        </h2>
+        <div id="histList" class="side-list" aria-label="Versions"></div>
+        <button
+          id="histClear"
+          class="side-act"
+          type="button"
+          title="Forget every version but the current one"
+          hidden
+        >
+          Clear history
+        </button>
+      </section>
+    </aside>
+
+    <!-- The inner edge of each sidebar, as something to pull. A column holding
+         a path, a commit subject and a heading three levels deep is never one
+         width for every document, and 236px is only where it starts. Outside
+         the asides, which clip their own overflow, so a grip can be wider than
+         the border it sits on. -->
+    <div
+      id="sideGrip"
+      class="side-grip"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Sidebar width"
+      tabindex="0"
+      title="Drag to resize the sidebar — double-click to reset"
+    ></div>
+    <div
+      id="tocGrip"
+      class="side-grip side-grip-r"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Contents width"
+      tabindex="0"
+      title="Drag to resize the contents — double-click to reset"
+    ></div>
+
+    <!-- tabindex: the document is the scroll area, and the arrow keys and
+         space bar have to reach it without a click first. -->
+    <main tabindex="-1">
+      <article id="doc" class="markdown-body"></article>
+    </main>
+
+    <!-- Find in the current document, ⌘F or the Edit menu. A floating bar
+         rather than a dialog: dismissing it should not interrupt reading, and
+         the document underneath keeps scrolling while it is open. -->
+    <div id="findBar" class="find-bar" hidden>
+      <input id="findInput" type="text" placeholder="Find" aria-label="Find in document" />
+      <span id="findCount" class="find-count"></span>
+      <button id="findPrev" class="icon" title="Previous match (⇧Enter)">↑</button>
+      <button id="findNext" class="icon" title="Next match (Enter)">↓</button>
+      <button id="findClose" class="icon" title="Close (Esc)">
+        <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4.25 4.25l7.5 7.5M11.75 4.25l-7.5 7.5" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Where the changes are in the whole file, down the edge the scrollbar
+         runs along — the overview an editor draws on its own scrollbar. The
+         marks in the margin say what is on this screen, and the count on the
+         bar says how many there are altogether; neither says whereabouts in
+         the file they fall. -->
+    <div id="ruler" class="ruler" aria-hidden="true" hidden></div>
+
+    <!-- Where the link under the pointer goes, in the corner a browser puts
+         it. Link text says "the design doc" and nothing about what that
+         resolves to, and a window with no address bar gives you no way to find
+         out short of clicking it. -->
+    <span id="peek" class="peek" hidden></span>
+
+    <!-- Settings. Every control here takes effect as you change it: there is
+         no OK to press, the way a Mac preference pane works. Sections marked
+         data-shell are the desktop app's to answer and are not shown in a
+         browser tab, which has no windows, no Finder and no launch.
+
+         Two or three short answers are a segmented control, not a popup: the
+         choices are worth seeing without a click, and they fit. A popup is for
+         the lists that do not — the typefaces on this machine above all. -->
+    <dialog id="prefs" class="sheet">
+      <div class="sheet-head">
+        <h2>Settings</h2>
+      </div>
+
+      <div class="sheet-body">
+        <section data-shell>
+          <h3>General</h3>
+          <div class="group">
+            <div class="row">
+              <span class="lab">Appearance</span>
+              <div class="seg" id="setAppearance" role="radiogroup" aria-label="Appearance">
+                <label>
+                  <input type="radio" name="pAppearance" value="system" /><span>System</span>
+                </label>
+                <label>
+                  <input type="radio" name="pAppearance" value="light" /><span>Light</span>
+                </label>
+                <label>
+                  <input type="radio" name="pAppearance" value="sepia" /><span>Sepia</span>
+                </label>
+                <label>
+                  <input type="radio" name="pAppearance" value="dark" /><span>Dark</span>
+                </label>
+              </div>
+            </div>
+            <div class="row">
+              <span class="lab">
+                On launch
+                <small>Come back to the files you left open, or ask which to open</small>
+              </span>
+              <div class="seg" id="setReopen" role="radiogroup" aria-label="On launch">
+                <label>
+                  <input type="radio" name="pReopen" value="1" /><span>Reopen</span>
+                </label>
+                <label>
+                  <input type="radio" name="pReopen" value="0" /><span>Ask</span>
+                </label>
+              </div>
+            </div>
+            <div class="row">
+              <span class="lab">Files from Finder</span>
+              <div class="seg" id="setFinder" role="radiogroup" aria-label="Files from Finder">
+                <label>
+                  <input type="radio" name="pFinder" value="tab" /><span>New tab</span>
+                </label>
+                <label>
+                  <input type="radio" name="pFinder" value="window" /><span>New window</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h3>Reading</h3>
+          <div class="group">
+            <!-- The families are filled in from the fonts this machine
+                 actually has: naming one by hand means knowing how it is
+                 spelled, and being told nothing when you get it wrong. -->
+            <label class="row">
+              <span class="lab">Typeface</span>
+              <!-- A select has nowhere to draw a chevron of its own: it takes
+                   no pseudo-element. The wrapper exists to hold one. -->
+              <span class="popup">
+                <select id="setFont" class="select">
+                  <optgroup label="Built in">
+                    <option value="sans">System</option>
+                    <option value="serif">Serif</option>
+                    <option value="mono">Monospace</option>
+                  </optgroup>
+                </select>
+              </span>
+            </label>
+            <div class="row">
+              <span class="lab">Text size</span>
+              <span class="stepper" role="group" aria-label="Text size">
+                <button id="setSizeDown" class="step" type="button" aria-label="Smaller text">
+                  &#8722;
+                </button>
+                <output id="setSizeOut" class="step-out" aria-live="polite"></output>
+                <button id="setSizeUp" class="step" type="button" aria-label="Larger text">
+                  +
+                </button>
+              </span>
+            </div>
+            <div class="row">
+              <span class="lab">
+                Text width
+                <small id="setWidthHint"></small>
+              </span>
+              <div class="seg" id="setWidth" role="radiogroup" aria-label="Text width">
+                <label>
+                  <input type="radio" name="pWidth" value="narrow" /><span>Narrow</span>
+                </label>
+                <label>
+                  <input type="radio" name="pWidth" value="medium" /><span>Medium</span>
+                </label>
+                <label>
+                  <input type="radio" name="pWidth" value="wide" /><span>Wide</span>
+                </label>
+              </div>
+            </div>
+          </div>
+          <!-- All three rows above are about how the document looks, and the
+               honest answer to "how will it look" is to show it. Set from the
+               same two variables the document is, so it needs no script. -->
+          <p class="sample">Sphinx of black quartz, judge my vow — 0123456789.</p>
+        </section>
+
+        <section>
+          <h3>Changes</h3>
+          <div class="group">
+            <label class="row">
+              <span class="lab">
+                Show the change marks
+                <small>The bars in the margin, the ruler, and the count on the bar</small>
+              </span>
+              <span class="switch">
+                <input id="setMarks" type="checkbox" />
+                <span class="track" aria-hidden="true"></span>
+              </span>
+            </label>
+            <div class="row">
+              <span class="lab">
+                Compare against
+                <small>What a document opens on — the history overrides it</small>
+              </span>
+              <div class="seg" id="setBaseline" role="radiogroup" aria-label="Compare against">
+                <label>
+                  <input type="radio" name="pBaseline" value="read" /><span>Last read</span>
+                </label>
+                <label>
+                  <input type="radio" name="pBaseline" value="git" /><span>git HEAD</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section data-shell>
+          <h3>History</h3>
+          <div class="group">
+            <div class="row">
+              <span class="lab">
+                Where versions are kept
+                <small>Every version of every file it has seen, outside your project</small>
+              </span>
+              <button id="setReveal" class="btn" type="button">Reveal in Finder</button>
+            </div>
+            <div class="row">
+              <span id="setStore" class="path"></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- Which copy this is, and whether there is a newer one. Checked only
+             when asked — this button, or Check for Updates… in the app menu —
+             and answered here rather than in a dialog of its own. The second
+             row is the answer when there is something to do about it: a
+             command for a Homebrew install, a download for a dragged one. -->
+        <section id="aboutSec" data-shell>
+          <h3>About</h3>
+          <div class="group">
+            <div class="row">
+              <span class="lab">
+                Redline <span id="setVersion"></span>
+                <small id="updateNote">Checks only when you ask, and sends nothing about you</small>
+              </span>
+              <button id="checkUpdate" class="btn" type="button">Check for Updates</button>
+            </div>
+            <div id="updateRow" class="row" hidden>
+              <code id="updateCmd" class="path"></code>
+              <button id="updateGo" class="btn" type="button"></button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="sheet-foot">
+        <button id="prefsDone" class="btn">Done</button>
+      </div>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
