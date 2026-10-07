@@ -1,0 +1,67 @@
+# Publish the landing page in site/ to Cloudflare Pages.
+#
+# Its own workflow rather than a job in bundle.yml, because it shares nothing
+# with it: the site is hand-written HTML with no toolchain to install, on the
+# runner that bills at a tenth of the Mac's, and wanting one is no reason to pay
+# for the other.
+#
+# Before the first run this needs two repository secrets -- Settings, Secrets
+# and variables, Actions:
+#
+#   CLOUDFLARE_API_TOKEN     a token with the "Cloudflare Pages: Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID    Workers & Pages, in the sidebar on the right
+#
+# and the Pages project itself, which wrangler will not create for you from CI:
+#
+#   npx wrangler pages project create redline --production-branch=main
+name: Pages
+
+# By hand only. The page changes rarely and deploys in under a minute, but a
+# private repo's minutes are metered all the same, and a deploy nobody asked
+# for is the one minute that buys nothing. So publishing is a decision: after a
+# change to site/, docs/images (build:site copies the screenshots in) or a
+# version bump in package.json (build:site writes it into the download button),
+# press Run workflow.
+on:
+  workflow_dispatch:
+
+# A second run lands a second deploy on the same hostname, and the first one's
+# answer stops mattering the moment it does. Not cancelled in progress, though:
+# a half-finished upload is a worse thing to leave behind than a wasted minute.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy to Cloudflare Pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # No `npm ci`: build:site is node's own fs and nothing else, and the
+      # landing page has no dependencies to install. The dependency tree in this
+      # repository belongs to the reader, not to this page.
+      #
+      # It also fails the run if the page points at a file that is not there,
+      # which is the only check available for a page with no browser to open it
+      # in -- see the comment at the top of the script.
+      - name: Stage the screenshots and the icon
+        run: npm run build:site
+
+      # The directory and the project name both come from wrangler.toml, so
+      # there is one place that says what is being deployed and where.
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy --branch=main

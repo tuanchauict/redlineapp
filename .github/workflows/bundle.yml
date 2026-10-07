@@ -1,0 +1,286 @@
+# Build the dmg, and on a release, publish it.
+#
+# Started by hand and by nothing else. Every run is billed: this repo is
+# private, so Actions minutes are metered, and this job is macOS -- ten times a
+# Linux minute -- doing an LTO compile of a size-tuned profile, twice over for
+# a universal binary. When it ran on every push and pull request it spent the
+# allowance proving things nobody had asked about yet, so it now runs when
+# somebody wants an answer, and costs what that one answer costs.
+#
+# There is no test job any more, here or anywhere: `npm test` runs on the Mac
+# the change was written on, before the pull request -- see the
+# `redline-shipping` skill. The landing page deploys from pages.yml, also by
+# hand.
+#
+#   Run workflow on a branch     a dmg as an artifact, universal if ticked
+#   Run workflow on a `v*` tag   universal, signed, notarized, attached to a
+#                                GitHub release, and the Homebrew cask pointed
+#                                at it
+#   Run workflow, Deploy ticked  the same release, versioned from package.json
+name: Bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      # Off by default because the one-arch build is half the compile, and
+      # proves the same things: the release profile builds and the bundle
+      # assembles. Tick it when the dmg is going to a Mac that is not knowable
+      # from here. A tag ignores it -- a release is always universal, because
+      # the filename on the release says so.
+      universal:
+        description: 'Universal binary (Intel and Apple silicon), twice the compile'
+        type: boolean
+        default: false
+      # A release without a tag to start it from: a tagged run that failed
+      # partway, or a rebuild of the version already out. Off by default,
+      # because it overwrites the dmg the cask points at and tells every
+      # running copy about it -- the one thing here that is not just an
+      # artifact. Implies Universal, since the filename on the release says so.
+      deploy:
+        description: 'Deploy: publish a GitHub release, update the Homebrew tap and latest.json'
+        type: boolean
+        default: false
+
+# Two runs on the same ref want the same dmg, and the bundle is minutes of LTO
+# compile. The newer one is the one somebody is waiting for.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: bundle (macOS)
+    runs-on: macos-latest
+    env:
+      # 'true' or 'false', as a string -- which is what the steps compare to.
+      RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.deploy }}
+      BUNDLE_ARGS: >-
+        ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.deploy || inputs.universal)
+        && '-- --universal' || '' }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # The runner is Apple silicon and ships a toolchain, so only the other
+      # half of a universal binary has to be asked for -- and only when one is
+      # being built. Idempotent, so the condition is about the download, not
+      # about correctness.
+      - name: Add the Intel target
+        if: env.BUNDLE_ARGS != ''
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      # Keyed on the lockfile alone, so there is one entry per set of
+      # dependencies rather than one per commit. `shell/target` is in it on
+      # purpose and it is not small: the release profile is `opt-level = "z"`
+      # with LTO and one codegen unit, twice over for a universal build, which
+      # is minutes of compile to save and seconds of cache to restore.
+      #
+      # A cache is scoped to the ref that wrote it, and every ref can read the
+      # default branch's but no other branch's. With nothing running on pushes
+      # any more, a run on `main` is the only thing that leaves a cache every
+      # branch and tag can start from -- so a release run is fastest straight
+      # after one there.
+      - name: Cache the Rust build
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            shell/target
+          key: cargo-release-${{ runner.os }}-${{ hashFiles('shell/Cargo.lock') }}
+          restore-keys: cargo-release-${{ runner.os }}-
+
+      - run: npm ci
+
+      # One step: a hand-started run always has the secrets, so there is no
+      # unsigned variant to branch into. `scripts/bundle.mjs` takes the identity from the
+      # environment and patches it over the ad hoc `-` in tauri.conf.json;
+      # Tauri notarizes on its own once it finds the credentials, and the
+      # script says at the end which of the two it did. With none of them set
+      # it signs ad hoc and still produces a dmg, so a fork of this repo
+      # without them is not a red tick.
+      #
+      # `npm run bundle` stages the page itself -- the app embeds its copy at
+      # compile time, and the script runs both staging steps rather than
+      # trusting a hook, so there is no way to get a stale one.
+      - name: Bundle
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run bundle ${{ env.BUNDLE_ARGS }}
+
+      # The dmg and not the .app: the app is inside it, and a disk image
+      # survives being zipped and unzipped by the artifact store with its
+      # permissions and its symlinks intact, which an .app does not. A
+      # notarization ticket is stapled into the bundle, so it survives the
+      # round trip too -- which is the point of stapling rather than leaving
+      # Gatekeeper to ask Apple at launch.
+      #
+      # Named for what it is, because the two are not interchangeable and the
+      # name is all anyone sees before they download it.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.BUNDLE_ARGS != '' && 'Redline-universal-dmg' || 'Redline-arm64-dmg' }}
+          path: dist/*.dmg
+          if-no-files-found: error
+
+
+      # A hand-started deploy has no tag to read, so its version is
+      # package.json's -- the one build:site writes into the landing page's
+      # download link, so the two name the same file. A tag that disagrees
+      # with package.json would publish a dmg the page does not link to, so it
+      # is refused here, before anything is published. Worked out where the
+      # checkout is and handed on as an output, so one place decides it.
+      - name: Name the release
+        id: name
+        if: env.RELEASE == 'true'
+        run: |
+          set -eu
+          version=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but package.json says $version"
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+    outputs:
+      version: ${{ steps.name.outputs.version }}
+
+  # A run started on a tag, or with Deploy ticked, is a release, and the one
+  # case an artifact isn't enough: that store needs a GitHub login to fetch
+  # from, and a Homebrew cask downloads over plain HTTPS with none. A release
+  # asset on a public repository is exactly that, with nothing to run or pay
+  # for beside it -- and it is where somebody reading the source looks for
+  # the binary anyway.
+  #
+  # A job of its own, on Linux, for two reasons. It is the only part of the
+  # run that writes -- a release on this repository, a commit on the tap --
+  # and in a job of its own that permission and TAP_REPO_TOKEN are never in
+  # reach of the `npm ci` and the Apple credentials above. And none of it
+  # needs a Mac: it is gh, git and perl.
+  release:
+    name: release
+    needs: bundle
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.bundle.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # The cask and latest.json both name github.com/tuanchauict/redlineapp,
+      # so a release made from anywhere else -- a fork, or the private
+      # repository this one was published out of -- would point every install
+      # at a file that is not there. Refused loudly rather than skipped, so a
+      # ticked Deploy never looks as though it worked.
+      - name: Only from redlineapp
+        run: |
+          if [ "$GITHUB_REPOSITORY" != tuanchauict/redlineapp ]; then
+            echo "::error::releases go out from tuanchauict/redlineapp, not $GITHUB_REPOSITORY"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: Redline-universal-dmg
+          path: dist
+
+      # Renamed to the versioned filename the landing page and the cask both
+      # build -- Tauri's own name for it is not one anybody chose. The hash is
+      # computed once, here, and handed to the cask step rather than recomputed
+      # there, so the two cannot disagree.
+      - name: Stage the release files
+        run: |
+          set -eu
+          name="Redline-${VERSION}-universal.dmg"
+          mv dist/*.dmg "$name"
+          sha256sum "$name" | awk '{print $1}' > "$name.sha256"
+          # What Check for Updates… in the app reads (cmds::check_update in
+          # shell/src/cmds.rs), by way of releases/latest/download/ -- so it
+          # is attached to every release, and the copy that is read is the
+          # one on whichever release is marked Latest.
+          url="https://github.com/tuanchauict/redlineapp/releases/download/v${VERSION}/${name}"
+          printf '{"version":"%s","url":"%s"}\n' "$VERSION" "$url" > latest.json
+          echo "dmg_name=${name}" >> "$GITHUB_ENV"
+          echo "dmg_sha256=$(cat "$name.sha256")" >> "$GITHUB_ENV"
+
+      # Published -- the dmg has to be downloadable before the cask names it --
+      # but not yet marked Latest. Latest is what the app's releases/latest/
+      # URL resolves to, so marking it is the claim that the release exists,
+      # and that waits for the cask: a Homebrew copy told to `brew upgrade`
+      # before the cask was pushed would be told about a version brew has not
+      # heard of.
+      #
+      # A release that is already there is a re-run, or a Deploy over the
+      # version already out, and its files are replaced in place: a rebuild
+      # has a new hash, and the cask is about to say so. On a tag run the tag
+      # exists; on a Deploy, `--target` makes it at the commit that was built.
+      - name: Publish the release, not yet Latest
+        run: |
+          set -eu
+          if gh release view "v${VERSION}" > /dev/null 2>&1; then
+            gh release upload "v${VERSION}" "$dmg_name" "$dmg_name.sha256" latest.json --clobber
+          else
+            gh release create "v${VERSION}" "$dmg_name" "$dmg_name.sha256" latest.json \
+              --target "$GITHUB_SHA" --title "Redline ${VERSION}" --generate-notes --latest=false
+          fi
+          echo "Published https://github.com/${GH_REPO}/releases/download/v${VERSION}/${dmg_name}"
+
+      # The cask is what a stranger's `brew install` actually reads, and it is
+      # the one piece of this release that lives outside this repository --
+      # homebrew-tap is unrelated git history, so a PAT that can push to it is
+      # the only way in. Cloned, edited with the tools already on the runner
+      # and pushed, rather than pulled in as an action, because the edit is
+      # three substitutions and a commit.
+      #
+      # The `url` line is rewritten too, to the one place releases are
+      # published, so the cask cannot go on naming wherever the dmg used to
+      # be. Only the first `url`, so a `livecheck` block keeps its own.
+      #
+      # On every release, Deploy included: a rebuild uploaded under a filename
+      # already out has a new hash, and a cask still holding the old one fails
+      # every `brew install` with a checksum mismatch. A re-run of this job
+      # alone finds the cask already right, and says so instead of failing on
+      # an empty commit.
+      - name: Update the Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_REPO_TOKEN }}
+        run: |
+          set -eu
+          git clone --depth 1 \
+            "https://x-access-token:${TAP_TOKEN}@github.com/tuanchauict/homebrew-tap.git" tap
+          cask="tap/Casks/redline.rb"
+          # perl rather than sed: `sed -i` is spelt differently on Linux and
+          # on the Mac this was written on, and "only the first match in the
+          # file" is a GNU-only address in sed but plain `-0` and no `/g` here.
+          releases='https://github.com/tuanchauict/redlineapp/releases/download'
+          export URL="${releases}/v#{version}/Redline-#{version}-universal.dmg"
+          perl -pi -e 's/version "[^"]+"/version "$ENV{VERSION}"/' "$cask"
+          perl -pi -e 's/sha256 "[^"]+"/sha256 "$ENV{dmg_sha256}"/' "$cask"
+          perl -0pi -e 's/^([ \t]*)url "[^"]+"/$1url "$ENV{URL}"/m' "$cask"
+          if git -C tap diff --quiet; then
+            echo "The cask already names ${VERSION} with this hash"
+          else
+            git -C tap -c user.name="github-actions[bot]" \
+              -c user.email="github-actions[bot]@users.noreply.github.com" \
+              commit -am "Update redline to ${VERSION}"
+            git -C tap push
+          fi
+
+      # Last, and on its own: from here, releases/latest/download/latest.json
+      # names this version, and every copy that asks is told about it.
+      - name: Mark the release Latest
+        run: gh release edit "v${VERSION}" --latest
