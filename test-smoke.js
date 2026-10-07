@@ -2118,12 +2118,12 @@ assert.ok(
 );
 console.log('✓ a document opened from Finder outlives the launch it arrives during');
 
-// --- 15. the bundle is built when asked, and nothing runs unasked ---------
+// --- 15. CI runs the suite on every change, and builds the dmg ------------
 // The same reason everything above greps `public/` for its wiring: a check that
 // exists and is never reached is worse than no check, because it reads as
-// coverage. A workflow is exactly that shape. So this file asserts the step
-// that builds the thing you would hand somebody, and where it leaves it.
-const ci = fs.readFileSync(new URL('./.github/workflows/bundle.yml', import.meta.url), 'utf8');
+// coverage. A workflow is exactly that shape. So this file asserts what runs,
+// on what, and where it leaves the thing you would hand somebody.
+const ci = fs.readFileSync(new URL('./.github/workflows/ci.yml', import.meta.url), 'utf8');
 const pagesYml = fs.readFileSync(
   new URL('./.github/workflows/pages.yml', import.meta.url),
   'utf8',
@@ -2131,51 +2131,103 @@ const pagesYml = fs.readFileSync(
 assert.match(ci, /path: dist\/\*\.dmg/, 'the dmg is kept where bundle.mjs leaves it');
 assert.match(ci, /if-no-files-found: error/, 'loudly, rather than uploading nothing');
 
-// What runs, and when, which is a cost decision and therefore the kind of thing
-// that creeps back. This repo is private, so Actions minutes are metered and a
-// macOS minute bills at ten times a Linux one; every run is now one somebody
-// asked for. Each narrowing is asserted, because all of them fail *upwards* --
-// undo one and nothing goes red, the bill just goes up, which is the slowest
-// possible way to find out.
+const workflows = fs.readdirSync(new URL('./.github/workflows/', import.meta.url));
+assert.deepStrictEqual(workflows.sort(), ['ci.yml', 'pages.yml'], 'two workflows, no more');
 const triggers = (yml) => yml.match(/^on:\n([\s\S]*?)\n(?=\S)/m)?.[1] ?? '';
-for (const [name, yml] of [['bundle.yml', ci], ['pages.yml', pagesYml]]) {
-  const on = triggers(yml);
-  assert.match(on, /^ {2}workflow_dispatch:/m, `${name} can be started by hand`);
-  assert.deepStrictEqual(
-    on.match(/^ {2}[a-z_]+:/gm),
-    ['  workflow_dispatch:'],
-    `and ${name} by nothing else -- no push, no pull request, no tag`,
+const onEvents = (yml) => triggers(yml).match(/^ {2}[a-z_]+:/gm);
+// Every change is tested, because a check that runs only when somebody thinks
+// to start it is the check that did not run on the change that broke things.
+assert.deepStrictEqual(
+  onEvents(ci),
+  ['  push:', '  pull_request:', '  workflow_dispatch:'],
+  'ci.yml runs on a push, a pull request, and by hand',
+);
+assert.match(triggers(ci), /branches: \[main\]/, 'a push to main');
+assert.match(triggers(ci), /tags: \['v\*'\]/, 'or of a version tag');
+// The one trigger that must never appear: `pull_request_target` runs a fork's
+// code with the repository's secrets and a write token. Comments may name it.
+const ciCode = ci.replace(/^\s*#.*$/gm, '');
+const pagesCode = pagesYml.replace(/^\s*#.*$/gm, '');
+for (const [name, code] of [['ci.yml', ciCode], ['pages.yml', pagesCode]]) {
+  assert.doesNotMatch(code, /pull_request_target/, `${name} never hands a fork the secrets`);
+}
+
+assert.deepStrictEqual(
+  ci.slice(ci.indexOf('\njobs:')).match(/^ {2}[a-z]+:$/gm),
+  ['  test:', '  bundle:', '  release:'],
+  'the suite, the dmg, and the release',
+);
+const testJob = ciCode.slice(ciCode.indexOf('\n  test:'), ciCode.indexOf('\n  bundle:'));
+const bundleJob = ciCode.slice(ciCode.indexOf('\n  bundle:'), ciCode.indexOf('\n  release:'));
+const releaseJob = ciCode.slice(ciCode.indexOf('\n  release:'));
+// Both platforms: the font checks only really run on the Mac, and the Linux leg
+// is what notices a macOS assumption in code meant to be portable.
+assert.match(testJob, /os: \[ubuntu-latest, macos-latest\]/, 'the suite runs on Linux and macOS');
+assert.match(testJob, /fail-fast: false/, 'and one leg failing does not hide the other');
+assert.match(testJob, /run: npm test/, 'it is the suite');
+assert.match(testJob, /run: cargo test --locked/, "and the shell's own tests");
+assert.match(testJob, /working-directory: shell/, 'run where the shell is');
+assert.doesNotMatch(testJob, /secrets\./, 'with no secret in reach of the code under test');
+assert.deepStrictEqual(
+  ciCode.match(/needs: .*/g),
+  ['needs: test', 'needs: bundle'],
+  'a dmg only from a reader that passed, a release only from that dmg',
+);
+
+// A pull request from a fork runs a stranger's code. GitHub withholds secrets
+// from it anyway, but the workflow should not be relying on that: no step a
+// pull request can reach is handed the Apple credentials.
+const steps = (job) => job.split(/\n {6}- /).slice(1);
+const bundleSteps = steps(bundleJob);
+assert.doesNotMatch(
+  bundleJob.slice(0, bundleJob.indexOf('\n    steps:')),
+  /secrets\./,
+  'the bundle job puts no secret in its own env, where every step would see it',
+);
+const signed = bundleSteps.filter((step) => /secrets\.APPLE_/.test(step));
+assert.ok(signed.length, 'some step signs');
+for (const step of signed) {
+  assert.match(
+    step,
+    /if: github\.event_name != 'pull_request'/,
+    'and only off a pull request',
   );
 }
-const workflows = fs.readdirSync(new URL('./.github/workflows/', import.meta.url));
-assert.deepStrictEqual(workflows.sort(), ['bundle.yml', 'pages.yml'], 'and there are only two');
-// No test leg and no debug compile: `npm test` is the author's, before the PR.
-// The release is a second job, behind the bundle and only for a release; what
-// may not come back is a job in *front* of it.
-assert.deepStrictEqual(
-  ci.match(/^ {2}[a-z]+:$/gm),
-  ['  bundle:', '  release:'],
-  'the bundle, and the release that waits on it',
-);
-const ciCode = ci.replace(/^\s*#.*$/gm, '');
-assert.doesNotMatch(ciCode, /npm test|cargo build/, 'with nothing in front of it');
-assert.deepStrictEqual(ciCode.match(/needs: .*/g), ['needs: bundle'], 'and nothing it waits on');
+const adhoc = bundleSteps.filter((step) => /if: github\.event_name == 'pull_request'/.test(step));
+assert.strictEqual(adhoc.length, 1, 'a pull request gets a dmg of its own');
+assert.doesNotMatch(adhoc[0], /secrets\./, 'signed ad hoc, with nothing to sign with');
 assert.strictEqual(
-  ci.match(/^\s+run: npm run bundle/gm).length,
-  1,
-  'one bundle step rather than a cheap one and an expensive one',
+  ci.match(/^\s+run: npm run bundle \$\{\{ env\.BUNDLE_ARGS \}\}$/gm).length,
+  2,
+  'the two are one command, and the arch is a variable both read',
 );
-// Universal when it was asked for, and always for a release, whose filename on
-// the release says universal. Off by default: one arch is half the compile and proves
-// the same two things -- the release profile builds and the bundle assembles.
-assert.match(ci, /run: npm run bundle \$\{\{ env\.BUNDLE_ARGS \}\}/, 'the arch is a variable');
+// Universal for anything that is not a hand-started run: the artifact has to
+// run on whichever Mac it lands on, and a release's filename says universal.
+// By hand it is off unless ticked -- one arch is half the compile and proves
+// the same two things, the release profile builds and the bundle assembles.
 const universal = ci.match(/BUNDLE_ARGS: >-\n([\s\S]*?)\n {4}steps:/);
 assert.ok(universal, 'set once at the job level, where the condition can be read');
-assert.match(universal[1], /refs\/tags\/v/, 'universal for a release');
-assert.match(universal[1], /inputs\.universal/, 'and when the run asked for it');
+assert.match(universal[1], /github\.event_name != 'workflow_dispatch'/, 'universal unless by hand');
+assert.match(universal[1], /inputs\.deploy/, 'or for a release by hand');
+assert.match(universal[1], /inputs\.universal/, 'or when the run asked for it');
 assert.match(universal[1], /'-- --universal' \|\| ''/, 'and one architecture otherwise');
 assert.match(ci, /universal:\n(\s+[^\n]*\n)*?\s+type: boolean\n\s+default: false/, 'unticked');
 assert.match(ci, /key: cargo-release-/, 'the release build is cached');
+assert.match(ci, /key: cargo-test-/, 'and the test build, apart from it');
+
+// The landing page deploys on its own, and only from what it is built from.
+const pagesOn = triggers(pagesYml);
+assert.deepStrictEqual(
+  onEvents(pagesYml),
+  ['  push:', '  workflow_dispatch:'],
+  'pages.yml runs on a push or by hand',
+);
+assert.match(pagesOn, /branches: \[main\]/, 'to main');
+assert.match(pagesOn, /paths:\n\s+- 'site\/\*\*'/, 'that touches site/');
+assert.match(pagesOn, /- 'docs\/images\/\*\*'/, 'or the screenshots it copies in');
+// Not on the version bump: the download button would name a dmg the release
+// job has not uploaded yet. That job starts the deploy itself, once it has.
+assert.doesNotMatch(pagesOn, /package\.json/, 'but not on a version bump');
 
 // Signing, which is a thing that fails quietly in the direction of looking
 // fine: an app signed and not notarized is refused by Gatekeeper exactly like
@@ -2204,7 +2256,7 @@ assert.ok(
 for (const secret of ['APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_TEAM_ID']) {
   assert.ok(ci.includes(`secrets.${secret}`), `CI hands the build ${secret}`);
 }
-console.log('✓ CI is two workflows, both started by hand, and the bundle is one of them');
+console.log('✓ CI tests every change on two OSes, and signs only what a fork cannot reach');
 
 // The dev loop, which is the one piece of tooling here whose failure mode is
 // that it quietly stops saving you anything. `npm run dev` is worth having only
@@ -2253,8 +2305,6 @@ console.log('✓ the dev loop serves the page instead of embedding it, and shuts
 // can't do. So the dmg goes onto a GitHub release, which `curl` can reach
 // without credentials -- and only then, never from a branch somebody wanted a
 // dmg of.
-const bundleJob = ciCode.slice(ciCode.indexOf('\n  bundle:'), ciCode.indexOf('\n  release:'));
-const releaseJob = ciCode.slice(ciCode.indexOf('\n  release:'));
 assert.match(
   releaseJob,
   /if: startsWith\(github\.ref, 'refs\/tags\/v'\) \|\| inputs\.deploy/,
@@ -2268,6 +2318,7 @@ assert.match(releaseJob, /GITHUB_REPOSITORY" != tuanchauict\/redlineapp/, 'from 
 // `npm ci` beside the Apple credentials, and a write token there would be in
 // reach of every install script in the tree.
 assert.match(releaseJob, /permissions:\n\s+contents: write/, 'the release job may write');
+assert.strictEqual(ciCode.match(/contents: write/g).length, 1, 'and no other job may');
 assert.match(releaseJob, /runs-on: ubuntu-latest/, 'and needs no Mac to');
 assert.doesNotMatch(bundleJob, /contents: write|TAP_REPO_TOKEN/, 'the bundle job holds neither');
 assert.doesNotMatch(ci, /R2_|r2\.cloudflarestorage|dl\.iamtuna\.org/, 'and nothing goes to R2');
@@ -2297,6 +2348,13 @@ assert.ok(
   ci.indexOf('gh release edit "v${VERSION}" --latest') > ci.indexOf('git -C tap push'),
   'and is marked only after the cask is pushed',
 );
+// The landing page links this version's dmg, so it is redeployed from here,
+// once the dmg is up and Latest -- not on the version bump, which comes first.
+assert.ok(
+  ci.indexOf('gh workflow run pages.yml') > ci.indexOf('gh release edit "v${VERSION}" --latest'),
+  'and the landing page is redeployed only after that',
+);
+assert.match(releaseJob, /actions: write/, 'which the release job is allowed to start');
 assert.match(ci, /latest\.json --clobber/, 'with a latest.json attached to every release');
 assert.match(ci, /printf '\{"version":"%s","url":"%s"\}\\n' "\$VERSION" "\$url"/,
   'naming the version and the dmg it can be fetched from');
