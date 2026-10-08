@@ -197,6 +197,9 @@ keeps your choice and the setting stops applying to it. Changing the setting sti
 takes effect at once on the document in front of you, which is also how you put a
 file back on `read`: click the row that carries the `read` mark.
 
+To read a version as it was rather than the file marked against it, switch History
+to [reading a version by itself](history.md#reading-a-version-by-itself) (`v`).
+
 Forgetting the version you were comparing against — with the **cut icon** on its row,
 or **Clear history** — forgets the choice with it, and the file falls back rather
 than pointing at something that is no longer there.

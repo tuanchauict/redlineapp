@@ -139,6 +139,12 @@ implementation and it runs wherever the page is.
 the page has to tell those apart: one renders plainly, the other marks the whole
 file as added.
 
+[Reading a version by itself](history.md#reading-a-version-by-itself) is the
+same payload rendered another way: `adopt` renders `base` plainly instead of `text`
+against it, and takes the bar's title from `text` with `titleOf`. The reader is not
+asked anything new, which is why the switch is a page state (`state.solo`) and not
+a baseline name.
+
 A baseline is named by a string: `read` (the store's own pointer, the default),
 `git:HEAD`, `snap:<hash>` for a particular version, or `none` for no comparison at
 all. `validBaseline` downgrades a name the store can no longer honour — a pruned

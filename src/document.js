@@ -60,3 +60,13 @@ export function renderDocument(md, current, base, checked = {}) {
     title: documentTitle(md, current, toc),
   };
 }
+
+/**
+ * What `src` calls itself, on its own. For the page reading one version by
+ * itself: the article is that version, but the bar still names the file as it
+ * is now, so a window does not change its title under you as you step back
+ * through its history.
+ */
+export function titleOf(md, src) {
+  return documentTitle(md, src, outline(md, src));
+}

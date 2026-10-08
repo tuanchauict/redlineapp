@@ -1,4 +1,4 @@
-import { createMarkdown, renderDocument } from './vendor/render.js';
+import { createMarkdown, renderDocument, titleOf } from './vendor/render.js';
 import { sanitizeDocument, sanitizeSvg } from './vendor/sanitize.js';
 import { createBackend } from './backend.js';
 
@@ -60,6 +60,12 @@ const state = {
   // concern only: the baseline keeps tracking, so turning them back on costs
   // no round trip and nothing is forgotten in between.
   diff: localStorage.getItem('redline:diff') !== '0',
+  // Read the chosen version by itself rather than the file marked against it.
+  // A mode rather than a click, so stepping down the history reads each row in
+  // turn until it is switched off. Not remembered across a restart, on purpose:
+  // a window that opened on last week's text with no marks would look exactly
+  // like the file as it is now.
+  solo: false,
   baseline: 'read',
   data: null,
   changeIndex: -1,
@@ -125,7 +131,13 @@ const md = createMarkdown();
  */
 function adopt(data) {
   const checked = { keys: data.acked, from: data.ackedFrom };
-  state.data = Object.assign(data, renderDocument(md, data.text, data.base, checked));
+  // Reading one version by itself is the same payload rendered differently:
+  // the version chosen in the history is already here as `base`, so it costs
+  // no request and the reader keeps no second notion of what is chosen.
+  const rendered = state.solo
+    ? { ...renderDocument(md, soloText(data), null), title: titleOf(md, data.text) }
+    : renderDocument(md, data.text, data.base, checked);
+  state.data = Object.assign(data, rendered);
   // The id is assigned by the reader when this page did not name one.
   setDocId(data.id);
   // The baseline asked for is not always the one that could be honoured — a
@@ -146,6 +158,28 @@ async function load({ keepScroll = true } = {}) {
   adopt(data);
   paint();
   if (keepScroll) pane.scrollTo(0, y);
+}
+
+/**
+ * The text on the page while reading one version by itself: the version the
+ * history has filled in. With the marks off that is the newest row — the file
+ * as it is — so the filled row is always the text on screen. A baseline that
+ * could not be read leaves nothing older to show, and the file is shown.
+ */
+const soloText = (data) => (state.diff ? (data.base ?? data.text) : data.text);
+
+/**
+ * Draw the payload already held over again, for a switch that changes what is
+ * drawn from it rather than what it is. The pixel offset is kept, as `load`
+ * keeps it: the text being swapped in is another version, so no node in the old
+ * one is there to anchor on.
+ */
+function rerender() {
+  if (!state.data) return;
+  const y = pane.scrollTop;
+  adopt(state.data);
+  paint();
+  pane.scrollTo(0, y);
 }
 
 function paint() {
@@ -185,6 +219,7 @@ function paint() {
   applyAcks();
   paintHistory(d);
   paintToc(d);
+  paintSolo(d);
   paintCount();
   paintRuler();
   state.changeIndex = -1;
@@ -1165,6 +1200,9 @@ function paintHistory(d) {
 
   $('histCount').textContent = versions.length > 1 ? String(versions.length) : '';
   $('histClear').hidden = versions.length < 2;
+  // Nothing older to read with one version — but never hidden while on, or it
+  // could not be found again to switch off.
+  $('histSolo').hidden = versions.length < 2 && !state.solo;
   if (!state.tocSide) return;
 
   if (versions.length < 2) {
@@ -1178,13 +1216,17 @@ function paintHistory(d) {
   );
 }
 
+/**
+ * A committed version is better named by its commit than by our hash of its
+ * bytes: the subject is what the person who wrote it chose to call it. One that
+ * was only ever saved has no such name, so it is called when it was.
+ */
+const versionName = (v) => (v.git ? v.git.subject || 'Commit' : clockName(v.ts));
+
 function versionRow(d, v, i) {
   const row = el('button', 'ver');
   row.type = 'button';
-  // A committed version is better named by its commit than by our hash of its
-  // bytes: the subject is what the person who wrote it chose to call it. One
-  // that was only ever saved has no such name, so it is called when it was.
-  const name = v.git ? v.git.subject || 'Commit' : clockName(v.ts);
+  const name = versionName(v);
   // Everything a 236 px column had to shorten: the whole of a subject, the
   // exact time behind both the clock above and the "9 hours ago" below, and
   // the hash that used to sit in the row itself — a row already carrying a
@@ -1241,8 +1283,11 @@ function versionRow(d, v, i) {
     state.pruneAsk = null;
     // Marks on first: picking a version to compare against and seeing nothing
     // marked would look like the click missed. It also keeps the scroll anchored
-    // across the blocks that hiding the marks had collapsed.
-    setMarks(true);
+    // across the blocks that hiding the marks had collapsed. Reading versions
+    // by themselves, it is what says "an older one" rather than the file — but
+    // not redrawn yet, or the version being left would flash up before the
+    // load below brings the one clicked.
+    setMarks(true, { redraw: false });
     // Named outright, which is also how the choice sticks: the reader keeps
     // the baseline it was asked for by name, and hands it back the next time
     // this document is opened. Nothing to store here.
@@ -1269,6 +1314,57 @@ function readDone(d) {
   const at = d?.history?.find((v) => v.baseline);
   return !at || at.current;
 }
+
+/**
+ * The older version on the page, while reading versions by themselves — null
+ * when what is on the page is the file as it is. The filled row is the one,
+ * so this asks the same question the row does rather than a second one that
+ * could disagree with it.
+ */
+function soloVersion(d) {
+  if (!state.solo || !state.diff || d?.base == null || d.base === d.text) return null;
+  return d.history?.find((v) => !v.current && isBaseline(d, v)) ?? null;
+}
+
+/**
+ * The switch in the History heading, and the name on the bar of the version on
+ * the page. The bar says it because nothing else would: with no marks and the
+ * sidebar shut, last week's text and this morning's look exactly alike.
+ */
+function paintSolo(d) {
+  const btn = $('histSolo');
+  btn.setAttribute('aria-pressed', String(state.solo));
+  btn.title = state.solo
+    ? 'Compare against the version picked again (v)'
+    : 'Read the version picked by itself, without the changes since (v)';
+  btn.setAttribute('aria-label', btn.title);
+
+  const v = soloVersion(d);
+  const tag = $('soloTag');
+  tag.hidden = !v;
+  if (!v) return;
+  $('soloName').textContent = versionName(v);
+  tag.title =
+    `Reading ${versionName(v)} by itself, not the file as it is now — ` +
+    'click for what changed since (v)';
+  tag.setAttribute('aria-label', tag.title);
+}
+
+/**
+ * On or off. Off, the version that was being read becomes the one compared
+ * against — it is already the baseline — so the way out of reading an old
+ * version is to see what has happened to it since.
+ */
+function setSolo(on) {
+  if (on === state.solo) return;
+  state.solo = on;
+  if (state.data) rerender();
+  else paintSolo(null);
+}
+
+const toggleSolo = () => setSolo(!state.solo);
+$('histSolo').addEventListener('click', toggleSolo);
+$('soloTag').addEventListener('click', () => setSolo(false));
 
 /**
  * Move the read mark to the version on disk. It is about the stored pointer
@@ -1432,7 +1528,7 @@ function paintCount() {
   const hasNav = state.diff && changeNodes().length > 0;
   $('prev').hidden = $('next').hidden = !hasNav;
   // It separates a pair; with nothing on its left it would be a line on its own.
-  $('divide').hidden = count.hidden && ack.hidden && !hasNav;
+  $('divide').hidden = count.hidden && ack.hidden && !hasNav && $('soloTag').hidden;
 }
 
 // ---------- change ruler ----------
@@ -2064,8 +2160,18 @@ function keepAnchored(fn) {
   }
 }
 
-function setDiff(on) {
+function setDiff(on, { redraw = true } = {}) {
   if (on === state.diff) return;
+  // Reading versions by themselves there are no marks to hide: the switch is
+  // which text is on the page, the version picked or the file — so it is a
+  // render, not a class. `redraw: false` is for a caller about to load anyway.
+  if (state.solo) {
+    state.diff = on;
+    localStorage.setItem('redline:diff', on ? '1' : '0');
+    applyMarks();
+    if (redraw) rerender();
+    return;
+  }
   keepAnchored(() => {
     state.diff = on;
     // The pre-paint mirror, so the marks never flash on for someone who
@@ -2090,9 +2196,9 @@ function setDiff(on) {
  * history, `d`, ⇧⌘D, or the Settings checkbox. It is remembered, so a document
  * opens the way you left the last one.
  */
-function setMarks(on) {
+function setMarks(on, opts) {
   if (on === state.diff) return;
-  setDiff(on);
+  setDiff(on, opts);
   writeSettings({ marks: on });
 }
 
@@ -2140,6 +2246,7 @@ document.addEventListener('keydown', (e) => {
   const key = e.key.toLowerCase();
   if (key === 'r') toggleView();
   else if (key === 'd') toggleDiff();
+  else if (key === 'v') toggleSolo();
   else if (key === 'n' || key === 'j') goToChange(1);
   else if (key === 'p' || key === 'k') goToChange(-1);
   else if (key === 'm') tapMarkRead();

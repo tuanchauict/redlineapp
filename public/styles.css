@@ -290,6 +290,34 @@ body {
   height: 11px;
 }
 
+/* The older version on the page, while versions are read by themselves. Filled
+   the way its row in the history is filled, so the two read as one choice; cut
+   short rather than shouldering the controls off the bar, because a commit
+   subject can be a whole sentence. */
+.count.solo {
+  gap: 5px;
+  min-width: 0;
+  max-width: 260px;
+  background: var(--sel);
+}
+
+@supports (color: AccentColor) {
+  .count.solo {
+    background: color-mix(in srgb, AccentColor 18%, transparent);
+  }
+}
+
+.count.solo .i {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+.solo-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---------- controls ---------- */
 
 /* Two kinds, as the system has them. A push button is bezeled and answers the
@@ -691,6 +719,43 @@ button:focus-visible,
 
 .side-twist[aria-expanded="true"] .i {
   transform: rotate(90deg);
+}
+
+/* A switch at the far end of a heading — History's "read the version by
+   itself". As quiet as the heading until it is on, then filled like any other
+   toggle that is on, since it changes what every row below it does. */
+.side-tog {
+  display: flex;
+  margin-left: auto;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+}
+
+.side-tog[hidden] {
+  display: none;
+}
+
+.side-tog:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.side-tog:active {
+  background: var(--press);
+}
+
+.side-tog[aria-pressed="true"] {
+  background: var(--sel);
+  color: var(--fg);
+}
+
+.side-tog .i {
+  width: 14px;
+  height: 14px;
 }
 
 /* Put away: the heading stays, everything under it goes, and the section stops
@@ -1513,8 +1578,9 @@ html:not(.native) [data-shell] {
   min-width: 0;
 }
 
+/* Not the version tag: it is the one thing saying the text is not the file. */
 @media (max-width: 620px) {
-  .native .count {
+  .native .count:not(.solo) {
     display: none;
   }
 }
