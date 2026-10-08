@@ -2820,20 +2820,24 @@ for (const key of ['⌘B', '⌥⌘B']) {
 // one thing on this page that goes stale on its own is the version it offers.
 // build:site is what refuses to stage a page naming a dmg that was never built;
 // this is the check that it still does.
+//
+// Not that the page as committed names package.json's version: build:site
+// overwrites it on every deploy, and holding the source to it would make every
+// bump touch site/ -- which deploys the page on merge, linking a dmg the release
+// job has not uploaded yet, the very thing pages.yml not watching package.json
+// is there to prevent. What the source must have is a link build:site can find.
 const buildSite = fs.readFileSync(new URL('./scripts/build-site.mjs', import.meta.url), 'utf8');
-const pkg = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const RELEASE_DOWNLOADS = 'https://github.com/tuanchauict/redlineapp/releases/download';
-const dmgHref = siteHtml.match(/href="(https:\/\/[^"]+\/Redline-(.+?)-universal\.dmg)"/);
+const dmgHref = siteHtml.match(/href="(https:\/\/[^"]+\/v(.+?)\/Redline-(.+?)-universal\.dmg)"/);
 assert.ok(dmgHref, 'the page offers the dmg over plain https');
-assert.strictEqual(dmgHref[2], pkg.version, 'at the version this package is');
+assert.strictEqual(dmgHref[2], dmgHref[3], 'from the release for the version it names');
 assert.ok(
   ci.includes(`Redline-\${VERSION}-universal.dmg`),
   'under the name the release step uploads',
 );
-assert.ok(
-  dmgHref[1].startsWith(`${RELEASE_DOWNLOADS}/v${pkg.version}/`),
-  'on the release for that version',
-);
+assert.ok(dmgHref[1].startsWith(`${RELEASE_DOWNLOADS}/v`), 'on a GitHub release of this repo');
+assert.match(buildSite, new RegExp(RELEASE_DOWNLOADS.replaceAll('.', '\\.')), 'the one build:site rewrites');
+assert.match(siteHtml, /<span class="dl-ver">[^<]+<\/span>/, 'with the version on the button');
 assert.ok(ci.includes(new URL(dmgHref[1]).host), 'from the host the release step prints');
 assert.match(buildSite, /pkg\.version/, 'and build:site writes the current one in rather than');
 assert.match(buildSite, /TAP\/redline/, 'trusting it, though it still refuses the tap placeholder');

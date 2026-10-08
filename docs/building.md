@@ -514,6 +514,13 @@ build, not two strings kept in step by eye across two files. It still fails loud
 if the button or its version span is missing outright, rather than guessing at a
 page that no longer has one.
 
+It writes into `site/index.html` in place, so a local `npm run site` leaves that file
+modified with the new version. **Don't commit that with a bump.** A change under `site/`
+deploys the page on merge, and the release that dmg belongs to does not exist yet;
+the release job deploys it once it does. The committed page can name an older
+version for as long as it likes, and the suite only checks that the link is one
+`build:site` can find.
+
 The page names the real tap, `tuanchauict/tap/redline`, in both the hero and the
 install band, and [Publishing a release](#publishing-a-release) is what keeps the
 cask behind that name current on every release. `build:site` still refuses to

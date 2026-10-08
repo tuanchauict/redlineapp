@@ -1,6 +1,6 @@
 {
   "name": "redline",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Minimal GitHub-style markdown reader with review-mode change highlighting and live reload",
   "license": "Apache-2.0",
   "author": "Tuan Chau",
