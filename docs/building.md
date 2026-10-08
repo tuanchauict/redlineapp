@@ -314,23 +314,30 @@ finished state on purpose — so what you get is a page that looks right while t
 theme toggle, the copy buttons, the scroll reveal and all five animations are
 silently dead. That failure looks exactly like the script being broken. Serve it.
 
-`build:site` copies `assets/icon.svg` to `site/icon.svg`, and out of `docs/images/`
-only the files the page actually names — which is one, `hero.png`, for the `og:image`.
-Both destinations are **gitignored**, for the same reason `public/vendor/` is: they
-are bytes this repository already has, and a second copy is a second thing to
-remember to update. The script fails if the page points at a local file that is not
-there, which is the only check available for a page with no browser in this
-repository to open it in. It reads `content=` as well as `src=` and `href=`, because
-the `og:image` is a reference nothing here or in any browser would ever report
-broken — the only thing that resolves it is somebody else's link preview.
+`build:site` copies `assets/icon.svg` and `assets/icon.png` into `site/`: the svg is
+the favicon and the two marks on the page, the png is the `og:image`. Both are
+**gitignored**, for the same reason `public/vendor/` is: they are bytes this
+repository already has, and a second copy is a second thing to remember to update.
+The script fails if the page points at a local file that is not there, which is the
+only check available for a page with no browser in this repository to open it in.
+It reads `content=` as well as `src=` and `href=`, because the `og:image` is a
+reference nothing here or in any browser would ever report broken — the only thing
+that resolves it is somebody else's link preview.
 
-That `og:image` is written **absolute**, `https://redline.iamtuna.org/images/hero.png`.
-The Open Graph spec asks for a full URL and an unfurler does not resolve a relative one
-against the page: with `images/hero.png` Slack drew the title and description next to
-an empty grey box. `build:site` strips the site's own origin back off to find the file
-to copy, and refuses a page whose `og:image` is not absolute on that origin.
+The `og:image` is the **app icon**, not a screenshot. It used to be `hero.png`, and a
+screenshot of the reader goes stale with every change to the reader. A png, because
+no unfurler draws an svg; and a `summary` Twitter card rather than
+`summary_large_image`, because the icon is square and the large card crops it to a
+wide strip.
+
+It is written **absolute**, `https://redline.iamtuna.org/icon.png`. The Open Graph
+spec asks for a full URL and an unfurler does not resolve a relative one against the
+page: with a relative path Slack drew the title and description next to an empty
+grey box. `build:site` strips the site's own origin back off to find the file, and
+refuses a page whose `og:image` is not absolute on that origin.
 `og:image:width` / `height` are given so a preview can lay out the card before it has
-fetched the image — regenerate `hero.png` at a different size and change them too.
+fetched the image. The suite reads them against the png's own header, so an icon
+re-rendered at another size fails it until they are changed too.
 
 ### Nothing on it is a screenshot
 
@@ -547,7 +554,7 @@ This is because `build:site` writes `package.json`'s version into the download
 button. `package.json` is ahead of every release from the moment a bump merges
 until the release job is done, so a deploy started by a push in that window would
 link a dmg that is not up yet. That covers a push to `site/`, and one landing
-alongside the tag. So a change merged under `site/`, `docs/images`, `assets/icon.svg`,
+alongside the tag. So a change merged under `site/`, `assets/icon.svg`, `assets/icon.png`,
 `scripts/build-site.mjs` or `wrangler.toml` is not live until somebody runs the
 workflow, or the next release does. Run it by hand only while `package.json` names
 a version that is already released.
@@ -602,7 +609,7 @@ like anything, is unstyled buttons, scenes with no frame, and the diagrams drawi
 SVG's default black. `no-cache` is not `no-store`: both files stay in the browser
 cache, they are just revalidated, and the usual answer is a 304 with no body. Two
 files on a one-page site is not a bandwidth question. Images keep their day, because a
-slightly old screenshot is still a screenshot. `test-smoke.js` asserts the pair — the
+slightly old icon is still the icon. `test-smoke.js` asserts the pair — the
 `no-cache` and the unversioned filenames — so adding a version string is a line that
 tells you to revisit this.
 

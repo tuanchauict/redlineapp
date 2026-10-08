@@ -31,7 +31,8 @@
 </p>
 
 ![Redline showing a document with its changes marked in the margin, two numbers
-replaced in place, a sentence rewritten, and the file's history alongside](docs/images/hero.png)
+replaced in place, a sentence rewritten, and its contents and history
+alongside](docs/images/hero.png)
 
 ## Which four paragraphs moved?
 

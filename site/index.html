@@ -19,15 +19,20 @@
     <!--
       Absolute, origin and all. The Open Graph spec asks for a full URL, and an
       unfurler does not resolve a relative one against the page: Slack drew an
-      empty grey box for `images/hero.png`. build:site strips this origin back
+      empty grey box for a relative path. build:site strips this origin back
       off to find the file it has to copy. The size is given so a preview can lay
       the card out before it has fetched the image.
+
+      The app icon, not a screenshot: a screenshot of the reader goes stale with
+      every change to the reader. A png because no unfurler draws an svg, and a
+      `summary` card because the icon is square, where `summary_large_image`
+      would crop it to a wide strip.
     -->
     <meta property="og:url" content="https://redline.iamtuna.org/" />
-    <meta property="og:image" content="https://redline.iamtuna.org/images/hero.png" />
-    <meta property="og:image:width" content="1770" />
-    <meta property="og:image:height" content="1320" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <meta property="og:image" content="https://redline.iamtuna.org/icon.png" />
+    <meta property="og:image:width" content="1024" />
+    <meta property="og:image:height" content="1024" />
+    <meta name="twitter:card" content="summary" />
 
     <link rel="stylesheet" href="landing.css" />
 

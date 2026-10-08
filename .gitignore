@@ -7,12 +7,14 @@ out/
 # script that needs it builds it first.
 public/vendor/
 
-# Copied into the landing page by scripts/build-site.mjs, from docs/images and
-# assets/. Generated rather than committed for the same reason: they are a
-# megabyte of bytes this repository already has, and a second copy is a second
-# thing to remember to update.
+# Copied into the landing page by scripts/build-site.mjs, from assets/.
+# Generated rather than committed for the same reason: they are bytes this
+# repository already has, and a second copy is a second thing to remember to
+# update. site/images/ held the og:image when that was a screenshot, and stays
+# ignored so a checkout that built it then does not offer to commit it now.
 site/images/
 site/icon.svg
+site/icon.png
 
 shell/target/
 shell/gen/schemas/

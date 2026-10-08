@@ -2694,9 +2694,9 @@ assert.match(serveSite, /'cache-control': 'no-store'/, 'holding nothing between 
 // the landing page. `..` has to stop at site/, however it was spelt.
 assert.match(serveSite, /relative\(SITE, file\)\.startsWith\('\.\.'\)/, 'and serving only site/');
 
-// The one image left is copied in rather than committed, so the deploy has to
-// run the script that copies it -- an unbuilt site/ is a page with no icon and
-// no link preview, and it would deploy perfectly happily.
+// The icon is copied in rather than committed, so the deploy has to run the
+// script that copies it -- an unbuilt site/ is a page with no icon and no link
+// preview, and it would deploy perfectly happily.
 const pages = fs.readFileSync(new URL('./.github/workflows/pages.yml', import.meta.url), 'utf8');
 const wrangler = fs.readFileSync(new URL('./wrangler.toml', import.meta.url), 'utf8');
 const ignore = fs.readFileSync(new URL('./.gitignore', import.meta.url), 'utf8');
@@ -2704,15 +2704,25 @@ assert.match(pages, /npm run build:site/, 'the deploy stages the icon and the og
 assert.match(pages, /command: pages deploy/, 'before uploading anything');
 assert.match(wrangler, /pages_build_output_dir = "site"/, 'from the directory wrangler.toml names');
 assert.match(wrangler, /^name = "redline"$/m, 'into the project it names');
-assert.match(ignore, /^site\/images\/$/m, 'the copied image is build output, not source');
+assert.match(ignore, /^site\/icon\.svg$/m, 'the copied icon is build output, not source');
+assert.match(ignore, /^site\/icon\.png$/m, 'and so is the png of it');
 // Absolute, because a link preview does not resolve a relative og:image against
 // the page -- Slack drew an empty card for `images/hero.png` -- but still on
-// this site's own origin, so it is the file build:site copies in.
+// this site's own origin, so it is the file build:site copies in. The icon and
+// not a screenshot, which went stale with every change to the reader; a png,
+// because no unfurler draws an svg.
 assert.match(
   siteHtml,
-  /property="og:image" content="https:\/\/redline\.iamtuna\.org\/images\//,
-  'the card image is an absolute URL to a local file',
+  /property="og:image" content="https:\/\/redline\.iamtuna\.org\/icon\.png"/,
+  'the card image is the app icon, as an absolute URL to a local file',
 );
+// The size a preview lays the card out at before it has the image, so it has to
+// be the png's own -- read out of its IHDR rather than written down twice.
+const iconPng = fs.readFileSync(new URL('./assets/icon.png', import.meta.url));
+const ogSize = (k) => Number(siteHtml.match(new RegExp(`og:image:${k}" content="(\\d+)"`))?.[1]);
+assert.strictEqual(ogSize('width'), iconPng.readUInt32BE(16), 'at the width of the icon');
+assert.strictEqual(ogSize('height'), iconPng.readUInt32BE(20), 'and its height');
+assert.match(siteHtml, /name="twitter:card" content="summary"/, 'on a square card, not a wide one');
 
 // Nothing the page loads carries a content hash, and the HTML sends no
 // Cache-Control at all -- so it revalidates while anything held by max-age
@@ -2855,10 +2865,11 @@ assert.match(siteHtml, /<span class="dl-ver">[^<]+<\/span>/, 'with the version o
 assert.ok(ci.includes(new URL(dmgHref[1]).host), 'from the host the release step prints');
 assert.match(buildSite, /pkg\.version/, 'and build:site writes the current one in rather than');
 assert.match(buildSite, /TAP\/redline/, 'trusting it, though it still refuses the tap placeholder');
-// The og:image is copied by name, from what the page points at -- which is a
-// reference no browser would ever report broken, so this is the only thing that
-// would notice the card image having been renamed in docs/.
+// The og:image is a reference no browser would ever report broken, so build:site
+// checking content= is the only thing that would notice the card image being
+// renamed in assets/ -- and copying the png is what puts it there to find.
 assert.match(buildSite, /src\|href\|content/, 'and checks content= alongside src= and href=');
+assert.match(buildSite, /\['icon\.svg', 'icon\.png'\]/, 'after copying in both icons');
 console.log('✓ the landing page parses, is wired up, and deploys what it builds');
 
 fs.rmSync(tmp, { recursive: true, force: true });

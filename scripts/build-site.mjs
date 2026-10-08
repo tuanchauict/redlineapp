@@ -4,67 +4,53 @@
 //
 // The page in site/ is hand-written and ships as it is written -- there is no
 // bundler here and nothing is compiled. What this script does is copy in the
-// two things the page points at that belong to the project rather than to the
-// page: an image or two out of docs/images, and the app icon.
+// one thing the page points at that belongs to the project rather than to the
+// page: the app icon, in both of the forms it is committed in.
 //
-//   images/*.png   docs/images/   whatever the page names, and only that
-//   icon.svg       assets/        the favicon, the nav mark, the footer mark
+//   icon.svg   assets/   the favicon, the nav mark, the footer mark
+//   icon.png   assets/   the og:image, the card a link preview draws
 //
-// Copied rather than committed twice, and site/images is in .gitignore, for the
-// same reason public/vendor is: these are bytes that already exist in this
-// repository, and a second copy is a second thing to remember to update. A
-// screenshot regenerated for the README is then the one the site hands to a
-// link preview, with nothing to keep in step by hand.
+// Copied rather than committed twice, and both are in .gitignore, for the same
+// reason public/vendor is: these are bytes that already exist in this
+// repository, and a second copy is a second thing to remember to update. An
+// icon redrawn with `npm run icons` is then the one the site shows, with
+// nothing to keep in step by hand.
 //
-// Only the named ones, because the page itself shows none of them: every
-// feature on it is played out live in markup and CSS, and the single png left
-// is the card a chat window draws when someone pastes the link. Copying the
-// rest would be uploading three screenshots nothing links to.
+// The png as well as the svg, because a link preview will not draw an svg. And
+// the icon rather than a screenshot of the reader, because a screenshot goes
+// stale with every change to the reader, and nothing else on the page is one:
+// every feature there is played out live in markup and CSS.
 //
-// Linking straight at ../docs/images would have been simpler still, but the
-// deploy uploads one directory and a link out of it does not survive that.
+// Linking straight at ../assets would have been simpler still, but the deploy
+// uploads one directory and a link out of it does not survive that.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SITE = path.join(ROOT, 'site');
-const IMAGES = path.join(SITE, 'images');
 const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
 
-// content= as well as src= and href=, because the one image the page still
-// wants is an og:image -- a reference no browser would ever report broken,
-// since the only thing that resolves it is somebody else's link preview. That
-// one is written with the site's own origin in front, because an unfurler will
-// not resolve a relative og:image, so the origin is optional here and dropped.
+// content= as well as src= and href=, because of the og:image -- a reference no
+// browser would ever report broken, since the only thing that resolves it is
+// somebody else's link preview. That one is written with the site's own origin
+// in front, because an unfurler will not resolve a relative og:image, so the
+// origin is optional here and dropped.
 const ORIGIN = 'https://redline.iamtuna.org/';
 const LOCAL =
   /(?:src|href|content)="(?:https:\/\/redline\.iamtuna\.org\/)?([^":#]+?\.(?:png|svg|css|js))"/g;
 const refs = [...html.matchAll(LOCAL)].map((m) => m[1]);
 
 // A relative og:image passes every check below and still draws an empty card.
-if (!html.includes(`property="og:image" content="${ORIGIN}images/`)) {
-  throw new Error(`site/index.html's og:image has to be an absolute ${ORIGIN}images/ URL`);
+if (!html.includes(`property="og:image" content="${ORIGIN}`)) {
+  throw new Error(`site/index.html's og:image has to be an absolute ${ORIGIN} URL`);
 }
 
-// Emptied first, so a screenshot that stops being part of the page stops being
-// deployed. Only ever what this script wrote: site/images is build output.
-fs.rmSync(IMAGES, { recursive: true, force: true });
-fs.mkdirSync(IMAGES, { recursive: true });
-
-for (const rel of new Set(refs.filter((r) => r.startsWith('images/')))) {
-  const from = path.join(ROOT, 'docs', 'images', path.basename(rel));
-
-  if (!fs.existsSync(from)) {
-    throw new Error(`site/index.html wants ${rel}, and docs/images has no ${path.basename(rel)}`);
-  }
-
-  fs.copyFileSync(from, path.join(SITE, rel));
+for (const icon of ['icon.svg', 'icon.png']) {
+  fs.copyFileSync(path.join(ROOT, 'assets', icon), path.join(SITE, icon));
 }
 
-fs.copyFileSync(path.join(ROOT, 'assets', 'icon.svg'), path.join(SITE, 'icon.svg'));
-
-// And then every local reference, images or not, has to resolve to something
+// And then every local reference, the icons or not, has to resolve to something
 // that is now on disk. A stylesheet renamed on one side only would otherwise
 // reach the deploy as a page with no styles at all -- and this is the one check
 // available here, since there is no browser in this repository to open it in.
@@ -112,9 +98,4 @@ if (versioned !== html) {
   console.log(`  site/index.html -> Redline ${pkg.version}`);
 }
 
-const bytes = fs
-  .readdirSync(IMAGES)
-  .reduce((n, f) => n + fs.statSync(path.join(IMAGES, f)).size, 0);
-
-const count = fs.readdirSync(IMAGES).length;
-console.log(`\n  site/images  ${count} files, ${(bytes / 1024 / 1024).toFixed(1)} MB\n`);
+console.log('\n  site/icon.svg, site/icon.png\n');

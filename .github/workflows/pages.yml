@@ -54,7 +54,7 @@ jobs:
       # It also fails the run if the page points at a file that is not there,
       # which is the only check available for a page with no browser to open it
       # in -- see the comment at the top of the script.
-      - name: Stage the screenshots and the icon
+      - name: Stage the icon and the og:image
         run: npm run build:site
 
       # The directory and the project name both come from wrangler.toml, so
