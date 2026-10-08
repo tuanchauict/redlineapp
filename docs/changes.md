@@ -14,7 +14,7 @@ file read. What moved since then is marked in the margin.
   [history](history.md), which is where "changed since *what*?" is answered
 
 ![A blue bar beside a paragraph whose changed words are struck through and
-tinted in place, the CHANGED label lit in the margin; a table with one changed
+tinted in place, the CHANGED label lit at its top corner; a table with one changed
 cell below it, and a removed paragraph struck out](images/changes.png)
 
 `n` / `j` and `p` / `k` walk the marks. `d` puts them away and leaves a clean
