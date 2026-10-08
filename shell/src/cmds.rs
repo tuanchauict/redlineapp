@@ -129,7 +129,7 @@ pub fn open_external(app: AppHandle, url: String) {
 
 // --- the one request out ---------------------------------------------------
 
-/// Where the newest release says what it is. The Bundle workflow attaches a
+/// Where the newest release says what it is. The CI workflow attaches a
 /// `latest.json` to every release, and GitHub answers this URL with a redirect
 /// to the one on whichever release is marked Latest -- which the workflow
 /// marks last, once the dmg and the cask it names are both in place, so a copy

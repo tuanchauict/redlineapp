@@ -85,7 +85,7 @@ if (html.includes('TAP/redline')) {
 }
 
 // The dmg is attached to a GitHub release under a versioned filename -- the
-// release job in bundle.yml builds it out of the version -- so the download
+// release job in ci.yml builds it out of the version -- so the download
 // button has to name a version. Substituted from package.json rather than
 // hand-edited, so a release is a version bump and a build, not two strings kept
 // in step by eye across two files.

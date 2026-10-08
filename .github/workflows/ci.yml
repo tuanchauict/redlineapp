@@ -1,32 +1,39 @@
-# Build the dmg, and on a release, publish it.
+# The suite on every change, the dmg it would ship, and on a release, the
+# release.
 #
-# Started by hand and by nothing else. Every run is billed: this repo is
-# private, so Actions minutes are metered, and this job is macOS -- ten times a
-# Linux minute -- doing an LTO compile of a size-tuned profile, twice over for
-# a universal binary. When it ran on every push and pull request it spent the
-# allowance proving things nobody had asked about yet, so it now runs when
-# somebody wants an answer, and costs what that one answer costs.
+# One workflow rather than three because each part is only worth having if
+# the one before it passed -- a dmg built from a reader that fails its tests is
+# a dmg nobody wants, and a release of it is worse -- and `needs:` says so in a
+# line. The landing page is the exception and deploys from pages.yml.
 #
-# There is no test job any more, here or anywhere: `npm test` runs on the Mac
-# the change was written on, before the pull request -- see the
-# `redline-shipping` skill. The landing page deploys from pages.yml, also by
-# hand.
+#   pull request          the suite on Linux and macOS, then a universal dmg,
+#                         signed ad hoc, as an artifact
+#   push to main          the same, signed and notarized
+#   push of a `v*` tag    the same, then a GitHub release with the dmg, the
+#                         Homebrew cask pointed at it, latest.json, and the
+#                         landing page redeployed to link to it
+#   Run workflow          a dmg from any branch, one arch unless ticked; with
+#                         Deploy ticked, the release, versioned from package.json
 #
-#   Run workflow on a branch     a dmg as an artifact, universal if ticked
-#   Run workflow on a `v*` tag   universal, signed, notarized, attached to a
-#                                GitHub release, and the Homebrew cask pointed
-#                                at it
-#   Run workflow, Deploy ticked  the same release, versioned from package.json
-name: Bundle
+# The repository is public, so GitHub-hosted runners cost nothing, macOS
+# included. That is what this shape assumes: on a private repository a macOS
+# minute bills at ten times a Linux one, and all of this ran by hand only.
+name: CI
 
 on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  # `pull_request` and never `pull_request_target`: this one runs a fork's code
+  # with a read-only token and none of the secrets, which is what makes running
+  # a stranger's change safe. The other runs it with both.
+  pull_request:
   workflow_dispatch:
     inputs:
       # Off by default because the one-arch build is half the compile, and
       # proves the same things: the release profile builds and the bundle
       # assembles. Tick it when the dmg is going to a Mac that is not knowable
-      # from here. A tag ignores it -- a release is always universal, because
-      # the filename on the release says so.
+      # from here. Every other event builds universal regardless.
       universal:
         description: 'Universal binary (Intel and Apple silicon), twice the compile'
         type: boolean
@@ -41,8 +48,9 @@ on:
         type: boolean
         default: false
 
-# Two runs on the same ref want the same dmg, and the bundle is minutes of LTO
-# compile. The newer one is the one somebody is waiting for.
+# A second push to the same ref makes the first run's answer irrelevant, and
+# the bundle is minutes of LTO compile. The newer one is the one somebody is
+# waiting for.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -51,14 +59,74 @@ permissions:
   contents: read
 
 jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Both legs, because the suite is not the same suite on each. The font
+      # list comes from the OS and can only be asserted where there is one, so
+      # those checks are guarded on darwin and only really run on the Mac; the
+      # Linux leg is what catches a macOS assumption getting into code that is
+      # meant to be portable. Neither leg is allowed to cancel the other --
+      # knowing it is one platform and not both is most of the diagnosis.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # `pretest` runs build:web, so this also checks that the page's bundles
+      # still build. Nothing else is needed: the suite boots the real server on
+      # a temp file under a temp REDLINE_HOME, and it sets its own identity in
+      # the temp repos it makes for the git-history tests.
+      - run: npm ci
+      - run: npm test
+
+      # The shell's own unit tests: what host.rs lets the page write and run.
+      # macOS only, because the shell is -- it links WebKit and AppKit, and
+      # there is nothing to build it against on the Linux leg.
+      #
+      # generate_context! embeds shell/dist at compile time, a test build as
+      # much as a release one, and npm test only builds public/vendor. So the
+      # page is staged first: without it a clean runner fails to compile before
+      # a single test runs, while any checkout with an old dist lying in it
+      # passes -- which is how this went unnoticed until the first run here.
+      - name: Stage the page the shell embeds
+        if: runner.os == 'macOS'
+        run: npm run build:dist
+      - name: Cache the Rust test build
+        if: runner.os == 'macOS'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            shell/target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('shell/Cargo.lock') }}
+          restore-keys: cargo-test-${{ runner.os }}-
+      - name: cargo test
+        if: runner.os == 'macOS'
+        working-directory: shell
+        run: cargo test --locked
+
   bundle:
     name: bundle (macOS)
+    needs: test
     runs-on: macos-latest
     env:
       # 'true' or 'false', as a string -- which is what the steps compare to.
       RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.deploy }}
+      # Universal unless this is a hand-started run that did not ask for it:
+      # the point of an artifact is that it runs on the Mac it lands on, and a
+      # release's filename says universal.
       BUNDLE_ARGS: >-
-        ${{ (startsWith(github.ref, 'refs/tags/v') || inputs.deploy || inputs.universal)
+        ${{ (github.event_name != 'workflow_dispatch' || inputs.deploy || inputs.universal)
         && '-- --universal' || '' }}
     steps:
       - uses: actions/checkout@v7
@@ -80,13 +148,10 @@ jobs:
       # dependencies rather than one per commit. `shell/target` is in it on
       # purpose and it is not small: the release profile is `opt-level = "z"`
       # with LTO and one codegen unit, twice over for a universal build, which
-      # is minutes of compile to save and seconds of cache to restore.
-      #
-      # A cache is scoped to the ref that wrote it, and every ref can read the
-      # default branch's but no other branch's. With nothing running on pushes
-      # any more, a run on `main` is the only thing that leaves a cache every
-      # branch and tag can start from -- so a release run is fastest straight
-      # after one there.
+      # is minutes of compile to save and seconds of cache to restore. A cache
+      # is scoped to the ref that wrote it, and every ref can read the default
+      # branch's -- so the run on each push to main is what every pull request
+      # and tag starts from.
       - name: Cache the Rust build
         uses: actions/cache@v6
         with:
@@ -100,18 +165,24 @@ jobs:
 
       - run: npm ci
 
-      # One step: a hand-started run always has the secrets, so there is no
-      # unsigned variant to branch into. `scripts/bundle.mjs` takes the identity from the
-      # environment and patches it over the ad hoc `-` in tauri.conf.json;
-      # Tauri notarizes on its own once it finds the credentials, and the
-      # script says at the end which of the two it did. With none of them set
-      # it signs ad hoc and still produces a dmg, so a fork of this repo
-      # without them is not a red tick.
+      # Two steps for one command, because which of them runs is the whole of
+      # the difference and an `if:` says it in a line. `scripts/bundle.mjs`
+      # takes the identity from the environment and patches it over the ad hoc
+      # `-` in tauri.conf.json; Tauri notarizes on its own once it finds the
+      # credentials, and the script says at the end which of the two it did.
+      # With none of them set it signs ad hoc and still produces a dmg, so a
+      # fork without them is not a red tick.
+      #
+      # Signing is off for a pull request, even one from this repository. A
+      # fork's has no secrets to sign with anyway; and notarizing is a round
+      # trip to Apple's service, and a check that goes red because that service
+      # is slow is a check that teaches people to ignore it.
       #
       # `npm run bundle` stages the page itself -- the app embeds its copy at
       # compile time, and the script runs both staging steps rather than
       # trusting a hook, so there is no way to get a stale one.
-      - name: Bundle
+      - name: Bundle, signed and notarized
+        if: github.event_name != 'pull_request'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
@@ -119,6 +190,10 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run bundle ${{ env.BUNDLE_ARGS }}
+
+      - name: Bundle, ad hoc
+        if: github.event_name == 'pull_request'
         run: npm run bundle ${{ env.BUNDLE_ARGS }}
 
       # The dmg and not the .app: the app is inside it, and a disk image
@@ -135,7 +210,6 @@ jobs:
           name: ${{ env.BUNDLE_ARGS != '' && 'Redline-universal-dmg' || 'Redline-arm64-dmg' }}
           path: dist/*.dmg
           if-no-files-found: error
-
 
       # A hand-started deploy has no tag to read, so its version is
       # package.json's -- the one build:site writes into the landing page's
@@ -176,6 +250,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # For the one `gh workflow run` at the end.
+      actions: write
     env:
       VERSION: ${{ needs.bundle.outputs.version }}
       GH_TOKEN: ${{ github.token }}
@@ -284,3 +360,13 @@ jobs:
       # names this version, and every copy that asks is told about it.
       - name: Mark the release Latest
         run: gh release edit "v${VERSION}" --latest
+
+      # The landing page's download button names this version's dmg, and
+      # build:site reads the version from package.json. Deploying it on the
+      # version bump would link a file that does not exist for as long as this
+      # run takes, so pages.yml does not watch package.json and is started from
+      # here instead, once the release is Latest. `workflow_dispatch` is the one
+      # event this job's token is allowed to start; a release event it made
+      # would start nothing.
+      - name: Redeploy the landing page
+        run: gh workflow run pages.yml --ref main

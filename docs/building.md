@@ -130,8 +130,8 @@ one server; persistence across restarts; that a store left under the app's old
 name is migrated; and that the server refuses a rebound `Host` or another site's
 request, and serves the page with its CSP; that `LICENSE` is the Apache text to the
 byte, the bundle carries it with `NOTICE` and the third-party notices, and those
-notices are current with both lockfiles; and that the bundle identifier is the new
-one, with the copy-over from the old one wired in ahead of the prefs.
+notices are current with both lockfiles; and that the bundle identifier is still
+`com.redline.reader`, which everything the app remembers is filed under.
 
 It also greps `public/` to check that each of those features is actually **wired
 up** — the id exists, the handler exists, the CSS rule exists. A diff that is
@@ -152,39 +152,51 @@ which it did.
 
 ## CI
 
-Two workflows, and **neither runs unless somebody presses Run workflow** on the
-Actions tab: no push, no pull request and no tag starts anything.
+Two workflows. The repository is public, so GitHub-hosted runners cost nothing,
+macOS included, and every change is checked rather than only the ones somebody
+remembered to ask about.
 
 | | |
 | --- | --- |
-| `.github/workflows/bundle.yml` | `npm run bundle` on `macos-latest`, uploaded as an artifact — **`Redline-universal-dmg`** or **`Redline-arm64-dmg`**. A **Universal** checkbox, off by default, picks which; one arch is half the compile and proves the same two things, that the release profile builds and that the bundle assembles. Started on a `vN.N.N` tag, or with **Deploy** ticked, it is a release instead: always universal, and [published](#publishing-a-release) |
+| `.github/workflows/ci.yml` | Three jobs, each behind the one before it. **`test`**: `npm ci` and `npm test` on `ubuntu-latest` and `macos-latest`, and on the Mac `cargo test` in `shell/` too. **`bundle`**: `npm run bundle` on `macos-latest`, uploaded as an artifact — **`Redline-universal-dmg`** or **`Redline-arm64-dmg`**. **`release`**: only for a `vN.N.N` tag or a ticked **Deploy**, and [published](#publishing-a-release) |
 | `.github/workflows/pages.yml` | the landing page, [deployed](#deploying-it) to Cloudflare Pages |
 
-That is all of it, on purpose. This repo is private, so Actions minutes are metered,
-and a **macOS minute bills at ten times a Linux one**. The bundle is an LTO compile of
-a size-tuned profile, twice over for a universal binary; when it ran on every push
-and pull request — with a test matrix and a debug compile in front of it — most of
-the allowance went on answers nobody had asked for yet. Now every run is one
-somebody wanted, and costs what that one answer costs.
+What starts `ci.yml`, and what it does:
 
-**There is no test job.** `npm test` runs on the Mac the change was written on,
-before the pull request is opened — which on a Mac includes the darwin-only font
-assertions — and the bundle for app code either there or by Run workflow on the
-branch. "App code" is anything outside `site/`, `docs/` and the root `*.md` files;
-when a branch touches both, it is app code. What nothing checks any more is the suite on Linux, which is what used to catch a macOS
-assumption getting into code meant to be portable.
+| | |
+| --- | --- |
+| a pull request | the suite on both, then a universal dmg signed **ad hoc**, as an artifact |
+| a push to `main` | the same, the dmg **signed and notarized** |
+| a push of a `v*` tag | the same, then the release |
+| Run workflow | the same from any branch, one arch unless **Universal** is ticked; with **Deploy** ticked, the release |
 
-The Rust build is cached on `shell/Cargo.lock`. An Actions cache is scoped to the
+The suite runs on both platforms because it is not the same suite on each. The font
+list comes from the OS and is only really asserted on the Mac; the Linux leg is what
+catches a macOS assumption getting into code meant to be portable. Neither leg
+cancels the other, since knowing it is one platform and not both is most of the
+diagnosis. Still run `npm test` before you push: a red check is a slower way to hear
+the same thing.
+
+**A pull request never touches a secret.** The trigger is `pull_request`, which runs
+a fork's code with a read-only token and nothing else, and never
+`pull_request_target`, which runs it with both. The bundle job's signed step is
+skipped on a pull request, even one from this repository — notarizing is a round trip
+to Apple, and a check that goes red because that service is slow teaches people to
+ignore it — and an ad hoc step runs in its place. `test-smoke.js` asserts all three:
+the trigger, that no step a pull request reaches names an Apple secret, and that the
+test job names no secret at all.
+
+The Rust builds are cached on `shell/Cargo.lock`. An Actions cache is scoped to the
 ref that wrote it, and every ref can read the default branch's but no other
-branch's, so a run on `main` is the only one that leaves a cache a branch or a tag
-can start from.
+branch's, so the run on each push to `main` is what every pull request and tag
+starts from.
 
 ### Publishing a release
 
 The artifact above needs a GitHub login to download, so it can't be what a Homebrew
-cask points at. So a release is the bundle workflow **started on a tag**: push
-`vN.N.N`, then Run workflow with the tag chosen under *Use workflow from*. That run
-is always universal, and a second job, `release`, runs behind the bundle. It
+cask points at. So a release is the CI workflow **run on a tag**: push `vN.N.N` and
+it starts by itself. That run is always universal, and the third job, `release`,
+runs behind the bundle. It
 attaches the signed, notarized dmg to a **GitHub release** for the tag, as
 `Redline-<version>-universal.dmg`, reachable over plain HTTPS at
 `https://github.com/tuanchauict/redlineapp/releases/download/v<version>/Redline-<version>-universal.dmg`
@@ -235,9 +247,11 @@ file is replaced by hand, once, in the Cloudflare dashboard, with one naming the
 first release published on GitHub, and then left alone: an old copy is told about
 that release, and the copy it upgrades to asks GitHub from then on.
 
-Pushing the tag does nothing by itself, so a tag that is pushed and never run is a
-release that has not happened: the landing page names a dmg no release has. Run it
-straight after the push.
+Last, the release job starts `pages.yml` with `gh workflow run`, so the landing
+page's download button moves to this version once the dmg it names is up and Latest
+— and not before, which is why the Pages workflow does not watch `package.json`.
+`workflow_dispatch` is the one event a job's own token is allowed to start, and the
+job is given `actions: write` for it.
 
 A run on a branch publishes only if **Deploy** is ticked, off by default. It is the
 same release — universal, GitHub release, cask, Latest — for a tagged run that
@@ -255,15 +269,15 @@ image survives the artifact store's zip and unzip with its permissions and symli
 intact — notarization ticket included, since the ticket is stapled into the bundle
 rather than left for Gatekeeper to ask Apple about at launch.
 
-Everything that reaches the bundle leg now is a push or a hand-started run, so there
-is one bundle step rather than two: all of them have the secrets, and it is **signed
-and notarized**. With none of them set — a fork building its own `main` —
-`scripts/bundle.mjs` signs ad hoc and still produces a dmg, so that is not a red
-tick either.
+There are two bundle steps for one command, because which of them runs is the whole
+difference. Off a pull request the step has the secrets, and the dmg is **signed and
+notarized**; on one it has none and is signed ad hoc. With none of them set either way
+— a fork building its own `main` — `scripts/bundle.mjs` signs ad hoc and still
+produces a dmg, so that is not a red tick either.
 
 Rust is cached — the registry, and `shell/target` — on a key that is the hash of
 `shell/Cargo.lock` alone, so there is one entry per set of dependencies rather than
-one per commit. The debug and release legs use **separate keys**: the two profiles
+one per commit. The test and release builds use **separate keys**: the two profiles
 leave different artifacts in `shell/target`, and sharing one entry would mean each
 run restoring the other's and rebuilding anyway, in a cache twice the size. The cache
 is not small, and the release profile is `opt-level = "z"`
@@ -509,11 +523,13 @@ nobody can run.
 
 ## Deploying it
 
-Cloudflare Pages, from `.github/workflows/pages.yml`, by hand from the Actions tab
-and never on a push. Run it after anything that changes what is uploaded: `site/`,
-`docs/images` (copied in by `build:site`), or a version bump in `package.json`, which
-`build:site` writes into the download button — so a release wants a Pages run after
-the bundle run.
+Cloudflare Pages, from `.github/workflows/pages.yml`. It runs on a push to `main`
+that touches what is uploaded — `site/`, `docs/images` (copied in by `build:site`),
+`assets/icon.svg`, `scripts/build-site.mjs`, `wrangler.toml` or the workflow itself —
+and from Run workflow. Not on a version bump in `package.json`, although `build:site`
+writes the version into the download button: the bump lands before its release
+exists, so the release job in `ci.yml` starts this workflow itself once the dmg is
+up.
 
 The project is **`redline`**, and the hostname is **`redline-1dq.pages.dev`** — not
 the project name plus `.pages.dev`, which is the obvious guess and is somebody else's

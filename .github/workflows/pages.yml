@@ -1,9 +1,8 @@
 # Publish the landing page in site/ to Cloudflare Pages.
 #
-# Its own workflow rather than a job in bundle.yml, because it shares nothing
-# with it: the site is hand-written HTML with no toolchain to install, on the
-# runner that bills at a tenth of the Mac's, and wanting one is no reason to pay
-# for the other.
+# Its own workflow rather than a job in ci.yml, because it shares nothing with
+# it: the site is hand-written HTML with no toolchain to install, and a change
+# to it is no reason to run the reader's suite and compile a dmg.
 #
 # Before the first run this needs two repository secrets -- Settings, Secrets
 # and variables, Actions:
@@ -16,13 +15,25 @@
 #   npx wrangler pages project create redline --production-branch=main
 name: Pages
 
-# By hand only. The page changes rarely and deploys in under a minute, but a
-# private repo's minutes are metered all the same, and a deploy nobody asked
-# for is the one minute that buys nothing. So publishing is a decision: after a
-# change to site/, docs/images (build:site copies the screenshots in) or a
-# version bump in package.json (build:site writes it into the download button),
-# press Run workflow.
+# On a push to main that touches what the page is built from: site/ itself,
+# the screenshots build:site copies in from docs/images, the icon it renders,
+# the script that does both, and where wrangler.toml says it goes.
+#
+# Not package.json, although build:site writes its version into the download
+# button. A version is bumped before its release exists, and deploying on the
+# bump would link a dmg that is not there until the release job in ci.yml is
+# done -- so that job starts this one itself, once the dmg is up and marked
+# Latest. Run workflow is there for the same reason and for any other.
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/images/**'
+      - 'assets/icon.svg'
+      - 'scripts/build-site.mjs'
+      - 'wrangler.toml'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 # A second run lands a second deploy on the same hostname, and the first one's
