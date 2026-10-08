@@ -130,8 +130,8 @@ one server; persistence across restarts; that a store left under the app's old
 name is migrated; and that the server refuses a rebound `Host` or another site's
 request, and serves the page with its CSP; that `LICENSE` is the Apache text to the
 byte, the bundle carries it with `NOTICE` and the third-party notices, and those
-notices are current with both lockfiles; and that the bundle identifier is the new
-one, with the copy-over from the old one wired in ahead of the prefs.
+notices are current with both lockfiles; and that the bundle identifier is still
+`com.redline.reader`, which everything the app remembers is filed under.
 
 It also greps `public/` to check that each of those features is actually **wired
 up** — the id exists, the handler exists, the CSS rule exists. A diff that is

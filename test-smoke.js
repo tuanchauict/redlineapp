@@ -2166,6 +2166,13 @@ assert.match(testJob, /os: \[ubuntu-latest, macos-latest\]/, 'the suite runs on 
 assert.match(testJob, /fail-fast: false/, 'and one leg failing does not hide the other');
 assert.match(testJob, /run: npm test/, 'it is the suite');
 assert.match(testJob, /run: cargo test --locked/, "and the shell's own tests");
+// generate_context! will not compile without shell/dist, and a runner starts
+// with none, so the page is staged before the shell's tests are built.
+const stageDist = testJob.indexOf('run: npm run build:dist');
+assert.ok(
+  stageDist > testJob.indexOf('run: npm test') && stageDist < testJob.indexOf('run: cargo test'),
+  'shell/dist is built after the suite (which builds vendor/) and before cargo test',
+);
 assert.match(testJob, /working-directory: shell/, 'run where the shell is');
 assert.doesNotMatch(testJob, /secrets\./, 'with no secret in reach of the code under test');
 assert.deepStrictEqual(

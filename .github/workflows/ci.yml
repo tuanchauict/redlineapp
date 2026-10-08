@@ -87,10 +87,18 @@ jobs:
       - run: npm ci
       - run: npm test
 
-      # The shell's own unit tests: what host.rs lets the page write and run,
-      # and the copy-over from the old bundle identifier. macOS only, because
-      # the shell is -- it links WebKit and AppKit, and there is nothing to
-      # build it against on the Linux leg.
+      # The shell's own unit tests: what host.rs lets the page write and run.
+      # macOS only, because the shell is -- it links WebKit and AppKit, and
+      # there is nothing to build it against on the Linux leg.
+      #
+      # generate_context! embeds shell/dist at compile time, a test build as
+      # much as a release one, and npm test only builds public/vendor. So the
+      # page is staged first: without it a clean runner fails to compile before
+      # a single test runs, while any checkout with an old dist lying in it
+      # passes -- which is how this went unnoticed until the first run here.
+      - name: Stage the page the shell embeds
+        if: runner.os == 'macOS'
+        run: npm run build:dist
       - name: Cache the Rust test build
         if: runner.os == 'macOS'
         uses: actions/cache@v6
