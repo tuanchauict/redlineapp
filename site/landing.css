@@ -250,6 +250,13 @@ kbd {
   stroke-linecap: round;
 }
 
+/* The GitHub mark is a filled shape, drawn as GitHub publishes it. Stroked like
+   the line icons beside it, it comes out as a thick blurred outline. */
+.icon-btn .i-gh {
+  fill: currentColor;
+  stroke: none;
+}
+
 /* One button, two glyphs: whichever the theme is *not* currently showing is the
    one hidden, so the icon reads as the state rather than as the action. */
 .i-moon {
@@ -1792,6 +1799,21 @@ kbd {
 .foot-brand span {
   font-size: 13.5px;
   color: var(--muted);
+}
+
+.foot-brand a {
+  margin-top: 6px;
+  font-size: 13.5px;
+  color: var(--muted);
+  text-decoration: underline;
+  text-decoration-color: var(--line);
+  text-underline-offset: 3px;
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.foot-brand a:hover {
+  color: var(--fg);
+  text-decoration-color: currentColor;
 }
 
 .foot-note {

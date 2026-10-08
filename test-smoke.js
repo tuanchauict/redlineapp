@@ -2726,23 +2726,30 @@ for (const ext of ['css', 'js']) {
   );
 }
 
-// The page sells a download, so every route it offers has to be one somebody
-// with no GitHub login can take. The dmg on a release is one; until the
-// repository is public, a link to anything else there would be a 404 with a
-// login form on it.
+// The page sells a download, and the project is open source, so GitHub is
+// linked twice over: the dmg on a release, and the repository itself -- from the
+// nav and from the footer, which is where the license is named. Nothing deeper:
+// a link into a file or a branch is one a rename or a force-push breaks quietly.
+const REPO = 'github.com/tuanchauict/redlineapp';
+const githubLinks = siteHtml.match(/github\.com[^"\s<]*/g) ?? [];
 assert.ok(
-  (siteHtml.match(/github\.com[^"\s<]*/g) ?? []).every((u) =>
-    u.startsWith('github.com/tuanchauict/redlineapp/releases/download/v'),
-  ),
-  'the page links nowhere on GitHub but the release dmg',
+  githubLinks.every((u) => u === REPO || u.startsWith(`${REPO}/releases/download/v`)),
+  'the page links nowhere on GitHub but the repository and the release dmg',
 );
+assert.ok(
+  githubLinks.filter((u) => u === REPO).length >= 2,
+  'and the repository from the nav and from the footer',
+);
+assert.match(siteHtml, /<p class="eyebrow">.*open-source/, 'the hero says it is open source');
+assert.match(siteHtml, /Open source, Apache 2\.0/, 'and the footer which license');
+assert.match(siteCss, /\.icon-btn \.i-gh \{\s*fill: currentColor/, 'the GitHub mark is filled');
 assert.ok(!/npm (install|start|run)/.test(siteHtml), 'and offers no install from a checkout');
 
 // And it quotes no count of its own parts. A strip of big numbers stood under
 // the hero saying 0 files written, 0 requests, 50 commits read in, 6 vendored
 // dependencies; the two zeros are the promise this product makes and already
 // have a sentence at the foot of Get it, and the other two are the repository
-// talking about itself to somebody who cannot have it. Counted as a figure a
+// talking about itself on a page that sells the app. Counted as a figure a
 // `0` invites the reader to work out what large would have meant. The numbers
 // that remain are all the product's own -- a version, a p99, a keystroke -- so
 // what this looks for is the shape the strip had: a standalone figure as the
