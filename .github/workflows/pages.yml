@@ -15,25 +15,14 @@
 #   npx wrangler pages project create redline --production-branch=main
 name: Pages
 
-# On a push to main that touches what the page is built from: site/ itself,
-# the screenshots build:site copies in from docs/images, the icon it renders,
-# the script that does both, and where wrangler.toml says it goes.
-#
-# Not package.json, although build:site writes its version into the download
-# button. A version is bumped before its release exists, and deploying on the
-# bump would link a dmg that is not there until the release job in ci.yml is
-# done -- so that job starts this one itself, once the dmg is up and marked
-# Latest. Run workflow is there for the same reason and for any other.
+# By hand, or from the release job in ci.yml -- never on a push. build:site
+# writes package.json's version into the download button, and package.json is
+# ahead of every release from the moment a bump merges until the release job is
+# done: a deploy started by a push in that window, to site/ or alongside the
+# tag, would link a dmg that is not up yet. So a release deploys the page as its
+# last step, after the dmg, the cask and Latest, and any other change to the
+# page goes out when somebody chooses Run workflow on main.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'site/**'
-      - 'docs/images/**'
-      - 'assets/icon.svg'
-      - 'scripts/build-site.mjs'
-      - 'wrangler.toml'
-      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 # A second run lands a second deploy on the same hostname, and the first one's

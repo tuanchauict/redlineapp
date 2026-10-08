@@ -2222,19 +2222,27 @@ assert.match(ci, /universal:\n(\s+[^\n]*\n)*?\s+type: boolean\n\s+default: false
 assert.match(ci, /key: cargo-release-/, 'the release build is cached');
 assert.match(ci, /key: cargo-test-/, 'and the test build, apart from it');
 
-// The landing page deploys on its own, and only from what it is built from.
-const pagesOn = triggers(pagesYml);
+// The landing page never deploys on a push. Its download button names
+// package.json's version, which is ahead of every release from the moment a
+// bump merges, so a push to site/ in that window -- or one alongside the tag --
+// would publish a link to a dmg that is not up yet. A release deploys it as its
+// last step; anything else is somebody choosing Run workflow.
 assert.deepStrictEqual(
   onEvents(pagesYml),
-  ['  push:', '  workflow_dispatch:'],
-  'pages.yml runs on a push or by hand',
+  ['  workflow_dispatch:'],
+  'pages.yml runs by hand, and on nothing else',
 );
-assert.match(pagesOn, /branches: \[main\]/, 'to main');
-assert.match(pagesOn, /paths:\n\s+- 'site\/\*\*'/, 'that touches site/');
-assert.match(pagesOn, /- 'docs\/images\/\*\*'/, 'or the screenshots it copies in');
-// Not on the version bump: the download button would name a dmg the release
-// job has not uploaded yet. That job starts the deploy itself, once it has.
-assert.doesNotMatch(pagesOn, /package\.json/, 'but not on a version bump');
+const releaseSteps = steps(releaseJob);
+assert.match(
+  releaseSteps[releaseSteps.length - 1],
+  /run: gh workflow run pages\.yml --ref main/,
+  'or as the last step of a release, after the dmg, the cask and Latest',
+);
+assert.strictEqual(
+  ciCode.match(/gh workflow run pages\.yml/g).length,
+  1,
+  'and from nowhere else in ci.yml',
+);
 
 // Signing, which is a thing that fails quietly in the direction of looking
 // fine: an app signed and not notarized is refused by Gatekeeper exactly like
@@ -2822,10 +2830,9 @@ for (const key of ['⌘B', '⌥⌘B']) {
 // this is the check that it still does.
 //
 // Not that the page as committed names package.json's version: build:site
-// overwrites it on every deploy, and holding the source to it would make every
-// bump touch site/ -- which deploys the page on merge, linking a dmg the release
-// job has not uploaded yet, the very thing pages.yml not watching package.json
-// is there to prevent. What the source must have is a link build:site can find.
+// overwrites it on every deploy, so holding the source to it would only make
+// every bump touch site/ for nothing. What the source must have is a link
+// build:site can find.
 const buildSite = fs.readFileSync(new URL('./scripts/build-site.mjs', import.meta.url), 'utf8');
 const RELEASE_DOWNLOADS = 'https://github.com/tuanchauict/redlineapp/releases/download';
 const dmgHref = siteHtml.match(/href="(https:\/\/[^"]+\/v(.+?)\/Redline-(.+?)-universal\.dmg)"/);

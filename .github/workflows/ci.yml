@@ -4,7 +4,8 @@
 # One workflow rather than three because each part is only worth having if
 # the one before it passed -- a dmg built from a reader that fails its tests is
 # a dmg nobody wants, and a release of it is worse -- and `needs:` says so in a
-# line. The landing page is the exception and deploys from pages.yml.
+# line. The landing page is the exception and deploys from pages.yml -- from
+# the end of a release, or by hand, and never on a push.
 #
 #   pull request          the suite on Linux and macOS, then a universal dmg,
 #                         signed ad hoc, as an artifact
@@ -362,10 +363,11 @@ jobs:
         run: gh release edit "v${VERSION}" --latest
 
       # The landing page's download button names this version's dmg, and
-      # build:site reads the version from package.json. Deploying it on the
-      # version bump would link a file that does not exist for as long as this
-      # run takes, so pages.yml does not watch package.json and is started from
-      # here instead, once the release is Latest. `workflow_dispatch` is the one
+      # build:site reads the version from package.json. Deployed any earlier, it
+      # would link a file that does not exist for as long as this run takes, so
+      # it is deployed only from here, as the last step, once the dmg is up, the
+      # cask is pushed and the release is Latest -- pages.yml runs on no push
+      # at all, and is otherwise started by hand. `workflow_dispatch` is the one
       # event this job's token is allowed to start; a release event it made
       # would start nothing.
       - name: Redeploy the landing page
