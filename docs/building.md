@@ -457,15 +457,21 @@ typo rather than as a wrap.
 
 ### What it may not say
 
-The repository is **private**, and the page is the only part of this project a
-stranger sees. So it offers no route that needs a login and no install from a
-checkout: no link into the repository, no `npm install`, no `git clone`. Both are asserted
-in `test-smoke.js`, because the natural thing to write on a page about a reader with
-~430 lines of diff in it is *go and read it*, and nobody can.
+The project is open source, and the page says so in three places:
+- the hero's eyebrow (*An open-source markdown reader for macOS*) and the meta
+  descriptions a link preview shows;
+- a GitHub button in the nav;
+- a line in the footer naming the license, *Open source, Apache 2.0 — on GitHub*.
 
-What it offers instead is what [Publishing a release](#publishing-a-release) puts
-within reach of a stranger: the Homebrew cask, and the dmg on the GitHub release
-beside it — the one `github.com` link the page is allowed.
+Both links go to the repository's front page, and nothing deeper. A link into a file
+or a branch is one that a rename or a force-push breaks without anyone noticing.
+
+What it offers to install is what [Publishing a release](#publishing-a-release)
+puts within reach of a stranger: the Homebrew cask, and the dmg on the GitHub
+release beside it. The repository and that dmg are the only `github.com` links the
+page is allowed. There is no install from a checkout either: no `npm install` and no
+`git clone`. Building it is the README's business, not the page's. Both rules are
+asserted in `test-smoke.js`.
 
 **The product the page sells is the app.** `npm start` and the browser tab it opens
 stay exactly where they are — they are how this repository is developed and tested —
