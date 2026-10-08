@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import assert from 'node:assert';
 import { createServer } from './src/server.js';
 import { createMarkdown } from './src/render.js';
-import { renderDocument } from './src/document.js';
+import { renderDocument, titleOf as docTitleOf } from './src/document.js';
 import { nodePlatform } from './src/platform-node.js';
 import { LIST_FAMILIES } from './src/fonts.js';
 
@@ -934,6 +934,28 @@ assert.match(
 );
 console.log('✓ remembered comparison wired end to end');
 
+// Reading one version by itself is a mode in the History heading. Each half is
+// silent when dropped: no switch and it cannot be reached, no render branch and
+// the switch lights up over a diff, no tag and an old version passes for the file.
+assert.match(pageHtml, /id="histSolo"/, 'the switch is in the History heading');
+assert.match(pageJs, /\$\('histSolo'\)\.addEventListener\('click', toggleSolo\)/, 'and wired up');
+assert.match(pageJs, /key === 'v'\) toggleSolo\(\)/, 'and reached from `v` too');
+assert.match(
+  pageJs,
+  /renderDocument\(md, soloText\(data\), null\)/,
+  'it renders a version plainly',
+);
+assert.match(pageJs, /if \(state\.solo\) \{/, 'and the marks switch redraws under it');
+assert.match(pageHtml, /id="soloTag"/, 'the bar names the version on the page');
+assert.match(
+  pageJs,
+  /\$\('soloTag'\)\.addEventListener\('click'/,
+  'and is the way back to the changes',
+);
+assert.match(pageCss, /\.side-tog\[hidden\]/, 'a switch that sets display still hides');
+assert.ok(!pageJs.includes('redline:solo'), 'and a restart never opens on an old version');
+console.log('✓ reading one version by itself wired end to end');
+
 // `doc` in the client is the <article>, not a document, and an element has no
 // getElementById — the call parses, ships, and throws only once the line runs.
 // It cost a contents list, a diagram and an honest change count the last time:
@@ -1599,6 +1621,25 @@ assert.ok(
 );
 assert.match(vsOldest.html, /chg chg-(add|mod|del)/, 'earlier-version diff is marked up');
 console.log('✓ compare against earlier snapshot', oldest.hash, vsOldest.stats);
+
+// --- 9w. one version, by itself --------------------------------------------
+// Reading a version on its own is the same payload rendered another way: the
+// version picked is already `base`, so the page renders it plainly, exactly as
+// `adopt` does with the switch on — and keeps the bar naming the file as it is.
+const solo = renderDocument(mdPage, vsOldest.base, null);
+assert.ok(!/chg chg-/.test(solo.html), 'a version read by itself carries no marks');
+assert.deepStrictEqual(solo.changes, [], 'and nothing to count or walk');
+assert.notStrictEqual(
+  solo.html,
+  renderDocument(mdPage, vsOldest.text, null).html,
+  'and it is that version, not the file as it is',
+);
+assert.strictEqual(
+  docTitleOf(mdPage, vsOldest.text),
+  vsOldest.title,
+  'the title is still the file\'s',
+);
+console.log('✓ an older version reads by itself');
 
 // --- 9x. the version chosen stays chosen ----------------------------------
 // Picking a version out of the history is a reading position as much as a

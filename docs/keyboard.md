@@ -7,6 +7,7 @@ alike.
 | --- | --- |
 | `r` | Toggle rendered / raw |
 | `d` | Show / hide the change marks |
+| `v` | [Read the picked version by itself](history.md#reading-a-version-by-itself), or compare again |
 | `n` / `j` | Next change |
 | `p` / `k` | Previous change |
 | `c` | [Check the current change off](changes.md#checking-a-change-off), or bring it back |

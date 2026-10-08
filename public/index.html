@@ -136,6 +136,17 @@
 
       <span class="spacer"></span>
 
+      <!-- Which older version is on the page, while versions are being read by
+           themselves: with no marks, nothing else in the window tells it from
+           the file as it is. Clicking it goes back to what changed since. -->
+      <button id="soloTag" class="icon count solo" hidden>
+        <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8z" />
+          <circle cx="8" cy="8" r="2" />
+        </svg>
+        <span id="soloName" class="solo-name"></span>
+      </button>
+
       <!-- How far the file has moved since the version it is being compared
            against — and a way in to that list, because "changed since what?"
            is answered in the sidebar and nowhere else. -->
@@ -305,6 +316,24 @@
               <path d="m6.25 4 4 4-4 4" />
             </svg>
             History<span id="histCount" class="side-count"></span>
+          </button>
+          <!-- Read the version picked by itself instead of the file marked
+               against it. An eye, the sign for looking at a thing as it is,
+               and the same eye as the tag on the bar that names the version
+               being read. A mode, so the rows can be stepped through one at a
+               time; in the heading because it changes what every row does. -->
+          <button
+            id="histSolo"
+            class="side-tog"
+            type="button"
+            aria-pressed="false"
+            title="Read the version picked by itself, without the changes since (v)"
+            hidden
+          >
+            <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8z" />
+              <circle cx="8" cy="8" r="2" />
+            </svg>
           </button>
         </h2>
         <div id="histList" class="side-list" aria-label="Versions"></div>

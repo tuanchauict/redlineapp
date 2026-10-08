@@ -29,6 +29,29 @@ it is being shown, and a second, shorter list of the same versions is one list t
 many. The sidebar works in a browser tab too, with the open-files section left out —
 there, the versions are the whole of it.
 
+## Reading a version by itself
+
+The **eye** at the end of the History heading, or **`v`**, switches the list from
+*comparing against* a version to **reading** it. With it on, clicking a row shows
+that version as it was, rendered plainly with no marks, rather than the file marked
+up against it. It stays on as you click from row to row, so a history can be stepped
+through one version at a time, until you switch it off again.
+
+- The filled row is always the text on screen. Click the `now` row to read the file
+  as it is, without leaving the mode.
+- **The bar names the version you are reading**, beside the same eye and filled
+  the way its row is. With no marks, nothing else in the window tells last week's
+  text from today's. Clicking that name switches the eye off.
+- **Off, you see what changed since.** The version you were reading is already
+  what the file is compared against, so switching off goes straight to its changes.
+- The bar's title stays the file's own. Contents, find, the raw view and printing
+  all follow the version on screen.
+- There is nothing to check off or walk with `n` / `p` in an old version on its
+  own, so the counter and the ruler go while you read one.
+- The mode lasts as long as the window and is never saved. A window that opened
+  on an old version with no marks would look exactly like the file as it is now.
+  Which version is *picked* is saved, as above, because that is the same choice.
+
 ## From git
 
 The first time a file tracked by git is opened, its **committed history is folded
