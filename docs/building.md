@@ -248,8 +248,9 @@ first release published on GitHub, and then left alone: an old copy is told abou
 that release, and the copy it upgrades to asks GitHub from then on.
 
 Last, the release job starts `pages.yml` with `gh workflow run`, so the landing
-page's download button moves to this version once the dmg it names is up and Latest
-— and not before, which is why the Pages workflow does not watch `package.json`.
+page's download button moves to this version once the dmg it names is up, the cask
+is pushed and the release is Latest — and not before, which is why the Pages
+workflow runs on no push at all ([Deploying it](#deploying-it)).
 `workflow_dispatch` is the one event a job's own token is allowed to start, and the
 job is given `actions: write` for it.
 
@@ -521,11 +522,9 @@ if the button or its version span is missing outright, rather than guessing at a
 page that no longer has one.
 
 It writes into `site/index.html` in place, so a local `npm run site` leaves that file
-modified with the new version. **Don't commit that with a bump.** A change under `site/`
-deploys the page on merge, and the release that dmg belongs to does not exist yet;
-the release job deploys it once it does. The committed page can name an older
-version for as long as it likes, and the suite only checks that the link is one
-`build:site` can find.
+modified with the new version. There is no need to commit that: every deploy
+rewrites it. The committed page can name an older version for as long as it likes,
+and the suite only checks that the link is one `build:site` can find.
 
 The page names the real tap, `tuanchauict/tap/redline`, in both the hero and the
 install band, and [Publishing a release](#publishing-a-release) is what keeps the
@@ -536,13 +535,22 @@ nobody can run.
 
 ## Deploying it
 
-Cloudflare Pages, from `.github/workflows/pages.yml`. It runs on a push to `main`
-that touches what is uploaded — `site/`, `docs/images` (copied in by `build:site`),
-`assets/icon.svg`, `scripts/build-site.mjs`, `wrangler.toml` or the workflow itself —
-and from Run workflow. Not on a version bump in `package.json`, although `build:site`
-writes the version into the download button: the bump lands before its release
-exists, so the release job in `ci.yml` starts this workflow itself once the dmg is
-up.
+Cloudflare Pages, from `.github/workflows/pages.yml`. **It never runs on a push.** It
+runs in exactly two ways:
+
+- **As the last step of a release.** The release job in `ci.yml` starts it after
+  the dmg is uploaded, the cask is pushed and the release is marked Latest.
+- **By hand.** Actions → Pages → Run workflow, on `main`, for a change to the page
+  between releases.
+
+This is because `build:site` writes `package.json`'s version into the download
+button. `package.json` is ahead of every release from the moment a bump merges
+until the release job is done, so a deploy started by a push in that window would
+link a dmg that is not up yet. That covers a push to `site/`, and one landing
+alongside the tag. So a change merged under `site/`, `docs/images`, `assets/icon.svg`,
+`scripts/build-site.mjs` or `wrangler.toml` is not live until somebody runs the
+workflow, or the next release does. Run it by hand only while `package.json` names
+a version that is already released.
 
 The project is **`redline`**, and the hostname is **`redline-1dq.pages.dev`** — not
 the project name plus `.pages.dev`, which is the obvious guess and is somebody else's
