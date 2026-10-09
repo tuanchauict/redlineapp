@@ -29,10 +29,15 @@ src/page/sanitize.js    DOMPurify, and what a document may put on the page
 src/reader/             the reader and what it needs, written against the platform
   reader.js             the open-document registry, the watcher, the payload
   store.js              the snapshot store: history, baselines, checked changes
+  session.js            the reader's surface as a page asks for it: what each call means
   platform.js           the disk, as the reader asks for it
   git.js                git detection, `git log --follow`, `git show`
   plantuml.js           local PlantUML renderer, with a per-diagram cache
   fonts.js              the installed font families, where the OS can list them
+src/rpc/                the page and the reader over messages; imports only rpc/
+  protocol.js           the message shapes, the method list, errors across the wire
+  serve.js              the reader's end: answer a page's calls from a session
+  client.js             the page's end: the seam's shape, over `post` and `onMessage`
 src/hosts/node/         the CLI's shell
   server.js             HTTP + SSE over the reader
   platform.js           the platform over node
@@ -117,6 +122,16 @@ somebody else's file.
 
 Only the browser build. The app calls the same reader directly, with the same
 arguments and the same answers, which is why there is no second table here.
+
+The routes are thin on purpose. What a call *means* — a blank baseline is `last:read`, a
+check-off must name a change or say `clear`, a link must name a file, a diagram is capped
+at 256 KB, a document that closed is `Closed` — is decided once in `src/reader/session.js`,
+which throws `Closed` and `BadRequest`; the server turns those into a 410 and a 400 and
+nothing else. `src/rpc/` is the same session behind messages (`hello`, `call`, `bye` one
+way; `ret`, `err`, `ev`, `live`, `command` the other, all structured-cloneable), and
+`createRpcBackend` is the third implementation of the seam below. A test serves one reader
+over http and over a `MessageChannel` and holds the answers equal, so a transport cannot
+quietly decide something on its own.
 
 | | |
 | --- | --- |
@@ -327,7 +342,9 @@ already on the window.
 The label is there so the page can say which window's events it wants; see the third
 of the [three Rust things](#the-desktop-shell) below for why that is not the default.
 
-`public/backend.js` reads the first of those and becomes one of two things:
+`public/backend.js` reads the first of those and becomes one of two things (a third,
+`src/rpc/client.js`, is the same surface over messages, for a host that has neither a
+server nor the reader in the page):
 
 | | |
 | --- | --- |
