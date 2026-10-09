@@ -9,7 +9,7 @@
 // app's webview, where there is no node. That is also why every method here is
 // async: a webview cannot read a file synchronously, and writing the store
 // twice to spare the CLI an await would have been the worse trade.
-import { hashContent, docKey, byteLength } from './hash.js';
+import { hashContent, docKey, byteLength } from '../core/hash.js';
 
 // Re-exported because this is where callers have always reached for it, and
 // because a snapshot's name belongs to the store conceptually even though the

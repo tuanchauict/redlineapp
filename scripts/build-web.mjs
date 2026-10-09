@@ -5,16 +5,16 @@
 // Three bundles, all of them code that started life in src/ and has to end up
 // running in a webview:
 //
-//   render.js         src/document.js -- the diff and the markdown rendering.
-//   sanitize.js       src/sanitize.js -- DOMPurify, and what a document may put
+//   render.js         src/core/document.js -- the diff and the markdown rendering.
+//   sanitize.js       src/page/sanitize.js -- DOMPurify, and what a document may put
 //                     on the page. Not in render.js, which Node imports too.
-//   backend-tauri.js  src/backend-tauri.js -- the reader, the store and the
+//   backend-tauri.js  src/hosts/tauri/backend.js -- the reader, the store and the
 //                     Tauri platform, for the desktop build where there is no
 //                     server to ask. Loaded only when the shell has left its
 //                     facts on the window, so a browser never fetches it.
 //
 // No entry point touches node:, which is the property that makes this
-// possible and the one src/platform.js exists to preserve.
+// possible and the one src/reader/platform.js exists to preserve.
 //
 // Why bundle rather than ship the modules and let the browser resolve them:
 // markdown-it's ESM entry imports its dependencies by bare name (entities,
@@ -36,9 +36,9 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VENDOR = path.join(ROOT, 'public', 'vendor');
 
 const BUNDLES = [
-  { entry: 'src/document.js', out: 'render.js' },
-  { entry: 'src/sanitize.js', out: 'sanitize.js' },
-  { entry: 'src/backend-tauri.js', out: 'backend-tauri.js' },
+  { entry: 'src/core/document.js', out: 'render.js' },
+  { entry: 'src/page/sanitize.js', out: 'sanitize.js' },
+  { entry: 'src/hosts/tauri/backend.js', out: 'backend-tauri.js' },
 ];
 
 const dev = process.argv.includes('--dev');

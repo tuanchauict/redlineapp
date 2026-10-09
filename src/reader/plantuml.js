@@ -5,7 +5,7 @@
 // process, so both go through the platform (see ./platform.js) and both are
 // async. The jar and the JVM belong to the host either way — they are not
 // things a webview could reach for itself.
-import { hashContent } from './hash.js';
+import { hashContent } from '../core/hash.js';
 import { storeRoot } from './store.js';
 
 const RENDER_TIMEOUT_MS = 20000;

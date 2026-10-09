@@ -10,14 +10,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
-import { createReader, Closed } from './reader.js';
-import { nodePlatform } from './platform-node.js';
+import { createReader, Closed } from '../../reader/reader.js';
+import { nodePlatform } from './platform.js';
 
 // Cap on a single PlantUML fence, well past any real diagram.
 const MAX_DIAGRAM_SOURCE = 256 * 1024;
 
 const require = createRequire(import.meta.url);
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const PUBLIC = path.join(ROOT, 'public');
 
 // The app icon doubles as the browser tab's favicon; it lives with the other

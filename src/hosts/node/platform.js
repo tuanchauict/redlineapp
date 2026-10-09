@@ -10,7 +10,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 
-/** @type {import('./platform.js').Platform} */
+/** @type {import('../../reader/platform.js').Platform} */
 export const nodePlatform = {
   async readText(p) {
     try {

@@ -14,25 +14,29 @@ above them knows which one it has.
 ```
 bin/redline.js          CLI: parse flags, start the server, open a browser
 
-src/reader.js           the open-document registry, the watcher, the payload
-src/server.js           HTTP + SSE over the reader
-src/store.js            the snapshot store: history, baselines, checked changes
-src/document.js         two versions of a text -> HTML, marks, contents
-src/render.js           markdown-it and its plugins, block splitting, the outline
-src/front-matter.js     the `---` header block's lines, as fields to show
-src/hljs.js             the highlighter, with a chosen set of languages
-src/diff.js             block-level diff, and the markup the marks are made of
-src/inline-diff.js      word-level diff, over rendered HTML
-src/hash.js             SHA-1 and SHA-256 in plain JS, because they are names
-src/git.js              git detection, `git log --follow`, `git show`
-src/plantuml.js         local PlantUML renderer, with a per-diagram cache
-src/paths.js            paths as a person reads them (`~`)
-src/platform.js         the disk, as the reader asks for it
-src/platform-node.js      ... over node
-src/platform-tauri.js     ... over the shell's IPC
-src/native-tauri.js     `window.mdNative` over the shell's IPC
-src/backend-tauri.js    the entry point the app's page imports
-src/sanitize.js         DOMPurify, and what a document may put on the page
+src/core/               pure: no I/O and no platform, so it runs anywhere
+  document.js           two versions of a text -> HTML, marks, contents
+  render.js             markdown-it and its plugins, block splitting, the outline
+  front-matter.js       the `---` header block's lines, as fields to show
+  hljs.js               the highlighter, with a chosen set of languages
+  diff.js               block-level diff, and the markup the marks are made of
+  inline-diff.js        word-level diff, over rendered HTML
+  hash.js               SHA-1 and SHA-256 in plain JS, because they are names
+src/page/sanitize.js    DOMPurify, and what a document may put on the page
+src/reader/             the reader and what it needs, written against the platform
+  reader.js             the open-document registry, the watcher, the payload
+  store.js              the snapshot store: history, baselines, checked changes
+  platform.js           the disk, as the reader asks for it
+  git.js                git detection, `git log --follow`, `git show`
+  plantuml.js           local PlantUML renderer, with a per-diagram cache
+  fonts.js              the installed font families, where the OS can list them
+src/hosts/node/         the CLI's shell
+  server.js             HTTP + SSE over the reader
+  platform.js           the platform over node
+src/hosts/tauri/        the app's shell, in the page
+  platform.js           the platform over the shell's IPC
+  native.js             `window.mdNative` over the shell's IPC
+  backend.js            the entry point the app's page imports
 
 public/host.js          a classic script, first in the head, empty here; a host's own shim
 public/index.html       the page: toolbar, two sidebars, document pane, Settings sheet
@@ -58,6 +62,12 @@ test-smoke.js           the whole test suite
 site/                   the landing page. Nothing above it knows it exists
 ```
 
+Which of the `src/` directories a file may import is a test, not a habit: `core/` imports
+`core/` and packages, `page/` adds `page/`, `reader/` imports `core/` and `reader/`, and a
+host imports anything above it and itself, never another host. `node:` stays in `hosts/node/`,
+and `@tauri-apps/api` in `hosts/tauri/`. The page bundles depend on it: nothing under `core/`,
+`page/` or `reader/` may reach for a node built-in.
+
 ## What happens when a file changes
 
 1. The file is watched: `fs.watch` on its **directory** — not the file, so an atomic
@@ -79,7 +89,7 @@ is a pure function of the payload.
 
 ## Open documents
 
-`createReader` (`src/reader.js`) keeps a `Map` of open documents keyed by
+`createReader` (`src/reader/reader.js`) keeps a `Map` of open documents keyed by
 `hashContent(abs).slice(0, 12)`, and hands back `retain` / `release` / `setFile` /
 `pathOf` plus a method per action for whoever is embedding it.
 
@@ -131,7 +141,7 @@ sequence of round trips:
 
 **The document itself is not in here** — no `html`, no `rawHtml`, no stats, changes
 or contents list. Those come from `renderDocument(root, text, base)` in
-`src/document.js`, called by the page, and that is the whole reason the payload is
+`src/core/document.js`, called by the page, and that is the whole reason the payload is
 shaped like this: the diff is the product, and a browser tab and the app disagreeing
 about what changed is the one bug this rules out rather than tests for. There is one
 implementation and it runs wherever the page is.
@@ -166,7 +176,7 @@ would have given one file two memories.
 The fallback travels inside the token because it comes from **Compare against** in
 the settings sheet, which the page holds and the reader does not. A `last:` request
 is not itself a choice, so it is not stored; nor is `none`, which names no version.
-`src/server.js` answers a request with no `baseline` param as `last:read`, and
+`src/hosts/node/server.js` answers a request with no `baseline` param as `last:read`, and
 `public/app.js` sends `keptBaseline()` wherever it shows a document and
 `defaultBaseline()` only when the setting changes.
 
@@ -194,12 +204,12 @@ list is a check-off from before records, and is read as `{ key }`.
 
 ## The diff
 
-`src/diff.js` splits both versions into top-level blocks with markdown-it's own
+`src/core/diff.js` splits both versions into top-level blocks with markdown-it's own
 parser (`splitBlocks`), diffs the block *sources* with `diffArrays`, and pairs a run
 of removals against the run of additions after it: an aligned pair that is at least
 35% similar is one edit rather than a delete and an insert.
 
-A paired block goes to `src/inline-diff.js`, which diffs the two blocks' **rendered
+A paired block goes to `src/core/inline-diff.js`, which diffs the two blocks' **rendered
 HTML** word by word. Marking up markdown source would cut through emphasis runs,
 link destinations and fences; working on HTML means the marks have to respect tag
 boundaries instead, which is the bulk of that module — plus the bail-outs that send
@@ -310,7 +320,7 @@ of the [three Rust things](#the-desktop-shell) below for why that is not the def
 | | |
 | --- | --- |
 | No `__REDLINE_HOST` | `fetch` and an `EventSource` against the server the page came from. Reconnecting a dropped stream lives here, because that is a fact about http and means nothing further up |
-| `__REDLINE_HOST` | A dynamic import of `vendor/backend-tauri.js`, which builds the reader **in the page** over `platform-tauri.js` and calls it directly. A browser tab never downloads it |
+| `__REDLINE_HOST` | A dynamic import of `vendor/backend-tauri.js`, which builds the reader **in the page** over `hosts/tauri/platform.js` and calls it directly. A browser tab never downloads it |
 
 Both expose the same methods with the same arguments, which is the whole point: the
 one implementation of the diff runs wherever the page is, so a tab and the app
@@ -323,7 +333,7 @@ disk, and nothing about what a document is. The reader is JavaScript in the webv
 either way, so porting the shell was porting the window management and none of the
 product.
 
-- **`host.rs`** is the disk, as `src/platform-tauri.js` asks for it: read, write,
+- **`host.rs`** is the disk, as `src/hosts/tauri/platform.js` asks for it: read, write,
   mkdirp, read_dir, remove, rename, exists, modified, spawn. Writing and spawning
   are held to what the reader does; see
   [What a document can do](#what-a-document-can-do). Plus `__REDLINE_HOST` —
@@ -393,7 +403,7 @@ Four things about writing Rust here that cost time to learn:
   window went fullscreen. Left unscoped it showed up as one window's **Open files**
   listing another window's documents, or listing nothing under a document that was
   still on screen, and as the menu driving all the windows at once. One window
-  behaves perfectly, which is why it took a while to find. `src/native-tauri.js`
+  behaves perfectly, which is why it took a while to find. `src/hosts/tauri/native.js`
   names its own label on every registration; an app-wide `emit` (`md:settings`)
   still arrives, because that one carries no filter to fail.
 
@@ -407,7 +417,7 @@ app, the page that draws the document is also the page that can ask the shell to
 run git and write the store. So there are three layers, and each one assumes the
 one before it has failed.
 
-**Sanitized at insertion.** `src/sanitize.js` runs DOMPurify over the document —
+**Sanitized at insertion.** `src/page/sanitize.js` runs DOMPurify over the document —
 rendered or raw — as `app.js` assigns it to the pane, and over each PlantUML SVG
 as it replaces its fence. That happens in the page, after the diff, not in
 `render.js`: the renderer also runs in Node, where DOMPurify has no DOM and gives
@@ -433,7 +443,7 @@ origin, plus the head script by its SHA-256. `connect-src` is the page's own
 server, or in the app the shell's IPC. `object-src`, `base-uri`, `form-action`
 and `frame-ancestors` are all `'none'`. The policy lives in two places:
 
-- `src/server.js` computes it, hash included, and sends it as a header on
+- `src/hosts/node/server.js` computes it, hash included, and sends it as a header on
   `index.html`.
 - `shell/tauri.conf.json` carries it for the app. The bundler hashes the inline
   script into it at compile time, and `dangerousDisableAssetCspModification`
@@ -455,9 +465,9 @@ are `REDLINE_HOME` from the shell's own environment, not from the page,
 `~/.redline` and `~/.md-reader`. `spawn` runs only the command lines `src/`
 builds:
 
-- the four git invocations in `src/git.js`, with anything the page chose kept
+- the four git invocations in `src/reader/git.js`, with anything the page chose kept
   where git reads it as a name and never as an option;
-- the one JXA script in `src/fonts.js`, compared byte for byte;
+- the one JXA script in `src/reader/fonts.js`, compared byte for byte;
 - `java -jar` with a jar named `plantuml.jar` or the one `PLANTUML_JAR` names;
 - a `plantuml` launcher by absolute path.
 

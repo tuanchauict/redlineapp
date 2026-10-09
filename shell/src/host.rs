@@ -1,7 +1,7 @@
 // The disk and the process table, for a page that has neither.
 //
-// This is the Rust half of the Platform contract in src/platform.js. The other
-// half is src/platform-tauri.js, which calls straight through to these. There
+// This is the Rust half of the Platform contract in src/reader/platform.js. The other
+// half is src/hosts/tauri/platform.js, which calls straight through to these. There
 // is deliberately nothing else in here: no notion of a document, a version or a
 // diff, because all of that is the reader's, and the reader runs in the webview.
 //
@@ -14,7 +14,7 @@
 // follows the name rather than the inode.
 //
 // What is here is also everything a page can do to this machine, and the page
-// draws documents written by other people. src/sanitize.js and the CSP in
+// draws documents written by other people. src/page/sanitize.js and the CSP in
 // tauri.conf.json are what stop a document running script in it; the checks
 // below are what a script would find if one ever did. Reading is left open --
 // a reader has to follow a link to any file, and the CSP is what keeps what it
@@ -29,7 +29,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
-/// What a program said. The shape src/platform.js documents as SpawnResult.
+/// What a program said. The shape src/reader/platform.js documents as SpawnResult.
 #[derive(Serialize)]
 pub struct SpawnResult {
     /// Exit status, or null if it was killed -- which is how a timeout reads.
@@ -219,7 +219,7 @@ pub async fn spawn(
 
 // --- what the page may ask for -------------------------------------------
 
-/// Where the store can be: src/store.js's `storeRoot`, which takes
+/// Where the store can be: src/reader/store.js's `storeRoot`, which takes
 /// REDLINE_HOME when it is set and `~/.redline` otherwise, plus the old name it
 /// is moved from. All three, whichever is in use -- the page only ever writes
 /// to one of them, and allowing the others gives it nothing it could not reach.
@@ -266,11 +266,11 @@ fn refused(what: &str, path: &Path) -> String {
     format!("refused to {what} {} -- not in the snapshot store", path.display())
 }
 
-/// The script src/fonts.js hands osascript, byte for byte -- the test suite
+/// The script src/reader/fonts.js hands osascript, byte for byte -- the test suite
 /// compares the two. A JXA script is a program, so this is the only one run.
 const LIST_FAMILIES: &str = r#"ObjC.import("AppKit");$.NSFontManager.sharedFontManager.availableFontFamilies.js.map(s => s.js).join("\n")"#;
 
-/// The arguments src/plantuml.js passes every renderer, after the jar.
+/// The arguments src/reader/plantuml.js passes every renderer, after the jar.
 const PLANTUML_ARGS: [&str; 4] = ["-tsvg", "-pipe", "-charset", "UTF-8"];
 
 /// Whether `cmd args` is one of the command lines the reader builds.
@@ -279,13 +279,13 @@ const PLANTUML_ARGS: [&str; 4] = ["-tsvg", "-pipe", "-charset", "UTF-8"];
 /// `git -c core.sshCommand=...` runs whatever it likes, and so does `java -jar`
 /// with any jar. Each arm is one call site in src/ --
 ///
-///   git       src/git.js: the file's repo, its log, and a version out of it.
+///   git       src/reader/git.js: the file's repo, its log, and a version out of it.
 ///             Everything the page chooses -- a file name, a revision -- has
 ///             to sit where git reads it as a name and not as an option.
-///   osascript src/fonts.js: the font list, and only that script.
-///   java      src/plantuml.js: a jar named plantuml.jar, or the one
+///   osascript src/reader/fonts.js: the font list, and only that script.
+///   java      src/reader/plantuml.js: a jar named plantuml.jar, or the one
 ///             PLANTUML_JAR names in the shell's own environment.
-///   plantuml  src/plantuml.js: the launcher Homebrew installs, by absolute
+///   plantuml  src/reader/plantuml.js: the launcher Homebrew installs, by absolute
 ///             path, because that is how the reader finds it on PATH.
 ///
 /// A new spawn in src/ needs an arm here, or it fails in the app and works in
@@ -343,7 +343,7 @@ pub struct Handoff {
     /// it wants to hear: a `listen` with no target registers for every event in
     /// the app, including the ones another window was addressed by name, so
     /// without this a second window's tab list lands in this one. See the
-    /// `label` note in src/native-tauri.js.
+    /// `label` note in src/hosts/tauri/native.js.
     pub label: String,
     /// What this copy is, for the About row in Settings. Off the bundle the
     /// app was built as -- tauri.conf.json -- which is also what Finder's Get

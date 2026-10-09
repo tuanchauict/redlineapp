@@ -15,8 +15,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
-import { storeRoot } from './store.js';
-import { tauriPlatform } from './platform-tauri.js';
+import { storeRoot } from '../../reader/store.js';
+import { tauriPlatform } from './platform.js';
 
 /** `~/Projects/atlas/docs`, the way a person would say it. */
 function homeRelative(abs, home) {
@@ -30,7 +30,7 @@ function homeRelative(abs, home) {
  * the caller needs to drive: the tab list.
  *
  * @param {object} opts
- * @param {import('./reader.js').Reader} opts.reader  Already created, and ours to hold documents in.
+ * @param {import('../../reader/reader.js').Reader} opts.reader  Already created, and ours to hold documents in.
  */
 export function installNative({ reader }) {
   const host = globalThis.__REDLINE_HOST ?? {};
