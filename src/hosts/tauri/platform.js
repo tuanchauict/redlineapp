@@ -1,11 +1,13 @@
 // The Tauri side of the platform contract: what the desktop app runs on.
 //
-// The counterpart of src/platform-node.js, and just as thin. The difference is
+// The counterpart of src/hosts/node/platform.js, and just as thin. The difference is
 // where the disk is: there is no node here, so every call is a message to the
 // Rust side (shell/src/host.rs), and that is the whole reason the contract is
 // asynchronous. The interesting behaviour -- what the store does, what counts
 // as a version, how git history is folded in -- is the same code either way.
 import { invoke } from '@tauri-apps/api/core';
+
+import { makePaths } from '../../core/paths.js';
 
 /** How often to look at a file's modification time. */
 const POLL_MS = 250;
@@ -20,62 +22,7 @@ const POLL_MS = 250;
  */
 const host = globalThis.__REDLINE_HOST ?? { os: 'darwin', home: '', env: {} };
 
-const SEP = host.os === 'win32' ? '\\' : '/';
-
-/**
- * Join, the way the host would.
- *
- * Not `p.join('/')`: the store writes these paths into its own index and hands
- * them back, so two spellings of one file would not fail loudly -- they would
- * file one document under two names.
- */
-function join(...parts) {
-  const out = parts
-    .filter((p) => p !== '' && p != null)
-    .join(SEP)
-    // Any run of either separator collapses: the pieces being joined come from
-    // both sides of this bridge and only one of them is careful about trailing
-    // slashes.
-    .replace(/[/\\]+/g, SEP);
-  return out || '.';
-}
-
-/** Everything up to the last separator, or '.' when there is none. */
-function dirname(p) {
-  const at = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-  if (at < 0) return '.';
-  if (at === 0) return SEP; // '/x' -- the root, not the empty string
-  return p.slice(0, at);
-}
-
-function basename(p) {
-  const at = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
-  return at < 0 ? p : p.slice(at + 1);
-}
-
-/**
- * An absolute path, normalised.
- *
- * There is no working directory to resolve against here -- the shell only ever
- * hands over paths it got from the OS, from a dialog or from a command line it
- * resolved itself. So this collapses `.` and `..` and leaves everything else,
- * which is what the store needs: it keys documents on the answer, and two
- * spellings of one file must not survive it.
- */
-function resolve(p) {
-  if (!p) return p;
-  const win = /^[a-zA-Z]:[/\\]/.test(p);
-  const rooted = win || p.startsWith('/') || p.startsWith('\\');
-  const drive = win ? p.slice(0, 2) : '';
-  const parts = [];
-  for (const part of (win ? p.slice(2) : p).split(/[/\\]+/)) {
-    if (part === '' || part === '.') continue;
-    if (part === '..' && parts.length && parts.at(-1) !== '..') parts.pop();
-    else if (part !== '..' || !rooted) parts.push(part);
-  }
-  const body = parts.join(SEP);
-  return rooted ? drive + SEP + body : body;
-}
+const { join, dirname, basename, resolve } = makePaths(host.os === 'win32' ? '\\' : '/');
 
 /** @type {import('../../reader/platform.js').Platform} */
 export const tauriPlatform = {

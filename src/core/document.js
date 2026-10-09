@@ -4,16 +4,17 @@
 // machine in it: no fs, no path, no store, no server. It takes the two versions
 // of the text and hands back the HTML, the marks and the contents list.
 //
-// Split out because it has two callers that have nothing else in common. In the
-// desktop app it runs inside the webview, where none of node: exists; in the
-// CLI it runs on the server, which reads the file and looks after the store.
-// Keeping it in one place is what stops the app and the browser disagreeing
-// about what a document looks like -- the diff is the product, and two
-// implementations of it would be two products.
+// It runs in the page, in every host: bundled into vendor/render.js, which app.js imports.
+// The desktop app, the CLI's browser tab and the other hosts all draw a document with this one
+// function, and none of them renders HTML for the page or carries a diff of its own -- the diff
+// is the product, and two implementations of it would be two products. What a host does supply
+// is the two versions of the text, from the reader.
 import { createMarkdown, documentTitle, renderPlain, outline } from './render.js';
 import { renderDiff, renderRawDiff } from './diff.js';
 
 export { createMarkdown };
+// Link arithmetic reaches the page the same way the renderer does: through vendor/render.js.
+export { walkPath, shorten } from './links.js';
 
 const NO_CHANGES = { added: 0, removed: 0, modified: 0 };
 

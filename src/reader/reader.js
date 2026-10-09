@@ -4,12 +4,12 @@
 // This is the whole back end. It knows nothing about http, and nothing about
 // windows — it is the same object whether it is being driven by a browser over
 // a socket or by a page that is holding it directly, which is the point. The
-// CLI wraps it in a server (src/server.js) because a browser tab needs a URL
+// CLI wraps it in a server (src/hosts/node/server.js) because a browser tab needs a URL
 // to talk to; the desktop app does not, and a second implementation of "what
 // changed in this file" is the one bug this design rules out rather than tests
 // for.
 //
-// Everything reaches the disk through a platform (src/platform.js).
+// Everything reaches the disk through a platform (src/reader/platform.js).
 import { DocStore } from './store.js';
 import { hashContent } from '../core/hash.js';
 import { createGit } from './git.js';

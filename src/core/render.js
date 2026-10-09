@@ -44,7 +44,7 @@ function lineText(state, line) {
  * A block rule rather than a preprocessing step, so the header is a token like
  * any other and everything downstream gets it for free — it is one block to the
  * diff, it takes a `data-line` from `sourceLines`, and it contributes no heading
- * to the contents list. See `src/front-matter.js` for what is read out of it.
+ * to the contents list. See `src/core/front-matter.js` for what is read out of it.
  *
  * Only at line 0, which is also true inside the diff: a block is re-parsed on
  * its own there and the header block's own first line is line 0, while a `---`
@@ -146,7 +146,7 @@ const PLANTUML_LANGS = new Set(['plantuml', 'puml', 'uml', 'pu', 'iuml']);
  * It cannot be any more. This module now runs inside the webview, where there
  * is no process to spawn and nothing is synchronous, so PlantUML gets the same
  * treatment mermaid always had: a placeholder carrying the source, filled in
- * once whoever can run the jar has answered. `src/plantuml.js` still does the
+ * once whoever can run the jar has answered. `src/reader/plantuml.js` still does the
  * rendering, now behind a request rather than a function call.
  *
  * The code is kept in the element rather than re-read from the markdown, so

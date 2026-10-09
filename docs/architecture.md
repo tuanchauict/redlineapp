@@ -22,6 +22,9 @@ src/core/               pure: no I/O and no platform, so it runs anywhere
   diff.js               block-level diff, and the markup the marks are made of
   inline-diff.js        word-level diff, over rendered HTML
   hash.js               SHA-1 and SHA-256 in plain JS, because they are names
+  paths.js              join, dirname, basename, resolve for a given separator
+  links.js              where a link points: `walkPath`, and `shorten` for `~`
+  csp.js                the content security policy as data, and the inline-script hashes
 src/page/sanitize.js    DOMPurify, and what a document may put on the page
 src/reader/             the reader and what it needs, written against the platform
   reader.js             the open-document registry, the watcher, the payload
@@ -34,7 +37,7 @@ src/hosts/node/         the CLI's shell
   server.js             HTTP + SSE over the reader
   platform.js           the platform over node
 src/hosts/tauri/        the app's shell, in the page
-  platform.js           the platform over the shell's IPC
+  platform.js           the platform over the shell's IPC, on core/paths.js
   native.js             `window.mdNative` over the shell's IPC
   backend.js            the entry point the app's page imports
 
@@ -444,7 +447,9 @@ server, or in the app the shell's IPC. `object-src`, `base-uri`, `form-action`
 and `frame-ancestors` are all `'none'`. The policy lives in two places:
 
 - `src/hosts/node/server.js` computes it, hash included, and sends it as a header on
-  `index.html`.
+  `index.html`. The directive list and the hashing are `src/core/csp.js`, which a
+  host that builds its own page (a `<meta>`, a `_headers` file) takes the same list from.
+  It may tighten a directive and may not loosen one.
 - `shell/tauri.conf.json` carries it for the app. The bundler hashes the inline
   script into it at compile time, and `dangerousDisableAssetCspModification`
   keeps it off `style-src`, where a nonce would switch off the `'unsafe-inline'`

@@ -12,6 +12,9 @@ import { createMarkdown } from './src/core/render.js';
 import { renderDocument, titleOf as docTitleOf } from './src/core/document.js';
 import { nodePlatform } from './src/hosts/node/platform.js';
 import { LIST_FAMILIES } from './src/reader/fonts.js';
+import { makePaths } from './src/core/paths.js';
+import { directives, inlineScriptHashes, serialize } from './src/core/csp.js';
+import { walkPath, shorten } from './src/core/links.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-'));
 process.env.REDLINE_HOME = path.join(tmp, 'home');
@@ -397,6 +400,148 @@ for (const [file, spec] of [
   assert.strictEqual(forbidden(file, spec), null, `${file} may import ${spec}`);
 }
 console.log('✓ the import graph obeys the layers');
+
+// core/paths.js agrees with node:path on the cases it claims. Not claimed: a trailing
+// separator on dirname, and the root of a drive (`C:\a` has dirname `C:`, node says `C:\`).
+// Nothing is resolved against a working directory, so only absolute paths are compared.
+const posixPaths = makePaths('/');
+const winPaths = makePaths('\\');
+for (const [paths, ref, cases] of [
+  [posixPaths, path.posix, {
+    join: [['a', 'b'], ['/a/', '/b'], ['/a', '', 'b'], ['/a//b', 'c.md'], [], ['', '']],
+    dirname: ['/a/b.md', '/a', '/a/b/c', 'b.md'],
+    basename: ['/a/b.md', 'b.md', '/a/b'],
+    resolve: ['/a/./b/../c', '/a//b', '/..', '/a/b/..', '/', '/a/../../b'],
+  }],
+  [winPaths, path.win32, {
+    join: [['C:\\a', 'b'], ['C:\\a\\', '\\b'], ['C:/a', 'b'], ['C:\\a', '', 'b']],
+    dirname: ['C:\\a\\b.md', 'C:\\a\\b\\c', 'b.md'],
+    basename: ['C:\\a\\b.md', 'b.md'],
+    resolve: ['C:\\a\\.\\b\\..\\c', 'C:/a/b', 'C:\\', 'C:\\..', 'C:\\a\\\\b'],
+  }],
+]) {
+  for (const args of cases.join) {
+    assert.strictEqual(paths.join(...args), ref.join(...args), `join ${JSON.stringify(args)}`);
+  }
+  for (const fn of ['dirname', 'basename', 'resolve']) {
+    for (const p of cases[fn]) assert.strictEqual(paths[fn](p), ref[fn](p), `${fn} ${p}`);
+  }
+}
+assert.deepStrictEqual([posixPaths.sep, winPaths.sep], ['/', '\\'], 'each carries its separator');
+console.log('✓ core/paths.js agrees with node:path');
+
+// core/csp.js: the header the server sends for the current index.html, written out the long
+// way -- a literal directive list and node's own hash -- so that a change to the list in
+// csp.js has to be made here too, on purpose. The Tauri copy is compared with the same list
+// above; the web build's `_headers` and the extension's <meta> are made from this one.
+assert.strictEqual(
+  served,
+  [
+    "default-src 'self'",
+    `script-src 'self' 'sha256-${headHash}'`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob: https: http:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join('; '),
+  'the CSP header is the same bytes it always was',
+);
+assert.deepStrictEqual(
+  inlineScriptHashes('<script src="host.js"></script><script> a </script><script>b</script>'),
+  [' a ', 'b'].map((body) => `'sha256-${crypto.createHash('sha256').update(body).digest('base64')}'`
+  ),
+  'every inline script is named by its hash, exactly as written, and one with a src is not',
+);
+assert.strictEqual(
+  serialize(directives({ 'connect-src': ["'none'"], 'frame-ancestors': null })),
+  served
+    .replace(/script-src [^;]*/, "script-src 'self'")
+    .replace("connect-src 'self'", "connect-src 'none'")
+    .replace('; frame-ancestors \'none\'', ''),
+  'a host can tighten a directive or drop one, and the rest is left alone',
+);
+console.log('✓ core/csp.js builds the served header');
+
+// core/links.js. The CLI's cases are held against the function as it was in app.js, so that
+// moving it was a move; the rest are the places a document can now live.
+const legacyWalk = (dir, rel) => {
+  const parts = dir.split('/');
+  for (const seg of rel.split('/')) {
+    if (!seg || seg === '.') continue;
+    if (seg !== '..') parts.push(seg);
+    else if (parts.length > 1) parts.pop();
+  }
+  return parts.join('/') || '/';
+};
+const legacyShorten = (abs, d) => {
+  const cut = d.dirLabel.startsWith('~') ? d.dir.length - d.dirLabel.length + 1 : -1;
+  const home = cut >= 0 ? d.dir.slice(0, cut) : '';
+  if (!home) return abs;
+  if (abs === home) return '~';
+  return abs.startsWith(home + '/') ? '~' + abs.slice(home.length) : abs;
+};
+for (const dir of ['/', '/a', '/a/b', '/Users/me/notes']) {
+  for (const rel of ['c.md', './c.md', '../c.md', '../../c.md', '../../../../c.md', 'x/./y/../z.md',
+    '', '.', '..', 'a//b.md']) {
+    // A dir of `/` is not compared: it used to come back as `//c.md`.
+    if (dir === '/') continue;
+    assert.strictEqual(walkPath(dir, rel), legacyWalk(dir, rel), `${dir} + ${rel}`);
+  }
+}
+assert.strictEqual(walkPath('/', 'a.md'), '/a.md', 'a file in the root is /a.md, not //a.md');
+assert.strictEqual(walkPath('/', '../../a.md'), '/a.md', 'and the root has nothing above it');
+for (const d of [
+  { dir: '/Users/me/notes', dirLabel: '~/notes' },
+  { dir: '/Users/me', dirLabel: '~' },
+  { dir: '/var/log', dirLabel: '/var/log' },
+  { dir: '/Users/me/footnotes', dirLabel: '~/footnotes' },
+]) {
+  for (const abs of ['/Users/me', '/Users/me/x.md', '/Users/me/notes/y.md', '/Users/mex/y.md',
+    '/Users/other/y.md', '/etc/x', '/', '/var/log/z.log']) {
+    assert.strictEqual(shorten(abs, d), legacyShorten(abs, d), `${abs} in ${d.dir}`);
+  }
+}
+
+assert.strictEqual(walkPath('C:\\notes\\sub', '..\\x.md'), 'C:\\notes\\x.md', 'a drive path');
+assert.strictEqual(walkPath('C:\\notes', 'a/b.md'), 'C:\\notes\\a\\b.md',
+  'keeps its separator when the link is written with the other one');
+assert.strictEqual(walkPath('C:\\notes', '..\\..\\..\\x.md'), 'C:\\x.md', '.. stops at the drive');
+assert.strictEqual(walkPath('C:\\', 'a.md'), 'C:\\a.md', 'the root of a drive');
+assert.strictEqual(walkPath('web:r1/docs', '../../../x.md'), 'web:r1/x.md',
+  'a link cannot climb out of the folder the web app was given');
+assert.strictEqual(walkPath('web:r1', 'a.md'), 'web:r1/a.md', 'the root itself');
+assert.strictEqual(walkPath('file:///a/b', '../c.md'), 'file:///a/c.md', 'a file: URI');
+assert.strictEqual(
+  walkPath('vscode-remote://ssh-remote+box/home/me', '../../../../etc/x.md'),
+  'vscode-remote://ssh-remote+box/etc/x.md',
+  'and a remote one, which keeps its authority',
+);
+assert.strictEqual(walkPath('/a/b', 'c\\d.md'), '/a/b/c\\d.md',
+  'a backslash on a POSIX path is part of a name');
+
+assert.strictEqual(
+  shorten('C:\\Users\\me\\x.md', { dir: 'C:\\Users\\me\\notes', dirLabel: '~\\notes' }),
+  '~\\x.md',
+  'home on Windows',
+);
+assert.strictEqual(
+  shorten('vscode-remote://box/home/me/a.md', {
+    dir: 'vscode-remote://box/home/me/notes',
+    dirLabel: '~/notes',
+  }),
+  '~/a.md',
+  'home behind a URI',
+);
+assert.strictEqual(
+  shorten('web:r1/x.md', { dir: 'web:r1/docs', dirLabel: 'r1/docs' }),
+  'r1/x.md',
+  'a label that is not home is taken from the pair, not assumed',
+);
+console.log('✓ core/links.js: the CLI cases are unchanged, the others work');
 
 // The show/hide-changes switch is spread over three files; if one half is
 // dropped it silently stops doing anything, which nothing else catches. It has
