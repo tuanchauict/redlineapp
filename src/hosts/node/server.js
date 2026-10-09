@@ -1,8 +1,10 @@
 // The browser front door: an http server over a reader (src/reader/reader.js).
 //
-// Nothing but routing lives here. A browser tab needs a URL to talk to, and
-// this is that URL — the reader itself has no opinion about http, because the
-// desktop app holds it directly and never asks it over a socket.
+// Nothing but transport lives here: parsing a request, choosing a status, framing an event
+// stream. What a call means is decided by the session (src/reader/session.js), which any other
+// transport shares. A browser tab needs a URL to talk to, and this is that URL — the reader
+// itself has no opinion about http, because the desktop app holds it directly and never asks
+// it over a socket.
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,11 +12,9 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 import { createReader, Closed } from '../../reader/reader.js';
+import { createSession, BadRequest, MAX_DIAGRAM_SOURCE } from '../../reader/session.js';
 import { nodePlatform } from './platform.js';
 import { directives, inlineScriptHashes, serialize } from '../../core/csp.js';
-
-// Cap on a single PlantUML fence, well past any real diagram.
-const MAX_DIAGRAM_SOURCE = 256 * 1024;
 
 const require = createRequire(import.meta.url);
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -98,6 +98,7 @@ function fromOwnPage(req) {
  */
 export async function createServer({ file, plantumlJar, platform = nodePlatform } = {}) {
   const reader = await createReader({ platform, plantumlJar });
+  const session = createSession(reader);
 
   // The document the server was started on. A shell that opens its own windows
   // should release this once they hold their own references.
@@ -125,7 +126,8 @@ export async function createServer({ file, plantumlJar, platform = nodePlatform 
      * be answered here rather than becoming an unhandled rejection that leaves
      * the page waiting on a socket nobody will ever write to. A document that
      * has closed is 410 and not 500: a window shutting while its page had a
-     * request in flight is an ordinary race, not a fault.
+     * request in flight is an ordinary race, not a fault. A call that is wrong
+     * in itself is 400.
      */
     const answer = (work) =>
       Promise.resolve()
@@ -135,7 +137,9 @@ export async function createServer({ file, plantumlJar, platform = nodePlatform 
           (err) =>
             err instanceof Closed
               ? send(410, { error: 'document closed' })
-              : send(500, { error: String(err?.message || err) }),
+              : err instanceof BadRequest
+                ? send(400, { error: err.message })
+                : send(500, { error: String(err?.message || err) }),
         );
 
     // Render one PlantUML fence. The only endpoint here that is about no
@@ -154,10 +158,7 @@ export async function createServer({ file, plantumlJar, platform = nodePlatform 
         if (body.length > MAX_DIAGRAM_SOURCE) req.destroy();
         else body += chunk;
       });
-      req.on('end', () => {
-        if (!body.trim()) return send(400, { error: 'no diagram source' });
-        answer(() => reader.plantumlSvg(body));
-      });
+      req.on('end', () => answer(() => session.plantumlSvg(body)));
       return;
     }
 
@@ -165,29 +166,27 @@ export async function createServer({ file, plantumlJar, platform = nodePlatform 
     // endpoint about no particular document: a browser cannot enumerate fonts,
     // so the one process that can is asked on the page's behalf.
     if (url.pathname === '/api/fonts') {
-      return answer(async () => ({ fonts: await reader.fonts() }));
+      return answer(() => session.fonts());
     }
 
     if (url.pathname === '/api/doc') {
       // No `baseline` means "open it": whatever it was last compared against,
       // and the read mark only if it never has been. See `reader.doc`.
-      return answer(() => reader.doc(id, param('baseline') || 'last:read'));
+      return answer(() => session.doc(id, param('baseline')));
     }
     if (url.pathname === '/api/mark-read' && post) {
-      return answer(() => reader.markRead(id));
+      return answer(() => session.markRead(id));
     }
     if (url.pathname === '/api/ack' && post) {
-      const key = param('key');
-      if (!key && !param('clear')) return send(400, { error: 'no change named' });
-      return answer(async () => ({
-        acked: await reader.ack(id, {
-          key,
+      return answer(() =>
+        session.ack(id, {
+          key: param('key'),
           on: param('on') !== '0',
           clear: !!param('clear'),
           at: param('at'),
           block: param('block'),
         }),
-      }));
+      );
     }
     // Show a different file in this page. A link from one document to the one
     // beside it is the ordinary way to move through a set of notes, and a tab
@@ -198,38 +197,29 @@ export async function createServer({ file, plantumlJar, platform = nodePlatform 
     // releases the document this page was on, and the page has to be holding
     // the live id before it asks for anything else.
     if (url.pathname === '/api/open' && post) {
-      const file = param('path');
-      if (!file) return send(400, { error: 'no file named' });
-      // Resolved before the switch: `lookup` answers "whichever document you
-      // were started on" for a tab that never named one, and after the switch
-      // that answer would be the new file releasing itself.
-      const from = reader.idOf(id) || undefined;
-      return answer(async () => {
-        const opened = await reader.setFile(file, from);
-        return { id: opened.id, path: opened.abs };
-      });
+      return answer(() => session.open(id, param('path')));
     }
     if (url.pathname === '/api/prune' && post) {
-      return answer(() => reader.prune(id, param('upto'), param('baseline') || 'last:read'));
+      return answer(() => session.prune(id, param('upto'), param('baseline')));
     }
 
-    // One document's changes, as they happen. The subscription is resolved
-    // now rather than per event, so a listener that did not name a document
-    // still follows that document across a switch.
+    // One document's changes, as they happen. What the session subscribes to is settled
+    // there, once, so a listener that did not name a document still follows that document
+    // across a switch.
     if (url.pathname === '/events') {
-      // Resolved first, and to the document's own id rather than to the empty
-      // string the caller may have sent: a listener that named no document
-      // still has to follow that document across a switch.
-      const resolved = reader.idOf(id);
-      if (!resolved) return send(410, { error: 'document closed' });
-
+      let off;
+      try {
+        off = session.watch(id, (e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
+      } catch (err) {
+        if (err instanceof Closed) return send(410, { error: 'document closed' });
+        throw err;
+      }
       res.writeHead(200, {
         'content-type': 'text/event-stream',
         'cache-control': 'no-cache',
         connection: 'keep-alive',
       });
       res.write(': connected\n\n');
-      const off = reader.subscribe(resolved, (e) => res.write(`data: ${JSON.stringify(e)}\n\n`));
       const ping = setInterval(() => res.write(': ping\n\n'), 25000);
       req.on('close', () => {
         clearInterval(ping);

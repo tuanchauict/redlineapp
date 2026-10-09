@@ -16,6 +16,9 @@ import { NO_GIT } from './src/reader/git.js';
 import { makePaths } from './src/core/paths.js';
 import { directives, inlineScriptHashes, serialize } from './src/core/csp.js';
 import { walkPath, shorten } from './src/core/links.js';
+import { createSession } from './src/reader/session.js';
+import { serveRpc } from './src/rpc/serve.js';
+import { createRpcBackend } from './src/rpc/client.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-'));
 process.env.REDLINE_HOME = path.join(tmp, 'home');
@@ -2436,6 +2439,145 @@ assert.strictEqual(unnamed.name, 'c.md', 'a request with no id still gets the op
 console.log('✓ several documents open at once');
 await Promise.all([lC.rd.cancel().catch(() => {}), lD.rd.cancel().catch(() => {})]);
 sixth.server.close();
+
+// --- 12a. the page behind a MessageChannel is answered as the page behind http is ----------
+// One reader, asked two ways. The session decided what every call means, so the transports may
+// differ in how a call arrives and in nothing else -- and this is the test that says so, rather
+// than each transport's own tests each hoping.
+{
+  const docP = path.join(tmp, 'parity.md');
+  fs.writeFileSync(docP, '# Parity\n\nOne.\n');
+  const parity = await createServer({ file: docP });
+  await new Promise((r) => parity.server.listen(0, '127.0.0.1', r));
+  const baseP = `http://127.0.0.1:${parity.server.address().port}`;
+
+  const chan = new MessageChannel();
+  const closeRpc = serveRpc({
+    session: createSession(parity),
+    post: (m) => chan.port1.postMessage(m),
+    onMessage: (h) => {
+      chan.port1.onmessage = (e) => h(e.data);
+    },
+  });
+  const rpc = createRpcBackend({
+    docId: () => parity.initialId,
+    post: (m) => chan.port2.postMessage(m),
+    onMessage: (h) => {
+      chan.port2.onmessage = (e) => h(e.data);
+    },
+    host: { kind: 'test' },
+  });
+  // What an http client receives has been through JSON; what a channel delivers has been through
+  // structured clone, which keeps an `undefined`. Neither is the reader's concern.
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+  const httpP = async (p, init) => {
+    const res = await fetch(`${baseP}${p}${p.includes('?') ? '&' : '?'}id=${parity.initialId}`, init);
+    return { status: res.status, body: await res.json() };
+  };
+
+  assert.deepStrictEqual(
+    plain(await rpc.doc()),
+    (await httpP('/api/doc')).body,
+    'the document is the same payload either way',
+  );
+  assert.deepStrictEqual(
+    await rpc.fonts(),
+    (await httpP('/api/fonts')).body.fonts,
+    'and so are the fonts',
+  );
+
+  // A change reaches a page that is listening over the channel, as it reaches one on /events.
+  const heard = [];
+  const lives = [];
+  const unwatch = rpc.watch({
+    onEvent: (e) => heard.push(e),
+    onLive: (on, why) => lives.push([on, why]),
+  });
+  await until(() => lives.length, 'the watch to go live');
+  assert.deepStrictEqual(lives[0], [true, undefined], 'the watch is live once the reader has it');
+  fs.appendFileSync(docP, '\nTwo.\n');
+  await until(() => heard.some((e) => e.type === 'change'), 'a change over the channel');
+  const changed = (await httpP('/api/doc')).body;
+  assert.deepStrictEqual(plain(await rpc.doc()), changed, 'the changed document is the same too');
+  assert.ok(changed.text.includes('Two.'), 'with the edit in it');
+
+  // The same call, made both ways, leaves the same answer.
+  assert.deepStrictEqual(
+    plain(await rpc.markRead()),
+    (await httpP('/api/mark-read', { method: 'POST' })).body,
+    'marking read answers with the same document',
+  );
+  const keyP = 'parity-key';
+  assert.deepStrictEqual(await rpc.ack({ key: keyP }), [keyP], 'a check-off over the channel');
+  assert.deepStrictEqual(
+    (await httpP(`/api/ack?key=${keyP}`, { method: 'POST' })).body.acked,
+    [keyP],
+    'and over http, which already knows it',
+  );
+  assert.deepStrictEqual(await rpc.ack({ clear: true }), [], 'clearing');
+
+  // A call that is wrong in itself is the same refusal: a 400 on one, a BadRequest on the other.
+  const noKey = await httpP('/api/ack', { method: 'POST' });
+  assert.strictEqual(noKey.status, 400, 'http refuses a nameless check-off');
+  await assert.rejects(rpc.ack({}), { name: 'BadRequest', message: noKey.body.error });
+  await assert.rejects(rpc.open(''), { name: 'BadRequest' }, 'and a link to no file');
+
+  // Versions: two more edits make something to clean up, and what is left is the same either way.
+  for (const n of ['Three.', 'Four.']) {
+    const seen = (await httpP('/api/doc')).body.history.length;
+    fs.appendFileSync(docP, `\n${n}\n`);
+    await until(async () => (await httpP('/api/doc')).body.history.length > seen, `version ${n}`);
+  }
+  const versions = (await httpP('/api/doc')).body.history;
+  const cut = versions.at(-2);
+  const trimmed = await rpc.prune(cut.hash);
+  assert.ok(trimmed.removed >= 1, 'the clean-up over the channel forgot something');
+  const head2 = trimmed.history.find((h) => h.current);
+  assert.deepStrictEqual(
+    plain(await rpc.prune(head2.hash)),
+    (await httpP(`/api/prune?upto=${head2.hash}`, { method: 'POST' })).body,
+    'refusing to forget the newest is the same answer on both',
+  );
+
+  // Following a link: both land on the sibling, and the page is told the id it is on now.
+  const sibling = path.join(tmp, 'parity-sibling.md');
+  fs.writeFileSync(sibling, '# Sibling\n');
+  unwatch();
+  const opened = await rpc.open(sibling);
+  assert.strictEqual(opened.path, sibling, 'a link followed over the channel');
+  assert.notStrictEqual(opened.id, parity.initialId, 'lands on a document of its own');
+  const gonePage = await httpP('/api/doc');
+  assert.strictEqual(gonePage.status, 410, 'and the id it left is closed, as http says');
+  await assert.rejects(rpc.doc(), { name: 'Closed' }, 'which the channel says in its own words');
+  await assert.rejects(
+    new Promise((_, no) =>
+      rpc.watch({ onEvent() {}, onLive: (on, why) => on || no(new Error(why)) }),
+    ),
+    /no longer open/,
+    'and a watch on it is not live',
+  );
+
+  // What a page can call is what the other backends offer -- the page is written to one surface.
+  const { createBackend } = await import('./public/backend.js');
+  const httpKeys = Object.keys(await createBackend({ docId: () => null }));
+  assert.deepStrictEqual(
+    Object.keys(rpc).filter((k) => httpKeys.includes(k)).sort(),
+    httpKeys.sort(),
+    'the channel backend has every method the http one does',
+  );
+
+  // And the layer between is wired: the server answers through the session, not around it.
+  assert.match(
+    fs.readFileSync(new URL('./src/hosts/node/server.js', import.meta.url), 'utf8'),
+    /createSession\(reader\)/,
+    'the http routes are the session',
+  );
+  console.log('✓ a page behind a channel is answered as one behind http is');
+  closeRpc();
+  chan.port1.close();
+  chan.port2.close();
+  parity.server.close();
+}
 
 // --- 13. the store followed the app's name --------------------------------
 // It holds every snapshot of every file ever read, and a rename of the app is
