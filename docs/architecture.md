@@ -426,6 +426,15 @@ product.
   because an *Open With* onto an app that is mid-launch can still land after
   `setup`, and the wrong answer arriving first is worse than the right one arriving
   late.
+- **A second process loses Finder's file unless it leaves it behind.** When Finder
+  starts a second process instead of reusing the running one — any other copy of
+  the app with the same bundle identifier (`dist/`, a mounted dmg, a build) — that
+  process hands its *arguments* to the first and exits from the plugin's setup, and
+  the document was never an argument. The first instance heard a bare launch,
+  brought its window forward, and opened nothing. So the pre-`setup` branch of
+  `arrive` also writes the paths to `inbox.json` in the config dir (before the
+  plugin exits, since `Opened` comes first), and `arrive` with an empty list reads
+  it, if it is under 10 s old. `setup` deletes whatever an earlier launch left.
 - Links go to the real browser through `tauri-plugin-opener`, from the page rather
   than from a navigation guard. In-page fragment links never leave the page, so the
   document's own anchors are unaffected.

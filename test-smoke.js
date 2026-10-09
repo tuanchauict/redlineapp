@@ -836,6 +836,13 @@ assert.match(pageCss, /\.ruler-mark \{[^}]*transition: opacity/, 'so losing curr
 assert.match(pageJs, /doc\.addEventListener\('pointerover'/, 'hovering a block is also caught');
 assert.match(pageJs, /doc\.addEventListener\('pointerout'/, 'and leaving it is too');
 assert.match(pageJs, /hoverNode = null/, 'cleared when the document it points into is gone');
+// `c` checks off what the pointer is on -- the block the ruler shows as current --
+// before it falls back to the last change `n`/`p` landed on.
+assert.match(
+  pageJs,
+  /function changeUnderCursor\(\) \{[^}]*hoverNode\?\.isConnected[^}]*return hoverNode/,
+  '`c` acts on the hovered change first',
+);
 // A mark is also something to point at, not only something to read: a click
 // lands on the change it stands for, and hovering it tints the block(s) back,
 // the reverse of the doc-to-ruler hover above.
@@ -2782,6 +2789,10 @@ assert.ok(
 assert.match(mainRs, /static PENDING: Mutex<Vec<PathBuf>>/, 'files that arrive too early wait');
 assert.match(mainRs, /PENDING\.lock\(\)\.unwrap\(\)\.extend/, 'rather than being dropped');
 assert.match(mainRs, /PENDING\.lock\(\)\.unwrap\(\)\.drain\(\.\.\)/, 'and setup takes them');
+// A second process exits with only its arguments, so what Finder gave it is left in
+// the inbox for the first, which looks there when told of a launch with no files.
+assert.match(mainRs, /inbox_put\(app, files\)/, 'a process that may exit leaves its files');
+assert.match(mainRs, /left = inbox_take\(app\)/, 'a bare launch looks for them');
 assert.match(mainRs, /RunEvent::Opened \{ urls \}/, 'from the event a Finder open comes as');
 // And the association itself, since a double-click that never reaches the app
 // is the same bug from the reader's side.

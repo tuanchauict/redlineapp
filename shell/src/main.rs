@@ -66,6 +66,57 @@ static STARTED: AtomicBool = AtomicBool::new(false);
 /// them exactly as it treats a command line.
 static PENDING: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
+/// Where a second process leaves the files Finder gave it for the first one.
+///
+/// A launch that finds another Redline already running hands over its
+/// *arguments* and exits (the single-instance plugin, from its own setup) --
+/// and a document double-clicked in Finder is not an argument, it is an Opened
+/// event. So the first instance heard "someone launched me again" with an empty
+/// list, brought its window forward, and the file died with the process that
+/// held it. That happens whenever Finder starts a second process instead of
+/// reusing the running one: a copy of the app from another path (`dist/`, a
+/// mounted dmg, a build) has the same bundle identifier and the same socket.
+///
+/// The Opened event arrives before the plugin's setup, so there is time to
+/// leave the files here first; the instance that is told about the launch
+/// looks here when its own list is empty.
+fn inbox(app: &AppHandle) -> Option<PathBuf> {
+    Some(app.path().app_config_dir().ok()?.join("inbox.json"))
+}
+
+/// How long a left-behind file stays an answer to "someone launched me again".
+/// Past this it is a leftover from a launch that did not get through, and
+/// opening it would be a surprise.
+const INBOX_FRESH: std::time::Duration = std::time::Duration::from_secs(10);
+
+fn inbox_put(app: &AppHandle, files: &[PathBuf]) {
+    let Some(path) = inbox(app) else { return };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let names: Vec<_> = files.iter().map(|f| f.to_string_lossy()).collect();
+    if let Ok(text) = serde_json::to_string(&names) {
+        let _ = std::fs::write(path, text);
+    }
+}
+
+/// Take what a second process left, if it left it just now.
+fn inbox_take(app: &AppHandle) -> Vec<PathBuf> {
+    let Some(path) = inbox(app) else { return vec![] };
+    let fresh = std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age < INBOX_FRESH);
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let _ = std::fs::remove_file(&path);
+    if !fresh {
+        return vec![];
+    }
+    let names: Vec<String> = serde_json::from_str(&text).unwrap_or_default();
+    names.into_iter().map(PathBuf::from).filter(|p| p.is_file()).collect()
+}
+
 /// Put the first window up, on these files or on what was open last.
 fn start(app: &AppHandle, files: Vec<PathBuf>) {
     if STARTED.swap(true, Ordering::SeqCst) {
@@ -93,8 +144,19 @@ fn arrive(app: &AppHandle, files: &[PathBuf]) {
     // the files wait for it rather than taking the process down. See PENDING.
     if app.try_state::<win::Shell>().is_none() {
         PENDING.lock().unwrap().extend(files.iter().cloned());
+        // ...and for the other process that may be about to exit: see `inbox`.
+        inbox_put(app, files);
         return;
     }
+    // A bare launch from the single-instance plugin may be a double-click that
+    // went to a second process, whose files are in the inbox.
+    let left;
+    let files = if files.is_empty() {
+        left = inbox_take(app);
+        &left[..]
+    } else {
+        files
+    };
     if files.is_empty() {
         // A bare second launch: bring what is already open forward instead.
         if let Some(w) = win::front(app).and_then(|l| app.get_webview_window(&l)) {
@@ -204,6 +266,11 @@ fn main() {
 
             let cwd = std::env::current_dir().unwrap_or_default();
             let mut files = files_from_args(std::env::args(), &cwd);
+
+            // What an earlier launch left is not for this one.
+            if let Some(path) = inbox(&handle) {
+                let _ = std::fs::remove_file(path);
+            }
 
             // A document opened from Finder is not on a command line, and by
             // now it is not on its way either -- it is already waiting. Taken
