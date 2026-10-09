@@ -10,14 +10,15 @@
 //
 // The layout is the server's routing table, flattened:
 //
-//   index.html, app.js, backend.js, styles.css   public/
+//   index.html, app.js, backend.js, styles.css,  public/
+//   host.js
 //   vendor/render.js, vendor/backend-tauri.js    built by build-web.mjs
 //   vendor/github-markdown.css, vendor/hljs-*    node_modules
 //   vendor/mermaid/                              node_modules (the whole tree)
 //   icon.svg                                     assets/
 //
-// So the page's own `/vendor/...` links work unchanged in both, and nothing has
-// to be rewritten on the way in.
+// So the page's own `vendor/...` links (relative, so they hold under any base URL) work
+// unchanged in both, and nothing has to be rewritten on the way in.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

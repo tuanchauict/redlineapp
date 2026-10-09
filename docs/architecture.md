@@ -34,6 +34,7 @@ src/native-tauri.js     `window.mdNative` over the shell's IPC
 src/backend-tauri.js    the entry point the app's page imports
 src/sanitize.js         DOMPurify, and what a document may put on the page
 
+public/host.js          a classic script, first in the head, empty here; a host's own shim
 public/index.html       the page: toolbar, two sidebars, document pane, Settings sheet
 public/app.js           the whole client
 public/backend.js       the seam: an http server, or the reader in the page
@@ -243,7 +244,10 @@ is no component model — the document pane is `innerHTML` from the payload, thr
 
 - **`state`** holds the payload, the view, the baseline, the checked keys and the
   contents rows. Anything derived is derived at paint time.
-- **Preferences live in `localStorage`** under `redline:settings`, `redline:side`,
+- **Preferences live in `localStorage`**, reached as `prefs` — `globalThis.__REDLINE_PREFS
+  ?? localStorage`, in `app.js` and in the head script alike, so a host that has no usable
+  `localStorage` can put a synchronous store of its own there from `host.js` — under
+  `redline:settings`, `redline:side`,
   `redline:sidew`, `redline:toc`, `redline:tocw`, `redline:diff`, `redline:view` and
   `redline:shut`, and the ones that affect layout are mirrored onto `<html>` by an
   inline script in `index.html` **before first paint** — otherwise the window
