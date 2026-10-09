@@ -25,6 +25,10 @@
  *   throw: a missing snapshot is an ordinary thing here -- a store can be
  *   pruned or hand-tidied between one read and the next.
  * @property {(p: string, text: string) => Promise<void>} writeText
+ *   Replaces the file **whole**: another process reading it at any moment sees the old text or
+ *   the new, never half. The store's index is shared between processes (the app and a browser
+ *   tab, two editor windows) and a torn one reads as a first run. The usual way is to write a
+ *   temporary file beside it and rename it over the top.
  * @property {(p: string) => Promise<void>} mkdirp
  * @property {(p: string) => Promise<string[]>} readDir  File names, not paths.
  * @property {(p: string) => Promise<void>} remove

@@ -119,6 +119,24 @@ export async function createReader({
 
   // --- watching ------------------------------------------------------------
 
+  /**
+   * Notice another process's writes to this document's index: a version marked read in the app
+   * is a version marked read in the tab beside the editor. The store says whether the index moved
+   * under it; this says so to whoever is looking. One check at a time, and none for a document
+   * that has been let go.
+   */
+  async function syncStore(d) {
+    if (d.syncing) return;
+    d.syncing = true;
+    try {
+      if ((await d.store.refresh()) && docs.get(d.id) === d) emit(d.id, { type: 'history' });
+    } catch {
+      /* the next poll asks again */
+    } finally {
+      d.syncing = false;
+    }
+  }
+
   async function watch(d) {
     const check = (retry = 3) => {
       clearTimeout(d.timer);
@@ -151,7 +169,10 @@ export async function createReader({
     // Not while a read is already settling: `check` restarts the settle timer, so a poll shorter
     // than SETTLE_MS would push the read back forever and never see the change it came to find.
     // The default poll is far longer; a host that polls fast (or a test) is not.
-    d.poll = setInterval(() => d.timer || check(), pollMs);
+    d.poll = setInterval(() => {
+      if (!d.timer) check();
+      syncStore(d);
+    }, pollMs);
     // The file can have changed while the watcher was being set up.
     check();
   }

@@ -216,7 +216,27 @@ pointer, remembered comparison, checked-off keys and imported commits. See
 
 `DocStore.gc()` sweeps objects nothing references; it runs at startup and after a
 prune, because only a pass over every document's history can say whether an object
-is still wanted.
+is still wanted. It never sweeps an object younger than ten minutes: `record` writes
+the object and then the index that names it, and a sweep in another process can run
+between the two.
+
+**The store may be open in more than one process** — the app and a browser tab, two
+editor windows, the CLI beside the app. So an index is never written from the copy
+read when the document was opened. Every method passes what it means to do to
+`#update(change)`, which reads the index as it is on disk now, applies the change and
+writes it back; changes within one process run one at a time. What is left is a few
+milliseconds between that read and that write, and a lock is not planned (the platform
+has no exclusive create, and a stale lock needs its own timeout). An index that will
+not parse is read once more after 50 ms before it is taken for a first run.
+
+Writes are atomic: the platform contract says `writeText` replaces a file whole, and
+the node platform does it by writing `<file>.<pid>-<n>.writing` and renaming it over.
+
+Each process notices the others: the reader's poll calls `DocStore.refresh()`, which
+reads the index only when its modification time moved and believes it only when the text
+differs from what this process last read or wrote, and the reader then emits `history` —
+the page already reloads on that. An update that merged another process's write sets the
+same flag, because by then there is nothing left for the poll to compare.
 
 A **change key** names one marked block by its own content —
 `kind + hash(before + after).slice(0, 10)`, with a `.2`, `.3` suffix when two

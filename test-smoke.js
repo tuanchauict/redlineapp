@@ -1616,6 +1616,9 @@ console.log('✓ check a change off');
   // Forgetting the version a check-off was made in is tidying the list; the
   // object behind it stays, or the feature stops working for whoever tidies.
   const v0 = v1.history.find((h) => !h.current);
+  // Past the grace period gc gives a young object, or there would be nothing to sweep.
+  const aged = new Date(Date.now() - 3600 * 1000);
+  fs.utimesSync(path.join(objects, v0.hash + '.md'), aged, aged);
   await reader.prune(id, v1.hash, 'read');
   assert.ok(!fs.existsSync(path.join(objects, v0.hash + '.md')), 'gc ran');
   assert.ok(fs.existsSync(v1Object), 'and kept the version a check-off reads back from');
@@ -1626,8 +1629,15 @@ console.log('✓ check a change off');
   reader.closeAll();
 
   // Check-offs written before they carried a version are kept, as keys.
-  const legacy = await DocStore.open(path.join(tmp, 'legacy.md'), nodePlatform);
-  legacy.data.acked = ['addold0000001', 'mod0000000002'];
+  // Written to the index itself, as an older version of the app left it: a change is applied to
+  // the index on disk, so poking the store's memory would be undone by the next one.
+  const legacyPath = path.join(tmp, 'legacy.md');
+  const seed = await DocStore.open(legacyPath, nodePlatform);
+  fs.writeFileSync(
+    seed.file,
+    JSON.stringify({ path: legacyPath, history: [], baseline: null, acked: ['addold0000001', 'mod0000000002'] }),
+  );
+  const legacy = await DocStore.open(legacyPath, nodePlatform);
   assert.deepStrictEqual(legacy.acked, ['addold0000001', 'mod0000000002'], 'bare string acks still read');
   assert.deepStrictEqual(legacy.ackRecords, [{ key: 'addold0000001' }, { key: 'mod0000000002' }], 'as records with no version');
   await legacy.record('# Legacy\n');
@@ -2577,6 +2587,136 @@ sixth.server.close();
   chan.port1.close();
   chan.port2.close();
   parity.server.close();
+}
+
+// --- 12b. one store, two processes -------------------------------------------------------
+// Two DocStores on one file stand in for two processes: each holds the index as it read it,
+// which is what made a write from one undo the other's. (docs/web-and-vscode/008)
+{
+  const { DocStore } = await import('./src/reader/store.js');
+  const { createReader } = await import('./src/reader/reader.js');
+  const shared = path.join(tmp, 'shared.md');
+  const text = (n) => `# Shared\n\nVersion ${n}.\n`;
+  const A = await DocStore.open(shared, nodePlatform);
+  const v1 = (await A.record(text(1))).hash;
+  const B = await DocStore.open(shared, nodePlatform); // opened after v1, and never told about v2
+
+  // A mark-read is not undone by another process saving a version.
+  const v2 = (await A.record(text(2))).hash;
+  await A.setBaseline(v2);
+  const v3 = (await B.record(text(3))).hash; // B still thinks the baseline is v1
+  const fresh = await DocStore.open(shared, nodePlatform);
+  assert.strictEqual(fresh.baseline, v2, 'a mark-read survives the other process recording');
+  assert.deepStrictEqual(
+    fresh.data.history.map((h) => h.hash),
+    [v1, v2, v3],
+    'and neither process\'s version is lost',
+  );
+
+  // A check-off survives the other process recording.
+  await B.setAcked('shared-key', true);
+  const v4 = (await A.record(text(4))).hash;
+  assert.deepStrictEqual(
+    (await DocStore.open(shared, nodePlatform)).acked,
+    ['shared-key'],
+    'a check-off survives the other process saving',
+  );
+
+  // Cleared history does not come back.
+  await A.prune(v3);
+  await B.record(text(5));
+  const after = await DocStore.open(shared, nodePlatform);
+  assert.deepStrictEqual(
+    after.data.history.map((h) => h.hash).filter((h) => [v1, v2, v3].includes(h)),
+    [],
+    'a prune in one process stays pruned when the other records',
+  );
+  assert.strictEqual(after.data.history.length, 2, 'and what is left is the newest two');
+  assert.ok(after.data.history.some((h) => h.hash === v4), 'including the one the pruner saw');
+
+  // Each notices the other: refresh says so once, and has the new index.
+  await A.setBaseline(v4);
+  assert.strictEqual(await B.refresh(), true, 'the other process is noticed');
+  assert.strictEqual(B.baseline, v4, 'with its baseline');
+  assert.strictEqual(await B.refresh(), false, 'and once');
+  await B.setCompare('read');
+  assert.strictEqual(await A.refresh(), true, 'both ways');
+  // Its own write is not news: nothing to announce after it saves.
+  await A.setCompare('git:HEAD');
+  assert.strictEqual(await A.refresh(), false, 'a process does not notice itself');
+  // An update that merged what another process had written does announce it.
+  await B.setCompare('read'); // B writes; A has not looked since
+  await A.setAcked('another', true); // A merges B's write into its own
+  assert.strictEqual(await A.refresh(), true, 'a merge is announced, since the poll cannot see it');
+
+  // A torn index is read again before it is believed.
+  const idx = A.file;
+  const good = fs.readFileSync(idx, 'utf8');
+  fs.writeFileSync(idx, good.slice(0, good.length >> 1));
+  setTimeout(() => fs.writeFileSync(idx, good), 20);
+  assert.strictEqual(
+    (await DocStore.open(shared, nodePlatform)).data.history.length,
+    2,
+    'an index caught mid-write is read once more',
+  );
+
+  // Two updates at once in one process both land.
+  await Promise.all([A.setAcked('p', true), A.setAcked('q', true)]);
+  assert.ok(['p', 'q'].every((k) => A.acked.includes(k)), 'concurrent changes both land');
+  console.log('✓ two processes share a store without undoing each other');
+
+  // --- atomic writes -------------------------------------------------------------------
+  const target = path.join(tmp, 'atomic.json');
+  const bodies = Array.from({ length: 12 }, (_, i) => `${i}:`.repeat(20000));
+  await Promise.all(bodies.map((b) => nodePlatform.writeText(target, b)));
+  assert.ok(bodies.includes(fs.readFileSync(target, 'utf8')), 'a write lands whole, never mixed');
+  assert.deepStrictEqual(
+    fs.readdirSync(tmp).filter((n) => n.endsWith('.writing')),
+    [],
+    'and leaves nothing beside it',
+  );
+  await assert.rejects(nodePlatform.writeText(path.join(tmp, 'no', 'such', 'dir.json'), 'x'));
+  assert.match(
+    fs.readFileSync(new URL('./src/hosts/node/platform.js', import.meta.url), 'utf8'),
+    /\.writing/,
+    'the node platform writes through a temporary file',
+  );
+  console.log('✓ a write replaces the file whole');
+
+  // --- gc leaves young objects alone ---------------------------------------------------
+  const objectsDir = path.join(process.env.REDLINE_HOME, 'objects');
+  const young = path.join(objectsDir, 'a'.repeat(16) + '.md');
+  const old = path.join(objectsDir, 'b'.repeat(16) + '.md');
+  fs.writeFileSync(young, 'young and unreferenced\n');
+  fs.writeFileSync(old, 'old and unreferenced\n');
+  const hourAgo = new Date(Date.now() - 3600 * 1000);
+  fs.utimesSync(old, hourAgo, hourAgo);
+  await DocStore.gc(nodePlatform);
+  assert.ok(fs.existsSync(young), 'gc keeps an unreferenced object younger than ten minutes');
+  assert.ok(!fs.existsSync(old), 'and removes one that is older');
+  assert.ok(fs.existsSync(A.objectPath(v4)), 'and what an index names is never touched');
+  fs.rmSync(young);
+  console.log('✓ gc has a grace period');
+
+  // --- noticing, end to end ------------------------------------------------------------
+  const both = path.join(tmp, 'both.md');
+  fs.writeFileSync(both, '# Both\n\nFirst.\n');
+  const r1 = await createReader({ platform: nodePlatform, pollMs: 50 });
+  const r2 = await createReader({ platform: nodePlatform, pollMs: 50 });
+  const id1 = await r1.retain(both);
+  const id2 = await r2.retain(both);
+  fs.writeFileSync(both, '# Both\n\nFirst.\n\nSecond.\n');
+  await until(async () => (await r2.doc(id2, 'read')).history.length >= 2, 'both to see v2');
+  await until(async () => (await r1.doc(id1, 'read')).history.length >= 2, 'both to see v2');
+  const heard = [];
+  r2.subscribe(id2, (e) => heard.push(e.type));
+  await r1.markRead(id1);
+  await until(() => heard.includes('history'), 'the other reader to hear of the mark', 4000);
+  const rows = (await r2.doc(id2, 'last:read')).history;
+  assert.ok(rows.find((h) => h.current).baseline, 'and it sees the version marked read');
+  r1.closeAll();
+  r2.closeAll();
+  console.log('✓ a reader notices another process marking a version read');
 }
 
 // --- 13. the store followed the app's name --------------------------------

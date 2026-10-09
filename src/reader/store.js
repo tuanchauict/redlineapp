@@ -18,6 +18,16 @@ export { hashContent };
 
 const MAX_HISTORY = 100;
 
+// An object younger than this is never swept. `record` writes the object first and the index
+// that names it second, so a sweep in another process can land between the two and find an
+// object nobody references yet. Ten minutes is far longer than that gap and far shorter than
+// anything worth keeping a stray object for.
+const GC_GRACE_MS = 10 * 60 * 1000;
+
+// How long to wait before reading an index that would not parse a second time. A writer from
+// before writes were atomic can leave one half-written, and half-written is a moment, not a state.
+const REREAD_MS = 50;
+
 // How many checked-off changes to remember per document. A key names a change
 // by its content, so one goes dead the moment that wording is edited again —
 // and a dead key costs a string. Cheaper to let them age out of a bounded list
@@ -75,13 +85,24 @@ export class DocStore {
 
     await platform.mkdirp(store.objects);
     await platform.mkdirp(store.docs);
-    store.data = store.#parse(await platform.readText(store.file));
+    const { raw, data } = await store.#load();
+    store.#known = raw;
+    store.data = data;
     // An index written before versions were kept one to a content may hold the
     // same one twice; repairing it on open is cheaper than every reader of the
     // list having to allow for it.
-    if (store.#collapseDuplicates()) await store.#save();
+    await store.#update(() => store.#collapseDuplicates());
     return store;
   }
+
+  // What this process last read from the index file or wrote to it, as text. "Has another process
+  // written?" is then a comparison and not a guess.
+  #known = null;
+  #mtime = null;
+  #drifted = false;
+  // Changes to the index run one at a time. Each is a read, an edit and a write, and two of them
+  // interleaved in one process would lose one just as two processes can.
+  #queue = Promise.resolve();
 
   #parse(raw) {
     try {
@@ -90,7 +111,23 @@ export class DocStore {
     } catch {
       /* first run for this document, or an index we cannot use */
     }
-    return { path: this.abs, history: [], baseline: null };
+    return null;
+  }
+
+  /**
+   * The index as it is on disk now. One that exists and will not parse is read once more after a
+   * moment, and then taken for a first run, which is what it always was: the usual cause is a
+   * writer caught between truncating the file and filling it.
+   */
+  async #load() {
+    let raw = await this.platform.readText(this.file);
+    let data = this.#parse(raw);
+    if (!data && raw) {
+      await new Promise((r) => setTimeout(r, REREAD_MS));
+      raw = await this.platform.readText(this.file);
+      data = this.#parse(raw);
+    }
+    return { raw, data: data ?? { path: this.abs, history: [], baseline: null } };
   }
 
   /**
@@ -112,12 +149,73 @@ export class DocStore {
     return true;
   }
 
-  async #save() {
-    this.data.path = this.abs;
-    if (this.data.history.length > MAX_HISTORY) {
-      this.data.history = this.data.history.slice(-MAX_HISTORY);
-    }
-    await this.platform.writeText(this.file, JSON.stringify(this.data, null, 2));
+  /**
+   * Apply one change to the index as it is on disk, and write the result.
+   *
+   * Not to the copy this process read when it opened the file, which may be hours old: each
+   * method passes what it means to do, and it is done to whatever the other processes have left,
+   * so a mark-read made in one is not undone by a save in another. A change that answers `false`
+   * leaves the file alone; the index is refreshed from disk either way. Returns what `change`
+   * returns.
+   *
+   * What is left is a window of a few milliseconds, from this read to this write, in which
+   * another process's change can be lost. A lock would close it and is not worth its cost: the
+   * platform has no exclusive create, and a lock left by a crash needs a timeout of its own.
+   */
+  #update(change) {
+    const run = async () => {
+      const { raw, data } = await this.#load();
+      // Folded into what is written below, so the poll would find nothing left to compare. Said
+      // here instead, for the reader to announce.
+      if (raw !== this.#known) this.#drifted = true;
+      this.data = data;
+      const result = change(data);
+      if (result === false) {
+        this.#known = raw;
+        return result;
+      }
+      data.path = this.abs;
+      if (data.history.length > MAX_HISTORY) data.history = data.history.slice(-MAX_HISTORY);
+      const text = JSON.stringify(data, null, 2);
+      await this.platform.writeText(this.file, text);
+      this.#known = text;
+      // Unknown rather than now: another process may write between our write and a stat, and a
+      // stat taken then would pass for ours. The next poll reads once and compares the text.
+      this.#mtime = null;
+      return result;
+    };
+    const next = this.#queue.then(run);
+    this.#queue = next.catch(() => {});
+    return next;
+  }
+
+  /**
+   * Has another process changed this document's index since this one last looked? If so the
+   * index is reloaded and this answers true, once. Cheap enough to ask on every poll: the file
+   * is read only when its modification time has moved, and only believed when its text differs
+   * from what this process last read or wrote.
+   */
+  refresh() {
+    const run = async () => {
+      const m = await this.platform.modified(this.file);
+      if (m !== this.#mtime) {
+        this.#mtime = m;
+        if (m != null) {
+          const { raw, data } = await this.#load();
+          if (raw !== this.#known) {
+            this.#known = raw;
+            this.data = data;
+            this.#drifted = true;
+          }
+        }
+      }
+      const drifted = this.#drifted;
+      this.#drifted = false;
+      return drifted;
+    };
+    const next = this.#queue.then(run);
+    this.#queue = next.catch(() => {});
+    return next;
   }
 
   objectPath(hash) {
@@ -153,32 +251,43 @@ export class DocStore {
    */
   async record(text, ts = Date.now()) {
     const hash = hashContent(text);
+    // The object before the index that names it, never the other way round: an index that names
+    // an object nobody wrote is a version that cannot be read, where an object no index names
+    // yet is only litter, and gc leaves it alone while it is young. Writes replace a file whole,
+    // so an object that exists is a whole one, and this need not look at it again.
+    const dest = this.objectPath(hash);
+    if (!(await this.platform.exists(dest))) await this.platform.writeText(dest, text);
+
     let added = false;
-    if (this.latest?.hash !== hash) {
-      const dest = this.objectPath(hash);
-      if (!(await this.platform.exists(dest))) await this.platform.writeText(dest, text);
-      const held = this.data.history.findIndex((h) => h.hash === hash);
-      const entry =
-        held < 0 ? { hash, size: byteLength(text) } : this.data.history.splice(held, 1)[0];
-      // The time a version was last on disk, which for a version that has come
-      // back is now: the list is read in time order, and this one is current.
-      entry.ts = ts;
-      this.data.history.push(entry);
-      added = true;
-    }
-    if (!this.data.baseline) this.data.baseline = hash;
-    if (added) await this.#save();
+    await this.#update((d) => {
+      let changed = false;
+      if (d.history.at(-1)?.hash !== hash) {
+        const held = d.history.findIndex((h) => h.hash === hash);
+        const entry = held < 0 ? { hash, size: byteLength(text) } : d.history.splice(held, 1)[0];
+        // The time a version was last on disk, which for a version that has come
+        // back is now: the list is read in time order, and this one is current.
+        entry.ts = ts;
+        d.history.push(entry);
+        added = changed = true;
+      }
+      if (!d.baseline) {
+        d.baseline = hash;
+        changed = true;
+      }
+      return changed;
+    });
     return { hash, added };
   }
 
   async setBaseline(hash) {
-    this.data.baseline = hash;
     // Moving the read mark used to be undoable, and the pointer it replaced was
     // kept for that. It is not information worth a field: the version it named
     // is still in the history, still referenced by gc(), and clicking its row
     // is the way back — one click, in a list that is open beside the document.
-    delete this.data.prevBaseline;
-    await this.#save();
+    await this.#update((d) => {
+      d.baseline = hash;
+      delete d.prevBaseline;
+    });
   }
 
   /**
@@ -204,10 +313,11 @@ export class DocStore {
 
   /** Remember a comparison. A no-op, and no write, when it is the one already held. */
   async setCompare(id) {
-    if ((this.data.compare ?? null) === (id ?? null)) return false;
-    this.data.compare = id ?? null;
-    await this.#save();
-    return true;
+    return this.#update((d) => {
+      if ((d.compare ?? null) === (id ?? null)) return false;
+      d.compare = id ?? null;
+      return true;
+    });
   }
 
   /**
@@ -251,22 +361,24 @@ export class DocStore {
   async setAcked(key, on, { at, block } = {}) {
     // Re-marking moves a key to the end rather than leaving it where it was, so
     // the oldest mark is always the one the cap drops.
-    const next = this.ackRecords.filter((a) => a.key !== key);
-    if (on) {
-      const held = VERSION.test(at ?? '') && this.data.history.some((h) => h.hash === at);
-      next.push(held && BLOCK.test(block ?? '') ? { key, at, block } : { key });
-    }
-    this.data.acked = next.slice(-MAX_ACKED);
-    await this.#save();
+    await this.#update((d) => {
+      const next = this.ackRecords.filter((a) => a.key !== key); // `this.data` is `d` here
+      if (on) {
+        const held = VERSION.test(at ?? '') && d.history.some((h) => h.hash === at);
+        next.push(held && BLOCK.test(block ?? '') ? { key, at, block } : { key });
+      }
+      d.acked = next.slice(-MAX_ACKED);
+    });
     return this.acked;
   }
 
   /** Bring every checked change back. Nothing else here is undone in bulk. */
   async clearAcked() {
-    if (!this.acked.length) return [];
-    this.data.acked = [];
-    await this.#save();
-    return this.data.acked;
+    await this.#update((d) => {
+      if (!this.ackRecords.length) return false;
+      d.acked = [];
+    });
+    return this.acked;
   }
 
   /** History newest-first, excluding the current version. */
@@ -294,39 +406,46 @@ export class DocStore {
    */
   async importGit(versions) {
     if (!versions.length) return 0;
-    const byHash = new Map(this.data.history.map((h) => [h.hash, h]));
-    const fresh = [];
 
+    // Objects first, for the reason `record` gives. Every one is looked for rather than only
+    // the ones this process does not list: another process may have forgotten a version since.
+    const entries = [];
     for (const v of versions) {
       const hash = hashContent(v.text);
-      const seen = byHash.get(hash);
-      if (seen) {
-        // The same bytes we already hold: name the commit they came from
-        // rather than keeping the content twice under two entries.
-        seen.git ??= v.git;
-        continue;
-      }
       const dest = this.objectPath(hash);
       if (!(await this.platform.exists(dest))) await this.platform.writeText(dest, v.text);
-      const entry = { hash, ts: v.ts, size: byteLength(v.text), git: v.git };
-      byHash.set(hash, entry);
-      fresh.push(entry);
+      entries.push({ hash, ts: v.ts, size: byteLength(v.text), git: v.git });
     }
 
-    // Every commit offered is noted, whether or not its content was new, so
-    // the next open does not read the same blobs again.
-    this.data.gitSeen = [...this.gitSeen, ...versions.map((v) => v.git.sha)].slice(
-      -MAX_HISTORY * 2,
-    );
-    // Commits already made when we first looked are older than anything we
-    // watched, so they belong in front; ones made since belong wherever their
-    // date puts them. Sorting covers both, and time order is the order the
-    // history is read in.
-    if (fresh.length) {
-      this.data.history = [...fresh, ...this.data.history].sort((a, b) => a.ts - b.ts);
-    }
-    await this.#save();
-    return fresh.length;
+    let count = 0;
+    await this.#update((d) => {
+      const byHash = new Map(d.history.map((h) => [h.hash, h]));
+      const fresh = [];
+      for (const e of entries) {
+        const seen = byHash.get(e.hash);
+        if (seen) {
+          // The same bytes we already hold: name the commit they came from
+          // rather than keeping the content twice under two entries.
+          seen.git ??= e.git;
+          continue;
+        }
+        byHash.set(e.hash, e);
+        fresh.push(e);
+      }
+      count = fresh.length;
+
+      // Every commit offered is noted, whether or not its content was new, so
+      // the next open does not read the same blobs again.
+      d.gitSeen = [...new Set(d.gitSeen ?? []), ...versions.map((v) => v.git.sha)].slice(
+        -MAX_HISTORY * 2,
+      );
+      // Commits already made when we first looked are older than anything we
+      // watched, so they belong in front; ones made since belong wherever their
+      // date puts them. Sorting covers both, and time order is the order the
+      // history is read in.
+      if (fresh.length) d.history = [...fresh, ...d.history].sort((a, b) => a.ts - b.ts);
+    });
+    return count;
   }
 
   /**
@@ -335,26 +454,26 @@ export class DocStore {
    * many versions were forgotten.
    */
   async prune(upto) {
-    const idx = this.data.history.findIndex((h) => h.hash === upto);
-    if (idx < 0 || idx === this.data.history.length - 1) return 0;
+    let dropped = 0;
+    await this.#update((d) => {
+      const idx = d.history.findIndex((h) => h.hash === upto);
+      if (idx < 0 || idx === d.history.length - 1) return false;
 
-    const dropped = idx + 1;
-    this.data.history = this.data.history.slice(idx + 1);
-    const left = new Set(this.data.history.map((h) => h.hash));
+      dropped = idx + 1;
+      d.history = d.history.slice(idx + 1);
+      const left = new Set(d.history.map((h) => h.hash));
 
-    // A baseline whose version is gone cannot be diffed against any more. It
-    // falls back to the oldest version still here rather than to the newest,
-    // so tidying up never quietly hides a change you have not seen.
-    if (!left.has(this.data.baseline)) this.data.baseline = this.data.history[0].hash;
-    delete this.data.prevBaseline;
-    // A remembered comparison against a version just forgotten is forgotten
-    // with it, rather than left to be downgraded on every open from here on.
-    // This is also what keeps gc() honest: a stored `snap:` is always a hash
-    // the history still lists, so sweeping the history sweeps this too.
-    if (this.compare?.startsWith('snap:') && !left.has(this.compare.slice(5))) {
-      this.data.compare = null;
-    }
-    await this.#save();
+      // A baseline whose version is gone cannot be diffed against any more. It
+      // falls back to the oldest version still here rather than to the newest,
+      // so tidying up never quietly hides a change you have not seen.
+      if (!left.has(d.baseline)) d.baseline = d.history[0].hash;
+      delete d.prevBaseline;
+      // A remembered comparison against a version just forgotten is forgotten
+      // with it, rather than left to be downgraded on every open from here on.
+      // This is also what keeps gc() honest: a stored `snap:` is always a hash
+      // the history still lists, so sweeping the history sweeps this too.
+      if (d.compare?.startsWith('snap:') && !left.has(d.compare.slice(5))) d.compare = null;
+    });
     return dropped;
   }
 
@@ -364,6 +483,10 @@ export class DocStore {
    * A sweep of every document, not of one: the objects are shared, so only
    * reading all the indexes can say whether the last reference to a snapshot
    * has gone.
+   *
+   * An object younger than `GC_GRACE_MS` is kept whatever the indexes say. `record` writes the
+   * object and then the index, and a sweep in another process can run in between; without this
+   * the only protection was that one window collected and the rest did not.
    */
   static async gc(platform) {
     const root = await storeRoot(platform);
@@ -398,9 +521,15 @@ export class DocStore {
       }
     }
 
+    const now = Date.now();
     for (const name of await platform.readDir(objects)) {
       const hash = name.endsWith('.md') ? name.slice(0, -3) : name;
-      if (!referenced.has(hash)) await platform.remove(platform.join(objects, name));
+      if (referenced.has(hash)) continue;
+      const file = platform.join(objects, name);
+      // Gone already, or too new to say: either way not this sweep's to remove.
+      const at = await platform.modified(file);
+      if (at == null || now - at < GC_GRACE_MS) continue;
+      await platform.remove(file);
     }
   }
 }

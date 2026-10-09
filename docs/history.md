@@ -131,9 +131,21 @@ Outside your project, in `~/.redline`:
 ```
 
 History is capped at 100 versions per file, and unreferenced objects are pruned on
-startup and after a clean-up. Set `REDLINE_HOME` to move the store elsewhere.
+startup and after a clean-up — except any younger than ten minutes, which may be a
+version another window has written and not yet filed. Set `REDLINE_HOME` to move the store elsewhere.
 Nothing is ever written next to your markdown file, and the file itself is only ever
 read — including the git import, which only ever reads the repository.
+
+### The same file in two windows or two programs
+
+The store can be open in more than one process at once: the app and a tab beside your
+editor, two editor windows, the command line next to the app. They share the history
+rather than each keeping its own. A version marked read in one is marked read in the
+other within a second or two, a change checked off in one stays checked off when the
+other saves, and history cleared in one does not come back from the other.
+
+Two writes in the very same few milliseconds can still lose the earlier one; if that
+ever happens the cost is one mark, not the history.
 
 A `~/.md-reader` left by the app's old name is **moved to `~/.redline`** the first
 time one is found, so a rename of the app costs you no history. If the move cannot be
