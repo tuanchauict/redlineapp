@@ -10,6 +10,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 
+let tmpSeq = 0;
+
 /** @type {import('../../reader/platform.js').Platform} */
 export const nodePlatform = {
   async readText(p) {
@@ -20,7 +22,20 @@ export const nodePlatform = {
     }
   },
 
-  writeText: (p, text) => fs.writeFile(p, text),
+  // Whole or not at all: a second process reading the file mid-write must never see half of it,
+  // and `fs.writeFile` truncates first. The temporary name is this process's own, so two
+  // processes (or two writes) replacing one file do not write into the same temp, and it is in
+  // the same directory so the rename cannot cross a volume.
+  async writeText(p, text) {
+    const tmp = `${p}.${process.pid}-${tmpSeq++}.writing`;
+    try {
+      await fs.writeFile(tmp, text);
+      await fs.rename(tmp, p);
+    } catch (err) {
+      await fs.rm(tmp, { force: true });
+      throw err;
+    }
+  },
   mkdirp: async (p) => void (await fs.mkdir(p, { recursive: true })),
   readDir: (p) => fs.readdir(p),
   remove: (p) => fs.rm(p, { force: true }),
