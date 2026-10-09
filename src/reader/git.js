@@ -12,6 +12,19 @@ const SEP = '\x1f';
 
 const TIMEOUT_MS = 15000;
 
+/**
+ * What a host with no way to run git is given. These are the answers `createGit` already gives
+ * when git is missing or the file is not in a repo, so nothing above it changes: a document
+ * opens, it is simply never tracked. The reader tells the two apart by identity, to say in the
+ * payload whether git is something this host can do at all.
+ */
+export const NO_GIT = Object.freeze({
+  info: async () => null,
+  show: async () => null,
+  log: async () => [],
+  showAt: async () => null,
+});
+
 /** The git reader for one host. */
 export function createGit(platform) {
   /** stdout, or null if git said no — which it does for anything untracked. */
