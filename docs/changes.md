@@ -113,9 +113,10 @@ as loud as when you started.
   at all is one you would never think to take back.
 - `✓ 3` appears on the bar to say how many you have put away. **Click it**, or press
   **⇧C**, to bring them all back at once.
-- `c` acts on the change you were last taken to by `n` / `p`, and otherwise on the
-  first one still on screen — so working through a run of edits is `n`, `c`, `n`,
-  `c` without having to point at each mark.
+- `c` acts on the change under the pointer — the one the ruler is showing as
+  current — and otherwise on the change you were last taken to by `n` / `p`, and
+  otherwise on the first one still on screen. So working through a run of edits is
+  `n`, `c`, `n`, `c` without having to point at each mark.
 - The checked list belongs to the document, not to the window: it is kept in the
   [store](history.md#where-it-lives) and survives a quit. Up to 400 per file.
 - Only in the rendered view. The raw view is the file's own lines and has no blocks

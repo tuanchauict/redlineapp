@@ -1746,11 +1746,16 @@ async function clearAcks() {
 }
 
 /**
- * The change `c` acts on: the one you were last taken to, and otherwise the
- * first one still on screen — so a run of them is n, c, n, c without having to
- * find and point at each mark.
+ * The change `c` acts on: the one under the pointer, which is also the one the
+ * ruler is showing as current; otherwise the one you were last taken to, and
+ * otherwise the first one still on screen — so a run of them is n, c, n, c
+ * without having to find and point at each mark.
  */
 function changeUnderCursor() {
+  // `hoverNode` can outlive its block: putting a deleted change away takes the
+  // block out of the page, and a node that is gone never reports the pointer
+  // leaving it. It is also any marked block, raw-view lines included.
+  if (hoverNode?.isConnected && hoverNode.matches('.chg[data-key]')) return hoverNode;
   const nav = changeNodes();
   const at = nav[state.changeIndex];
   if (at?.dataset.key) return at;
@@ -1764,8 +1769,10 @@ function tapCheck() {
   if (!node) return;
   const on = !state.acked.has(node.dataset.key);
   // The list it is in is about to be one shorter. Without this, `n` would step
-  // over whichever change moves up into the place this one had.
-  if (on && state.changeIndex >= 0) state.changeIndex--;
+  // over whichever change moves up into the place this one had. The node may
+  // be any change, not only the one `n` is on, so it is counted by where it is.
+  const at = changeNodes().indexOf(node);
+  if (on && at >= 0 && at <= state.changeIndex) state.changeIndex--;
   setAck(node.dataset.key, on);
 }
 
