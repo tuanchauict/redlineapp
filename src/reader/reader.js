@@ -12,10 +12,10 @@
 // Everything reaches the disk through a platform (src/reader/platform.js).
 import { DocStore } from './store.js';
 import { hashContent } from '../core/hash.js';
-import { createGit } from './git.js';
+import { createGit, NO_GIT } from './git.js';
 import { systemFonts } from './fonts.js';
 import { homeRelative } from './platform.js';
-import { createPlantumlRenderer } from './plantuml.js';
+import { createPlantumlRenderer, NO_PLANTUML } from './plantuml.js';
 
 // How far back to read a file's committed history when it is first opened.
 // Deep enough to cover the life of a document anyone is still editing, and
@@ -37,10 +37,51 @@ const POLL_MS = 1500;
 // marks — only the "what moved since you checked it" falls back to "added".
 const MAX_ACK_VERSIONS = 20;
 
-export async function createReader({ platform, plantumlJar } = {}) {
-  const plantuml = await createPlantumlRenderer({ jar: plantumlJar }, platform);
-  const git = createGit(platform);
-  const home = await platform.homeDir();
+/**
+ * @param {object} options
+ * @param {import('./platform.js').Platform} options.platform
+ *   `spawn` is optional; without it git, PlantUML and the font list are off unless a host
+ *   provides its own below.
+ * @param {string} [options.plantumlJar]
+ * @param {ReturnType<typeof createGit>} [options.git]
+ *   Shaped like `createGit(platform)`. Default: that, when the platform can spawn, else NO_GIT.
+ * @param {false | Awaited<ReturnType<typeof createPlantumlRenderer>>} [options.plantuml]
+ *   `false` turns it off. Default: the usual discovery, when the platform can spawn.
+ * @param {() => Promise<string[]>} [options.fonts]
+ *   Default: the system's, which already answers `[]` off macOS.
+ * @param {(abs: string) => { dirLabel: string, pathLabel: string }} [options.label]
+ *   How a path is shown. Default: `~` for home.
+ * @param {number} [options.pollMs]
+ */
+export async function createReader({
+  platform,
+  plantumlJar,
+  git: gitProvider,
+  plantuml: plantumlProvider,
+  fonts: fontsProvider,
+  label: labelProvider,
+  pollMs = POLL_MS,
+} = {}) {
+  // Whether this host can run a program at all decides every default below. A host that cannot
+  // is not an error: its reader opens, diffs and prunes, and says in the payload what it lacks.
+  const canSpawn = typeof platform.spawn === 'function';
+  const git = gitProvider ?? (canSpawn ? createGit(platform) : NO_GIT);
+  const plantuml =
+    plantumlProvider === false || (plantumlProvider == null && !canSpawn)
+      ? NO_PLANTUML
+      : (plantumlProvider ?? (await createPlantumlRenderer({ jar: plantumlJar }, platform)));
+  const fonts = fontsProvider ?? (canSpawn ? () => systemFonts(platform) : async () => []);
+  let label = labelProvider;
+  if (!label) {
+    const home = await platform.homeDir();
+    label = (abs) => ({
+      dirLabel: homeRelative(platform.dirname(abs), home),
+      pathLabel: homeRelative(abs, home),
+    });
+  }
+  // Said once, in every payload: what this host can do at all, as opposed to `tracked`, which
+  // says whether this one file is in a repo. The page hides what cannot work.
+  const caps = Object.freeze({ git: git !== NO_GIT, plantuml: plantuml.available });
 
   // --- open documents ------------------------------------------------------
   // One entry per distinct file being read, keyed by a hash of its path, so
@@ -82,6 +123,7 @@ export async function createReader({ platform, plantumlJar } = {}) {
     const check = (retry = 3) => {
       clearTimeout(d.timer);
       d.timer = setTimeout(async () => {
+        d.timer = null;
         if (docs.get(d.id) !== d) return; // released mid-flight
         const content = await platform.readText(d.abs);
         if (content == null) {
@@ -106,7 +148,10 @@ export async function createReader({ platform, plantumlJar } = {}) {
     };
 
     d.unwatch = await platform.watch(d.abs, check);
-    d.poll = setInterval(check, POLL_MS);
+    // Not while a read is already settling: `check` restarts the settle timer, so a poll shorter
+    // than SETTLE_MS would push the read back forever and never see the change it came to find.
+    // The default poll is far longer; a host that polls fast (or a test) is not.
+    d.poll = setInterval(() => d.timer || check(), pollMs);
     // The file can have changed while the watcher was being set up.
     check();
   }
@@ -374,8 +419,7 @@ export async function createReader({ platform, plantumlJar } = {}) {
       // forms, because the bar shows the file as well once it has a title of
       // its own to show instead of the file's name -- and joining a path is the
       // separator's business, which is this side's and not the page's.
-      dirLabel: homeRelative(platform.dirname(abs), home),
-      pathLabel: homeRelative(abs, home),
+      ...label(abs),
       hash: hashContent(current),
       mtime: await platform.modified(abs),
       text: current,
@@ -386,6 +430,7 @@ export async function createReader({ platform, plantumlJar } = {}) {
       baselineAvailable: base != null,
       history: historyPayload(doc),
       tracked: Boolean(doc.git),
+      caps,
     };
   }
 
@@ -486,7 +531,7 @@ export async function createReader({ platform, plantumlJar } = {}) {
      * a document — it lives here because this is the one thing both shells
      * hold, and it is the platform underneath that knows the answer.
      */
-    fonts: () => systemFonts(platform),
+    fonts,
 
     /**
      * The id a caller's `id` actually means, or null if there is no such

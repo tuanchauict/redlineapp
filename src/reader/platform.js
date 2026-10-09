@@ -52,9 +52,13 @@
  *   'darwin' | 'win32' | 'linux'. Only used where the difference is real: a
  *   program on PATH is found by a different rule on Windows.
  *
- * @property {(cmd: string, args: string[], opts?: SpawnOptions) => Promise<SpawnResult>} spawn
- *   Run a program to completion. Used for git and for the PlantUML jar, both of
- *   which are the host's to find: they are not on a path the webview knows.
+ * @property {(cmd: string, args: string[], opts?: SpawnOptions) => Promise<SpawnResult>} [spawn]
+ *   Run a program to completion. Used for git, for the PlantUML jar and for listing fonts,
+ *   all of which are the host's to find: they are not on a path the webview knows.
+ *   **Optional.** A host that cannot run a program -- a browser with no server behind it --
+ *   leaves `spawn` out entirely. It does not provide a function that throws, because the
+ *   reader reads the absence: without it, git, PlantUML and fonts default to off, and the
+ *   payload's `caps` say so. A host may still pass its own providers to `createReader`.
  *   **Always resolves, whatever happened** — a non-zero exit, a program that is
  *   not installed, a child that exits without reading the `input` it was given.
  *   Callers read the failure out of `code` and `stderr`; none of them is in a

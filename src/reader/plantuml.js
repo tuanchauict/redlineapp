@@ -63,6 +63,13 @@ function inlineSvg(svg) {
     .trim();
 }
 
+/** What a host that cannot run a program is given: a renderer that says so and draws nothing. */
+export const NO_PLANTUML = Object.freeze({
+  available: false,
+  hint: 'PlantUML needs a program to run, and this host has none.',
+  render: async () => null,
+});
+
 export async function createPlantumlRenderer({ jar } = {}, platform) {
   const found = await findRenderer(jar, platform);
 

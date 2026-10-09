@@ -96,6 +96,14 @@ is a pure function of the payload.
 `hashContent(abs).slice(0, 12)`, and hands back `retain` / `release` / `setFile` /
 `pathOf` plus a method per action for whoever is embedding it.
 
+`createReader` takes the platform and, optionally, a provider for each thing that needs a
+program: `git`, `plantuml` (`false` turns it off), `fonts`, and `label` for how a path is
+shown, plus `pollMs`. With none given, a platform that has `spawn` gets git, PlantUML
+discovery and the font list as it always did; a platform without it gets `NO_GIT`, no
+PlantUML and no fonts, and its reader still opens, diffs and prunes. `spawn` is optional in
+the contract (`src/reader/platform.js`) for that reason — a host that has none leaves it
+out rather than providing a function that throws.
+
 Entries are **reference counted**. Two windows on the same file share one watcher
 and one store; the last one to let go is the one that stops watching. This is what
 keeps a document's history consistent when the same file is open in two places.
@@ -141,6 +149,7 @@ sequence of round trips:
 | `baseline`, `baselineAvailable` | What it is being compared against, and whether that can still be honoured |
 | `history` | Every version, newest first, with `current` / `baseline` marked |
 | `tracked` | Whether git knows about the file |
+| `caps` | `{ git, plantuml }`: whether this host can do each at all, which `tracked` is not — it is per file. A host with no `spawn` has neither |
 
 **The document itself is not in here** — no `html`, no `rawHtml`, no stats, changes
 or contents list. Those come from `renderDocument(root, text, base)` in
