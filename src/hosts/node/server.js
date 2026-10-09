@@ -1,10 +1,9 @@
-// The browser front door: an http server over a reader (src/reader.js).
+// The browser front door: an http server over a reader (src/reader/reader.js).
 //
 // Nothing but routing lives here. A browser tab needs a URL to talk to, and
 // this is that URL — the reader itself has no opinion about http, because the
 // desktop app holds it directly and never asks it over a socket.
 import http from 'node:http';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +11,7 @@ import { createRequire } from 'node:module';
 
 import { createReader, Closed } from '../../reader/reader.js';
 import { nodePlatform } from './platform.js';
+import { directives, inlineScriptHashes, serialize } from '../../core/csp.js';
 
 // Cap on a single PlantUML fence, well past any real diagram.
 const MAX_DIAGRAM_SOURCE = 256 * 1024;
@@ -47,7 +47,7 @@ const MIME = {
 /**
  * The page's content security policy, as a header on index.html.
  *
- * The document is sanitized before it reaches the DOM (src/sanitize.js); this
+ * The document is sanitized before it reaches the DOM (src/page/sanitize.js); this
  * is the floor under that, so that a document which got something past it
  * still could not run it. Script only from this server, plus the one inline
  * script in the head -- by hash, because it has to run before first paint and
@@ -59,24 +59,7 @@ const MIME = {
  * bundler works out the hash itself; the two are compared by the test suite.
  */
 export function contentSecurityPolicy(html) {
-  const hashes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
-    ([, body]) => `'sha256-${crypto.createHash('sha256').update(body).digest('base64')}'`,
-  );
-  return [
-    "default-src 'self'",
-    `script-src 'self' ${hashes.join(' ')}`,
-    // Inline styles are the page's own -- sizes the head script restores, the
-    // widths a drag sets, the styles mermaid writes into its SVG -- and a style
-    // cannot run anything.
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob: https: http:",
-    "font-src 'self' data:",
-    "connect-src 'self'",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'none'",
-    "frame-ancestors 'none'",
-  ].join('; ');
+  return serialize(directives({ 'script-src': ["'self'", ...inlineScriptHashes(html)] }));
 }
 
 /**

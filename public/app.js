@@ -1,4 +1,4 @@
-import { createMarkdown, renderDocument, titleOf } from './vendor/render.js';
+import { createMarkdown, renderDocument, titleOf, walkPath, shorten } from './vendor/render.js';
 import { sanitizeDocument, sanitizeSvg } from './vendor/sanitize.js';
 import { createBackend } from './backend.js';
 
@@ -776,39 +776,6 @@ const readable = (s) => {
 const HAS_SCHEME = /^[a-z][a-z0-9+.\-]*:|^\/\//i;
 /** A link this app can answer: the extensions it opens on a command line. */
 const MD_LINK = /\.(md|markdown|mdown|mkd|mdx|txt)$/i;
-
-/**
- * Walk a relative link from the directory the document is in. Done here rather
- * than with `new URL`, which would resolve it against this page's address: a
- * `../` from the root that a loopback server serves from clamps away silently,
- * turning a real sibling directory into the wrong file with no sign of it.
- */
-function walkPath(dir, rel) {
-  const parts = dir.split('/');
-  for (const seg of rel.split('/')) {
-    if (!seg || seg === '.') continue;
-    if (seg !== '..') parts.push(seg);
-    // Only the filesystem root is above everything; a link cannot climb past it.
-    else if (parts.length > 1) parts.pop();
-  }
-  return parts.join('/') || '/';
-}
-
-/**
- * `~` for home, matching the directory under the filename and the sidebar.
- *
- * Home is worked out from the pair the document already carries \u2014 its real
- * directory and the shortened one \u2014 rather than resolving against the short
- * form directly, so a link that climbs above home comes out as the path it
- * actually points at instead of being quietly clamped to `~`.
- */
-function shorten(abs, d) {
-  const cut = d.dirLabel.startsWith('~') ? d.dir.length - d.dirLabel.length + 1 : -1;
-  const home = cut >= 0 ? d.dir.slice(0, cut) : '';
-  if (!home) return abs;
-  if (abs === home) return '~';
-  return abs.startsWith(home + '/') ? '~' + abs.slice(home.length) : abs;
-}
 
 /**
  * A destination written the way the document's author would recognise it: a URL
