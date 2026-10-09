@@ -4,12 +4,18 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Redline</title>
-    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="/vendor/github-markdown.css" />
-    <link rel="stylesheet" href="/vendor/hljs-light.css" media="(prefers-color-scheme: light)" />
-    <link rel="stylesheet" href="/vendor/hljs-dark.css" media="(prefers-color-scheme: dark)" />
-    <link rel="stylesheet" href="/styles.css" />
+    <!-- First, and a classic script, so it runs before the one below. Empty here; see host.js. -->
+    <script src="host.js"></script>
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="vendor/github-markdown.css" />
+    <link rel="stylesheet" href="vendor/hljs-light.css" media="(prefers-color-scheme: light)" />
+    <link rel="stylesheet" href="vendor/hljs-dark.css" media="(prefers-color-scheme: dark)" />
+    <link rel="stylesheet" href="styles.css" />
     <script>
+      // Every preference below is read through this, not through localStorage, so that a host
+      // without one can supply a store of its own (host.js). It has to be synchronous: nothing
+      // here can wait. app.js has the same line.
+      const prefs = globalThis.__REDLINE_PREFS ?? localStorage;
       // Set before first paint, so the native bar never flashes at the web
       // size and the marks never flash on for someone who turned them off.
       if (new URLSearchParams(location.search).has("native")) {
@@ -19,11 +25,11 @@
       // showing at a time. Each has a sidebar of its own now, so whichever you
       // were on is carried across once and the old key is dropped: an update
       // that quietly took away the list you had open would read as a bug.
-      const wasPanel = localStorage.getItem("redline:panel");
+      const wasPanel = prefs.getItem("redline:panel");
       if (wasPanel !== null) {
-        localStorage.removeItem("redline:panel");
-        if (wasPanel === "toc" && localStorage.getItem("redline:side") === "1") {
-          localStorage.setItem("redline:toc", "1");
+        prefs.removeItem("redline:panel");
+        if (wasPanel === "toc" && prefs.getItem("redline:side") === "1") {
+          prefs.setItem("redline:toc", "1");
         }
       }
 
@@ -31,8 +37,8 @@
       // down the right — and the width each was dragged to. All four before
       // first paint: the document's own padding is computed from them, so a
       // value missing here is the whole document reflowing on every open.
-      const sideOn = localStorage.getItem("redline:side") === "1";
-      const tocOn = localStorage.getItem("redline:toc") === "1";
+      const sideOn = prefs.getItem("redline:side") === "1";
+      const tocOn = prefs.getItem("redline:toc") === "1";
       if (sideOn) document.documentElement.classList.add("side-open");
       if (tocOn) document.documentElement.classList.add("toc-open");
 
@@ -43,7 +49,7 @@
       // Contents gives way first: the prose and the files you are moving
       // between are worth more of a narrow window than the map of one of them.
       const storedW = (k) => {
-        const w = Number(localStorage.getItem(k));
+        const w = Number(prefs.getItem(k));
         return Math.round(Math.min(Math.max(w || 236, 150), 560));
       };
       const wantW = [storedW("redline:sidew"), storedW("redline:tocw")];
@@ -63,25 +69,25 @@
       // `applyTocH` in app.js, which takes over from the first frame on. 90 is
       // the least Contents can be and still be a list; 110 is what History
       // needs below it to still be one too; 34/38 is the titlebar, web or native.
-      const tocH = Number(localStorage.getItem("redline:toch")) || 180;
+      const tocH = Number(prefs.getItem("redline:toch")) || 180;
       const barH = document.documentElement.classList.contains("native") ? 38 : 34;
       const tocHMax = Math.max(90, innerHeight - barH - 25 - 110);
       root.setProperty("--toc-h", Math.round(Math.min(Math.max(tocH, 90), tocHMax)) + "px");
 
-      if (localStorage.getItem("redline:diff") === "0") {
+      if (prefs.getItem("redline:diff") === "0") {
         document.documentElement.classList.add("no-diff");
       }
       // Whether Open files, Contents or History were put away, so they do
       // not unfold and fold again on every open.
       try {
-        for (const k of JSON.parse(localStorage.getItem("redline:shut") || "[]")) {
+        for (const k of JSON.parse(prefs.getItem("redline:shut") || "[]")) {
           if (k === "files") document.documentElement.classList.add("shut-files");
           if (k === "toc") document.documentElement.classList.add("shut-toc");
           if (k === "hist") document.documentElement.classList.add("shut-hist");
         }
       } catch {}
       try {
-        const s = JSON.parse(localStorage.getItem("redline:settings") || "{}");
+        const s = JSON.parse(prefs.getItem("redline:settings") || "{}");
         if (s.textSize) {
           document.documentElement.style.setProperty("--doc-size", s.textSize + "px");
         }
@@ -599,6 +605,6 @@
       </div>
     </dialog>
 
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>

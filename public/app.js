@@ -7,6 +7,10 @@ const doc = $('doc');
 // The scroll area is the document pane, not the page — see `main` in the CSS.
 const pane = document.querySelector('main');
 const darkMode = matchMedia('(prefers-color-scheme: dark)');
+// Where preferences live. A host that has no usable localStorage (a VS Code webview's is
+// per-panel and not kept) fills this in synchronously from host.js; the head script in
+// index.html does the same, so the two have to read the same store.
+const prefs = globalThis.__REDLINE_PREFS ?? localStorage;
 
 // Sepia is drawn by the page, not reported by the window, so no media query
 // knows about it — the dataset that the head script and `applySettings` set
@@ -41,7 +45,7 @@ let mermaidBroken = false;
 async function getMermaid() {
   if (mermaid || mermaidBroken) return mermaid;
   try {
-    mermaid = (await import('/vendor/mermaid/mermaid.esm.min.mjs')).default;
+    mermaid = (await import('./vendor/mermaid/mermaid.esm.min.mjs')).default;
     mermaid.initialize(mermaidConfig());
   } catch (err) {
     console.error('mermaid failed to load', err);
@@ -55,11 +59,11 @@ const state = {
   // backs every window, so every request has to say which document it means;
   // a lone browser tab can leave it empty and get the only one.
   docId: new URLSearchParams(location.search).get('id') || '',
-  view: localStorage.getItem('redline:view') || 'rendered',
+  view: prefs.getItem('redline:view') || 'rendered',
   // Show the change marks, or just read the document. Hiding them is a page
   // concern only: the baseline keeps tracking, so turning them back on costs
   // no round trip and nothing is forgotten in between.
-  diff: localStorage.getItem('redline:diff') !== '0',
+  diff: prefs.getItem('redline:diff') !== '0',
   // Read the chosen version by itself rather than the file marked against it.
   // A mode rather than a click, so stepping down the history reads each row in
   // turn until it is switched off. Not remembered across a restart, on purpose:
@@ -289,7 +293,7 @@ function paintTabs() {
 /** Remembered, because it is the kind of thing you set once and keep. */
 function setSide(on, remember = true) {
   state.side = on;
-  if (remember) localStorage.setItem('redline:side', on ? '1' : '0');
+  if (remember) prefs.setItem('redline:side', on ? '1' : '0');
   document.documentElement.classList.toggle('side-open', on);
   const btn = $('side');
   btn.setAttribute('aria-pressed', String(on));
@@ -312,7 +316,7 @@ function setSide(on, remember = true) {
  */
 function setTocSide(on, remember = true) {
   state.tocSide = on;
-  if (remember) localStorage.setItem('redline:toc', on ? '1' : '0');
+  if (remember) prefs.setItem('redline:toc', on ? '1' : '0');
   document.documentElement.classList.toggle('toc-open', on);
   const btn = $('tocBtn');
   btn.setAttribute('aria-pressed', String(on));
@@ -353,7 +357,7 @@ const clampSideW = (w) =>
   Math.round(Math.min(Math.max(w || SIDE_W_DEFAULT, SIDE_W_MIN), SIDE_W_MAX));
 
 /** What an edge was left at, before the window has had its say. */
-const storedW = (key) => clampSideW(Number(localStorage.getItem(key)));
+const storedW = (key) => clampSideW(Number(prefs.getItem(key)));
 
 /**
  * The two widths a window this size can actually give them.
@@ -404,7 +408,7 @@ function applyWidths() {
  */
 function wireGrip(grip, key, sign) {
   const setW = (w) => {
-    localStorage.setItem(key, String(clampSideW(w)));
+    prefs.setItem(key, String(clampSideW(w)));
     applyWidths();
   };
 
@@ -490,7 +494,7 @@ const barH = () => (document.documentElement.classList.contains('native') ? 38 :
 // before either section sees a pixel of what is left.
 const TOC_H_CHROME = 12 + 13;
 
-const storedTocH = () => Number(localStorage.getItem(TOC_H_KEY)) || TOC_H_DEFAULT;
+const storedTocH = () => Number(prefs.getItem(TOC_H_KEY)) || TOC_H_DEFAULT;
 
 /**
  * The most Contents can be given and still leave History its minimum — the
@@ -512,7 +516,7 @@ function applyTocH() {
 /** Make the seam between Contents and History draggable, the way `wireGrip` does. */
 function wireTocGrip(grip) {
   const setH = (h) => {
-    localStorage.setItem(TOC_H_KEY, String(clampTocH(h)));
+    prefs.setItem(TOC_H_KEY, String(clampTocH(h)));
     applyTocH();
   };
 
@@ -578,7 +582,7 @@ for (const twist of document.querySelectorAll('.side-twist')) {
     const on = twist.getAttribute('aria-expanded') === 'true';
     twist.setAttribute('aria-expanded', String(!on));
     document.documentElement.classList.toggle(`shut-${twist.dataset.shut}`, on);
-    localStorage.setItem(SHUT_KEY, JSON.stringify(shutNow()));
+    prefs.setItem(SHUT_KEY, JSON.stringify(shutNow()));
     // A list coming back should open already pointing at where you are in the
     // document, not at the top of it.
     if (!on) spyToc();
@@ -2052,7 +2056,7 @@ function setView(view) {
   // nothing else (see `sourceAt`).
   const at = sourceAt();
   state.view = view;
-  localStorage.setItem('redline:view', view);
+  prefs.setItem('redline:view', view);
   paint();
   scrollToSource(at);
 }
@@ -2167,7 +2171,7 @@ function setDiff(on, { redraw = true } = {}) {
   // render, not a class. `redraw: false` is for a caller about to load anyway.
   if (state.solo) {
     state.diff = on;
-    localStorage.setItem('redline:diff', on ? '1' : '0');
+    prefs.setItem('redline:diff', on ? '1' : '0');
     applyMarks();
     if (redraw) rerender();
     return;
@@ -2176,7 +2180,7 @@ function setDiff(on, { redraw = true } = {}) {
     state.diff = on;
     // The pre-paint mirror, so the marks never flash on for someone who
     // turned them off — see the inline script in index.html.
-    localStorage.setItem('redline:diff', on ? '1' : '0');
+    prefs.setItem('redline:diff', on ? '1' : '0');
     applyMarks();
     if (state.data) {
       // The history says what is being compared against, and with the marks off
@@ -2293,7 +2297,7 @@ if (native) {
     // is more than one file to choose between, which is when it earns its
     // width. After that the toggle is the answer and this stops second
     // guessing it.
-    if (localStorage.getItem('redline:side') === null && tabs.length > 1) setSide(true, false);
+    if (prefs.getItem('redline:side') === null && tabs.length > 1) setSide(true, false);
     const switching = active && active !== state.docId;
     if (switching) {
       scrollMemory.set(state.docId, pane.scrollTop);
@@ -2513,7 +2517,7 @@ function applySettings() {
   }
   // Mirrored for the inline script in index.html, which runs before first
   // paint — and, in a browser tab, this is the store rather than a mirror.
-  localStorage.setItem('redline:settings', JSON.stringify(settings));
+  prefs.setItem('redline:settings', JSON.stringify(settings));
   setDiff(settings.marks);
   paintPrefs();
 }
@@ -2580,16 +2584,16 @@ onSeg('setBaseline', (v) => {
   load({ keepScroll: true });
 });
 
-const prefs = $('prefs');
+const prefsSheet = $('prefs');
 
 function openPrefs() {
-  if (prefs.open) return;
+  if (prefsSheet.open) return;
   paintPrefs();
-  prefs.showModal();
+  prefsSheet.showModal();
 }
 
 $('prefsBtn').addEventListener('click', openPrefs);
-$('prefsDone').addEventListener('click', () => prefs.close());
+$('prefsDone').addEventListener('click', () => prefsSheet.close());
 $('setReveal').addEventListener('click', () => native?.revealStore());
 
 // The menu sends this in the desktop app; in a browser tab the page has to
@@ -2689,7 +2693,7 @@ async function initSettings() {
   try {
     stored = native
       ? await native.settings()
-      : JSON.parse(localStorage.getItem('redline:settings') || '{}');
+      : JSON.parse(prefs.getItem('redline:settings') || '{}');
   } catch {
     /* a corrupt or unreadable copy just means the defaults */
   }

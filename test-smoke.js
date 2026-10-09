@@ -307,6 +307,34 @@ console.log('✓ a document cannot run, and the shell does only what the reader 
 const [pageHtml, pageCss, pageJs] = await Promise.all(
   ['/', '/styles.css', '/app.js'].map(async (p) => (await fetch(base + p)).text()),
 );
+
+// The page has to load from any base URL: the web app may be served under a path, and a VS
+// Code webview's files live under a `vscode-cdn.net` URL, where `/app.js` is the wrong root.
+// The `/api/...` URLs in backend.js stay absolute, because only this server answers them.
+assert.ok(!/(?:href|src)="\//.test(pageHtml), 'the page names its files relative to itself');
+assert.ok(!pageJs.includes("import('/"), 'and so does the lazy mermaid import');
+assert.match(pageJs, /import\('\.\/vendor\/mermaid\//, 'which is still the vendored one');
+// Every preference goes through one name, so a host without localStorage can supply a store
+// of its own. The one line that names localStorage is the fallback, in each file.
+const bareStorage = (src) => src.match(/\blocalStorage\b/g)?.length ?? 0;
+for (const [name, src] of [['index.html', pageHtml], ['app.js', pageJs]]) {
+  assert.ok(!/\blocalStorage\./.test(src), `${name} reaches no preference through localStorage`);
+  assert.match(
+    src,
+    /const prefs = globalThis\.__REDLINE_PREFS \?\? localStorage;/,
+    `${name} has the one fallback line`,
+  );
+}
+assert.strictEqual(bareStorage(pageHtml.replace(/\/\/.*$/gm, '')), 1, 'one fallback in the head');
+// host.js is a classic script and the first one in the head, so it runs before the head script
+// and before app.js. It is the same origin, so the CSP needs no hash for it.
+const pageHead = pageHtml.slice(0, pageHtml.indexOf('</head>'));
+const headScripts = [...pageHead.matchAll(/<script\b[^>]*>/g)];
+assert.strictEqual(headScripts[0]?.[0], '<script src="host.js">', 'host.js is the first script');
+assert.ok(!/type="module"/.test(headScripts[0][0]), 'and not a module');
+assert.strictEqual((await fetch(base + '/host.js')).status, 200, 'and it is served');
+console.log('✓ the page is relative, and reads its preferences through one name');
+
 assert.match(pageHtml, /id="histList"/, 'the history list is in the sidebar');
 assert.ok(!pageHtml.includes('id="baseline"'), 'no version dropdown on the bar');
 assert.ok(!pageHtml.includes('id="markRead"'), 'no "Mark read" button on the bar');
@@ -384,7 +412,7 @@ assert.strictEqual(
   'Open files, Contents and History are all disclosures',
 );
 assert.match(pageHtml, /redline:shut/, 'and remember themselves before first paint');
-assert.match(pageJs, /localStorage\.setItem\(SHUT_KEY/, 'and write that back');
+assert.match(pageJs, /prefs\.setItem\(SHUT_KEY/, 'and write that back');
 assert.ok(pageCss.includes('.shut-files #filesSec'), 'the stylesheet folds Open files away');
 assert.ok(pageCss.includes('.shut-toc #tocSec'), 'and Contents too');
 assert.ok(pageCss.includes('.shut-hist #histSec'), 'and History too');
@@ -440,7 +468,7 @@ assert.ok(!/function setPanel|PANEL_KEY/.test(pageJs), 'and so is the switch bet
 // who was on Contents when the update landed gets the new column opened for
 // them, because an update that quietly took away the list you had up reads as
 // a bug.
-assert.match(pageHtml, /localStorage\.removeItem\("redline:panel"\)/, 'the old key is retired');
+assert.match(pageHtml, /prefs\.removeItem\("redline:panel"\)/, 'the old key is retired');
 assert.ok(!pageJs.includes('redline:panel'), 'and nothing else reads it');
 // A document whose only heading is its title has no contents. The column says
 // so rather than closing itself — whether it is open is the reader's standing
@@ -647,7 +675,7 @@ assert.match(pageHtml, /redline:sidew/, 'their widths are restored before first 
 assert.match(pageHtml, /redline:tocw/, 'both of them');
 assert.match(pageJs, /wireGrip\(\$\('sideGrip'\), SIDE_W_KEY, 1\)/, 'the left edge drags right');
 assert.match(pageJs, /wireGrip\(\$\('tocGrip'\), TOC_W_KEY, -1\)/, 'and the right edge drags left');
-assert.match(pageJs, /localStorage\.setItem\(key, String\(clampSideW/, 'and both write back');
+assert.match(pageJs, /prefs\.setItem\(key, String\(clampSideW/, 'and both write back');
 assert.match(pageCss, /\.side-grip \{/, 'and the grips are styled');
 assert.ok(pageCss.includes('cursor: col-resize'), 'and say what they do under the pointer');
 // Two columns that are each a reasonable width can still leave no document
@@ -675,7 +703,7 @@ assert.match(pageJs, /TOC_H_MIN = 90/, 'with a floor under Contents');
 assert.match(pageJs, /HIST_H_MIN = 110/, 'and one under History so the handle cannot swallow it');
 assert.match(
   pageJs,
-  /localStorage\.setItem\(TOC_H_KEY, String\(clampTocH/,
+  /prefs\.setItem\(TOC_H_KEY, String\(clampTocH/,
   'and it writes back',
 );
 assert.match(
