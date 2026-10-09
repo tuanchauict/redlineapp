@@ -1,8 +1,8 @@
 // What the page needs from whatever is behind it.
 //
-// Two things can be behind it. In the CLI there is an http server (src/server.js)
+// Two things can be behind it. In the CLI there is an http server (src/hosts/node/server.js)
 // and the page reaches it over fetch and an event stream. In the desktop app
-// there is no server and nothing to reach: the reader (src/reader.js) is in the
+// there is no server and nothing to reach: the reader (src/reader/reader.js) is in the
 // page already, holding the store and the file watch directly. This module is
 // the seam between those two, so that everything above it -- the whole of
 // app.js -- is written once, and neither host gets its own copy of what marking

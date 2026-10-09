@@ -2,9 +2,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { createServer } from '../src/server.js';
-import { DocStore } from '../src/store.js';
-import { nodePlatform } from '../src/platform-node.js';
+import { createServer } from '../src/hosts/node/server.js';
+import { DocStore } from '../src/reader/store.js';
+import { nodePlatform } from '../src/hosts/node/platform.js';
 
 const USAGE = `redline — minimal GitHub-style markdown reader with change highlighting
 

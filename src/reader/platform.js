@@ -86,7 +86,7 @@
  * it is. Shortening a path outside home would only hide which volume a file is
  * on, which is the one thing that path is there to say.
  *
- * Here rather than in paths.js because it is the one piece of path prettifying
+ * Here rather than in a paths module because it is the one piece of path prettifying
  * both hosts need, and the home directory is something only the host knows.
  */
 export function homeRelative(p, home) {

@@ -11,7 +11,7 @@
 //
 // Everything reaches the disk through a platform (src/platform.js).
 import { DocStore } from './store.js';
-import { hashContent } from './hash.js';
+import { hashContent } from '../core/hash.js';
 import { createGit } from './git.js';
 import { systemFonts } from './fonts.js';
 import { homeRelative } from './platform.js';

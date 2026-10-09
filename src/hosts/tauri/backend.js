@@ -14,10 +14,10 @@
 // Bundled to public/vendor/backend-tauri.js by scripts/build-web.mjs, and
 // loaded only when the shell has left its facts on the window, so a browser tab
 // never downloads a line of it.
-import { createReader } from './reader.js';
-import { DocStore } from './store.js';
-import { installNative } from './native-tauri.js';
-import { tauriPlatform } from './platform-tauri.js';
+import { createReader } from '../../reader/reader.js';
+import { DocStore } from '../../reader/store.js';
+import { installNative } from './native.js';
+import { tauriPlatform } from './platform.js';
 
 /**
  * Open what the window was given and answer the page's questions about it.

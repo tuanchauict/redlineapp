@@ -77,7 +77,7 @@ function resolve(p) {
   return rooted ? drive + SEP + body : body;
 }
 
-/** @type {import('./platform.js').Platform} */
+/** @type {import('../../reader/platform.js').Platform} */
 export const tauriPlatform = {
   readText: (p) => invoke('read_text', { path: p }),
   writeText: (p, text) => invoke('write_text', { path: p, text }),

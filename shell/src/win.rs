@@ -175,7 +175,7 @@ pub fn show_drop(app: &AppHandle, label: &str, over: bool) {
 /// to be addressed by name. `emit_to`'s filter is skipped for a listener
 /// registered without a target, so a page that signs up the easy way gets every
 /// window's mail -- the menu driving all the windows at once, each one's tab
-/// list replacing the next one's. `src/native-tauri.js` names its own label for
+/// list replacing the next one's. `src/hosts/tauri/native.js` names its own label for
 /// exactly this reason; the label reaches it in the handoff.
 pub fn to_front(app: &AppHandle, event: &str, payload: impl serde::Serialize + Clone) {
     if let Some(label) = front(app) {

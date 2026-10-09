@@ -3,7 +3,7 @@
 //   npm run build:dist
 //
 // The desktop app has no server, so everything the page asks for over a URL has
-// to be a file sitting next to it. In the CLI, src/server.js answers those
+// to be a file sitting next to it. In the CLI, src/hosts/node/server.js answers those
 // requests by reading out of node_modules and assets/ wherever they happen to
 // be; here the same files are copied into shell/dist, which tauri.conf.json
 // names as the front end and Tauri serves from inside the bundle.

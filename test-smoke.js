@@ -5,12 +5,13 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert';
-import { createServer } from './src/server.js';
-import { createMarkdown } from './src/render.js';
-import { renderDocument, titleOf as docTitleOf } from './src/document.js';
-import { nodePlatform } from './src/platform-node.js';
-import { LIST_FAMILIES } from './src/fonts.js';
+import { createServer } from './src/hosts/node/server.js';
+import { createMarkdown } from './src/core/render.js';
+import { renderDocument, titleOf as docTitleOf } from './src/core/document.js';
+import { nodePlatform } from './src/hosts/node/platform.js';
+import { LIST_FAMILIES } from './src/reader/fonts.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-'));
 process.env.REDLINE_HOME = path.join(tmp, 'home');
@@ -60,7 +61,7 @@ assert.ok(!/<code class="language-plantuml"/.test(doc.html), 'and not left as a 
 
 // The request the page makes for each one. Answers 200 either way: a diagram
 // that will not draw is something to show in the page, not a failed request.
-const { createPlantumlRenderer } = await import('./src/plantuml.js');
+const { createPlantumlRenderer } = await import('./src/reader/plantuml.js');
 const puml = await createPlantumlRenderer({}, nodePlatform);
 const pumlRes = await fetch(base + '/api/plantuml', { method: 'POST', body: 'Alice -> Bob: hi' });
 assert.strictEqual(pumlRes.status, 200, 'the render endpoint answers');
@@ -239,7 +240,7 @@ assert.deepStrictEqual(
   ['ack', 'closest', 'count', 'cut', 'doc', 'x'],
   'no innerHTML the page does not know is safe',
 );
-const sanitizeJs = fs.readFileSync(new URL('./src/sanitize.js', import.meta.url), 'utf8');
+const sanitizeJs = fs.readFileSync(new URL('./src/page/sanitize.js', import.meta.url), 'utf8');
 assert.match(sanitizeJs, /FORBID_TAGS: \['style', 'form'\]/,
   'a document cannot restyle the window or hide its own marks');
 assert.match(sanitizeJs, /SANITIZE_DOM: false,\n\s*FORBID_ATTR: \['name'\]/,
@@ -253,44 +254,50 @@ assert.match(fs.readFileSync(new URL('./scripts/build-dist.mjs', import.meta.url
 // is one arm of `may_spawn`, and the arguments it is matched against are
 // copied from these files -- so the two are compared here, not trusted.
 const hostRsCheck = fs.readFileSync(new URL('./shell/src/host.rs', import.meta.url), 'utf8');
-const srcSpawns = fs.readdirSync(new URL('./src/', import.meta.url))
-  .filter((f) => f.endsWith('.js') && !f.startsWith('platform'))
+/** Every .js file under `dir` (relative to src/), so a new host that spawns is scanned too. */
+const jsUnder = (dir) =>
+  fs.readdirSync(new URL(`./src/${dir}/`, import.meta.url), { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? jsUnder(`${dir}/${e.name}`) : e.name.endsWith('.js') ? [`${dir}/${e.name}`] : [],
+  );
+const srcSpawns = ['reader', 'hosts']
+  .flatMap(jsUnder)
+  .filter((f) => path.basename(f) !== 'platform.js')
   .flatMap((f) => {
     const js = fs.readFileSync(new URL(`./src/${f}`, import.meta.url), 'utf8');
     return [...js.matchAll(/platform\.spawn\(([^,]+),/g)].map((m) => `${f}: ${m[1]}`);
   })
   .sort();
 assert.deepStrictEqual(srcSpawns,
-  ["fonts.js: 'osascript'", 'git.js: \'git\'', 'plantuml.js: found.cmd'],
+  ["reader/fonts.js: 'osascript'", "reader/git.js: 'git'", 'reader/plantuml.js: found.cmd'],
   'every program the reader runs is one host.rs allows -- a new one needs an arm there');
 const rustFamilies = hostRsCheck.match(/const LIST_FAMILIES: &str = r#"(.*)"#;/)?.[1];
 assert.strictEqual(rustFamilies, LIST_FAMILIES,
-  'the one osascript the shell runs is the one src/fonts.js asks for');
-const gitJs = fs.readFileSync(new URL('./src/git.js', import.meta.url), 'utf8');
+  'the one osascript the shell runs is the one src/reader/fonts.js asks for');
+const gitJs = fs.readFileSync(new URL('./src/reader/git.js', import.meta.url), 'utf8');
 const rustList = (js) => js.replaceAll("'", '"');
 for (const call of [
   "'ls-files', '--full-name', '--error-unmatch', '--'",
   "'rev-parse', '--show-toplevel'",
   "'--follow',\n          '--name-only',",
 ]) {
-  assert.ok(gitJs.includes(call), `src/git.js still runs ${call}`);
+  assert.ok(gitJs.includes(call), `src/reader/git.js still runs ${call}`);
   assert.ok(hostRsCheck.includes(rustList(call.replace(/,\n\s*/g, ', '))),
     `and host.rs allows ${call}`);
 }
 assert.ok(gitJs.includes('`--format=%x00%H${SEP}%at${SEP}%s`') && gitJs.includes("SEP = '\\x1f'")
   && hostRsCheck.includes('"--format=%x00%H\\x1f%at\\x1f%s"'), 'the log format, separator and all');
-const pumlJs = fs.readFileSync(new URL('./src/plantuml.js', import.meta.url), 'utf8');
+const pumlJs = fs.readFileSync(new URL('./src/reader/plantuml.js', import.meta.url), 'utf8');
 assert.ok(pumlJs.includes("'-tsvg', '-pipe', '-charset', 'UTF-8'")
   && hostRsCheck.includes('["-tsvg", "-pipe", "-charset", "UTF-8"]'), 'the PlantUML arguments');
 assert.ok(pumlJs.includes("platform.join(root, 'plantuml.jar')")
   && hostRsCheck.includes('f == "plantuml.jar"'), 'and the jar the store can hold');
 
-// Writing is held to the store's own layout -- the four calls in src/store.js.
+// Writing is held to the store's own layout -- the four calls in src/reader/store.js.
 for (const cmd of ['write_text', 'mkdirp', 'remove', 'rename']) {
   assert.match(hostRsCheck, new RegExp(`pub fn ${cmd}\\(app: AppHandle,`),
     `${cmd} knows where home is, to know where the store is`);
 }
-const storeJs = fs.readFileSync(new URL('./src/store.js', import.meta.url), 'utf8');
+const storeJs = fs.readFileSync(new URL('./src/reader/store.js', import.meta.url), 'utf8');
 assert.ok(storeJs.includes("join(root, 'objects')") && storeJs.includes("hash + '.md'")
   && hostRsCheck.includes('*dir == "objects" && name.ends_with(".md")'), 'snapshots');
 assert.ok(storeJs.includes("join(root, 'docs')") && storeJs.includes("docKey(absPath) + '.json'")
@@ -299,6 +306,97 @@ assert.ok(storeJs.includes("join(home, '.md-reader')")
   && hostRsCheck.includes('home.join(".md-reader") || Path::new(&to) != home.join(".redline")'),
   'and the one move the store ever makes');
 console.log('✓ a document cannot run, and the shell does only what the reader asks');
+
+// --- layering --------------------------------------------------------------
+// src/ is layers, and which of them a file may import is a rule rather than a habit -- the
+// page bundles (build:web) depend on nothing under core/, page/ or reader/ touching node:.
+// It is a grep with rules, the same kind of check as the wiring above: collect every
+// `import … from`, `export … from` and `import()`, resolve the relative ones, and check each
+// against the table in docs/web-and-vscode/005-restructure.md §4.
+const SRC = fileURLToPath(new URL('./src/', import.meta.url));
+const srcFiles = (dir = '') =>
+  fs.readdirSync(path.join(SRC, dir), { withFileTypes: true }).flatMap((e) => {
+    const rel = path.posix.join(dir, e.name);
+    return e.isDirectory() ? srcFiles(rel) : rel.endsWith('.js') ? [rel] : [];
+  });
+// `ObjC.import("AppKit")` is a string for osascript, not a module: a real one is not preceded
+// by a dot.
+const importsOf = (js) =>
+  [
+    ...js.matchAll(/^\s*(?:import|export)\b[^'"`;]*?\bfrom\s*['"]([^'"]+)['"]/gm),
+    ...js.matchAll(/^\s*import\s*['"]([^'"]+)['"]/gm),
+    ...js.matchAll(/(?<![.\w])import\(\s*['"]([^'"]+)['"]\s*\)/g),
+  ].map((m) => m[1]);
+const layerOf = (rel) => (rel.startsWith('hosts/') ? rel.split('/').slice(0, 2).join('/') : rel.split('/')[0]);
+/** Why `file` (relative to src/) may not import `spec`, or null when it may. */
+const forbidden = (file, spec) => {
+  const from = layerOf(file);
+  if (spec.startsWith('node:')) {
+    const ok = from === 'hosts/node' || file === 'hosts/vscode/extension-node.js';
+    return ok ? null : 'node: is for hosts/node and extension-node.js only';
+  }
+  if (spec === 'vscode') {
+    const ok = from === 'hosts/vscode' && !/\/(backend|host)\.js$/.test(file);
+    return ok ? null : 'vscode is for the extension host only, never for the page side';
+  }
+  if (spec.startsWith('@tauri-apps/api')) {
+    return from === 'hosts/tauri' ? null : '@tauri-apps/api is for hosts/tauri only';
+  }
+  if (!spec.startsWith('.')) {
+    return from === 'reader' || from === 'rpc' ? 'reader/ and rpc/ import no packages' : null;
+  }
+  const to = path.posix.normalize(path.posix.join(path.posix.dirname(file), spec));
+  const target = layerOf(to);
+  if (to.startsWith('..')) return 'leaves src/';
+  const allowed = {
+    core: ['core'],
+    page: ['core', 'page'],
+    reader: ['core', 'reader'],
+    rpc: ['rpc'],
+  }[from] ?? ['core', 'page', 'reader', 'rpc', from];
+  return allowed.includes(target) ? null : `${from}/ may not import ${target}/`;
+};
+const layerBreaks = [];
+const layered = srcFiles();
+for (const file of layered) {
+  assert.ok(
+    /^(core|page|reader|rpc)\/|^hosts\/[a-z]+\//.test(file),
+    `src/${file} is in a layer: core, page, reader, rpc or hosts/<host>`,
+  );
+  for (const spec of importsOf(fs.readFileSync(path.join(SRC, file), 'utf8'))) {
+    const why = forbidden(file, spec);
+    if (why) layerBreaks.push(`src/${file} imports '${spec}': ${why}`);
+    else if (spec.startsWith('.')) {
+      const to = path.posix.normalize(path.posix.join(path.posix.dirname(file), spec));
+      if (!fs.existsSync(path.join(SRC, to))) layerBreaks.push(`src/${file}: '${spec}' is not there`);
+    }
+  }
+}
+assert.deepStrictEqual(layerBreaks, [], 'the import graph obeys the layers');
+assert.ok(layered.length > 15, 'and the walk found the tree');
+// The rule has to be able to fail, or an empty walk would pass it.
+for (const [file, spec] of [
+  ['core/render.js', '../reader/store.js'],
+  ['core/hash.js', 'node:crypto'],
+  ['reader/reader.js', '../hosts/node/platform.js'],
+  ['reader/store.js', 'node:fs'],
+  ['hosts/node/server.js', '../tauri/platform.js'],
+  ['hosts/vscode/backend.js', 'vscode'],
+  ['hosts/node/platform.js', '@tauri-apps/api/core'],
+  ['rpc/client.js', '../reader/session.js'],
+]) {
+  assert.ok(forbidden(file, spec), `${file} may not import ${spec}`);
+}
+for (const [file, spec] of [
+  ['hosts/node/server.js', 'node:http'],
+  ['hosts/vscode/extension-node.js', 'node:fs'],
+  ['hosts/vscode/platform.js', 'vscode'],
+  ['hosts/tauri/backend.js', '../../reader/reader.js'],
+  ['core/render.js', 'markdown-it'],
+]) {
+  assert.strictEqual(forbidden(file, spec), null, `${file} may import ${spec}`);
+}
+console.log('✓ the import graph obeys the layers');
 
 // The show/hide-changes switch is spread over three files; if one half is
 // dropped it silently stops doing anything, which nothing else catches. It has
@@ -755,7 +853,7 @@ console.log('✓ History paints, opens and is reached through the right column')
 // added by copying the first, which is exactly how one of the three gets
 // missed. The browser tab has no menu, so the key is the page's to catch.
 const menuRs = fs.readFileSync(new URL('./shell/src/menu.rs', import.meta.url), 'utf8');
-const seamJs = fs.readFileSync(new URL('./src/native-tauri.js', import.meta.url), 'utf8');
+const seamJs = fs.readFileSync(new URL('./src/hosts/tauri/native.js', import.meta.url), 'utf8');
 for (const [item, accel, event, hook] of [
   ['side', 'CmdOrCtrl+B', 'md:toggle-side', 'onToggleSide'],
   ['sidetoc', 'Alt+CmdOrCtrl+B', 'md:toggle-toc', 'onToggleToc'],
@@ -1057,7 +1155,7 @@ function unbalanced(html) {
 }
 
 const mdDiff = createMarkdown();
-const { renderDiff } = await import('./src/diff.js');
+const { renderDiff } = await import('./src/core/diff.js');
 const diffOf = (a, b) => renderDiff(mdDiff, a, b).html;
 
 const inlineCases = [
@@ -1215,7 +1313,7 @@ for (const h of doc.toc) {
   assert.match(srcLines[h.line], new RegExp(`^#+\\s+${h.text}$`), `line ${h.line} is "${h.text}"`);
 }
 
-const { outline, slugify } = await import('./src/render.js');
+const { outline, slugify } = await import('./src/core/render.js');
 const mdToc = createMarkdown();
 assert.strictEqual(slugify('Why *this*, and not That?'), 'why-this-and-not-that', 'GitHub-style slug');
 // Two headings with the same words must not share an id, or the second link
@@ -1278,8 +1376,8 @@ console.log('✓ check a change off');
 // you checked it — not the whole block replayed against the baseline, which is
 // still where everything else is measured from. See docs/changes.md.
 {
-  const { blockId } = await import('./src/diff.js');
-  const { hashContent } = await import('./src/hash.js');
+  const { blockId } = await import('./src/core/diff.js');
+  const { hashContent } = await import('./src/core/hash.js');
   const mdAck = createMarkdown();
   const added = (html) => [...html.matchAll(/<ins class="w-add">([\s\S]*?)<\/ins>/g)].map((m) => m[1]);
   const read = 'The release paragraph, written for the team.';
@@ -1323,8 +1421,8 @@ console.log('✓ check a change off');
   assert.ok(unrelated.html.includes('w-del">ten<'), 'a resembling check-off does not displace the baseline');
 
   // The same, end to end: a real store, a real reader, the file moving under it.
-  const { createReader } = await import('./src/reader.js');
-  const { DocStore } = await import('./src/store.js');
+  const { createReader } = await import('./src/reader/reader.js');
+  const { DocStore } = await import('./src/reader/store.js');
   const ackFile = path.join(tmp, 'acked.md');
   fs.writeFileSync(ackFile, '# Doc\n');
   const reader = await createReader({ platform: nodePlatform });
@@ -1398,7 +1496,7 @@ console.log('✓ check a change off');
     'old ones survive a new check-off, and a version that is not one of ours is not kept',
   );
 }
-const serverJsSrc = fs.readFileSync(new URL('./src/server.js', import.meta.url), 'utf8');
+const serverJsSrc = fs.readFileSync(new URL('./src/hosts/node/server.js', import.meta.url), 'utf8');
 assert.match(serverJsSrc, /at: param\('at'\)/, 'the server passes the version a change was checked in');
 assert.match(pageJs, /backend\.ack\(\{ key, on, at: state\.data\?\.hash, block \}\)/, 'and the page sends it');
 assert.match(pageJs, /from: data\.ackedFrom/, 'and renders against what came back');
@@ -1411,7 +1509,7 @@ console.log('✓ a checked-off change becomes that block\'s own baseline');
 // `<h2>` then takes the top row of the contents list. Read as a block instead,
 // it is a card of fields, it contributes no heading, and it is one unit to the
 // diff like any other block.
-const { parseFrontMatter, looksLikeFrontMatter } = await import('./src/front-matter.js');
+const { parseFrontMatter, looksLikeFrontMatter } = await import('./src/core/front-matter.js');
 const hdr = path.join(tmp, 'header.md');
 fs.writeFileSync(
   hdr,
@@ -2115,7 +2213,7 @@ sixth.server.close();
 // It holds every snapshot of every file ever read, and a rename of the app is
 // no reason to start that again from nothing — nor to leave two stores lying
 // about, which is what reading the old one where it lay would have meant.
-const { storeRoot } = await import('./src/store.js');
+const { storeRoot } = await import('./src/reader/store.js');
 const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-home-'));
 const legacyStore = path.join(fakeHome, '.md-reader');
 const newStore = path.join(fakeHome, '.redline');
