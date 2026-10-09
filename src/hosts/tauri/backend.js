@@ -6,8 +6,8 @@
 // is a call rather than a request.
 //
 // Which is the point of the whole exercise. The browser build talks to
-// src/server.js and the desktop build talks to this, and both are the same
-// reader (src/reader.js) over the same store (src/store.js) -- the only thing
+// src/hosts/node/server.js and the desktop build talks to this, and both are the same
+// reader (src/reader/reader.js) over the same store (src/reader/store.js) -- the only thing
 // that differs is how the page reaches it and which platform is underneath.
 // Two implementations of the diff would be two products.
 //

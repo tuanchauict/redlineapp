@@ -1,6 +1,6 @@
 // The Tauri side of the platform contract: what the desktop app runs on.
 //
-// The counterpart of src/platform-node.js, and just as thin. The difference is
+// The counterpart of src/hosts/node/platform.js, and just as thin. The difference is
 // where the disk is: there is no node here, so every call is a message to the
 // Rust side (shell/src/host.rs), and that is the whole reason the contract is
 // asynchronous. The interesting behaviour -- what the store does, what counts

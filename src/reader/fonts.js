@@ -5,7 +5,7 @@
 // you already thought of — which is how you end up offering a fixed catalogue
 // that has Iowan Old Style, which this machine does not have, and not Bookerly,
 // which it does. So the question goes to the OS, through the same platform
-// (src/platform.js) as everything else, and both shells get the one answer:
+// (src/reader/platform.js) as everything else, and both shells get the one answer:
 // the server route for a browser tab, the reader directly for the desktop app.
 
 /**
