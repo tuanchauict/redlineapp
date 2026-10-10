@@ -40,6 +40,9 @@ export const SESSION_METHODS = Object.freeze([
 export const encodeError = (err) => ({
   name: String(err?.name ?? 'Error'),
   message: String(err?.message ?? err),
+  // Which root a host's error is about, when it says (the web's `NeedsPermission`). The only
+  // field that goes beyond name and message, and absent -- not undefined -- when there is none.
+  ...(typeof err?.rootId === 'string' && { rootId: err.rootId }),
 });
 
 /**
@@ -54,9 +57,10 @@ export class Closed extends Error {
 }
 
 /** Turn a travelled error back into one, with the same `name` it was thrown with. */
-export function decodeError({ name, message } = {}) {
+export function decodeError({ name, message, rootId } = {}) {
   if (name === 'Closed') return new Closed(message);
   const err = new Error(message);
   err.name = name || 'Error';
+  if (rootId !== undefined) err.rootId = rootId;
   return err;
 }

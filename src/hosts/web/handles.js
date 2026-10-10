@@ -34,10 +34,16 @@ export function parseWebPath(abs) {
  * from a click, in a window, so not from here. The page turns this into the Reopen button.
  */
 export class NeedsPermission extends Error {
-  constructor(name) {
+  /**
+   * @param {string} name  The folder's name, for a button that says what it asks about.
+   * @param {string} [rootId]  Which root it is. Carried across the wire (`encodeError`), because
+   *   the page cannot always work it out: a link into another folder is not the document it shows.
+   */
+  constructor(name, rootId) {
     super(`Redline needs your permission to read ${name} again`);
     this.name = 'NeedsPermission';
     this.root = name;
+    this.rootId = rootId;
   }
 }
 

@@ -3747,6 +3747,96 @@ const memoryKv = () => {
     console.log('✓ a permission taken back mid-session: not live, then a grant makes it live');
   }
 
+  // --- a reader that cannot be built ---------------------------------------------------------
+  {
+    const broken = createWebHost({
+      stores: newStores(),
+      pollMs: 30,
+      // Building the reader cannot fail over the web platform, so the failure is put there.
+      makeReader: async () => {
+        throw new Error('the reader could not be built');
+      },
+    });
+    hosts.push(broken);
+    const page = await openPage(broken, 'bbbbbbbbbbbb');
+    await assert.rejects(page.backend.doc(), /could not be built/, 'a call says why it failed');
+    page.watch();
+    await until(() => page.live.length >= 2, 'the watch to say it is not live');
+    assert.deepStrictEqual(
+      page.live.map((l) => l.on),
+      [true, false],
+      'a watch on a worker with no reader is subscribed, and then says it is not live',
+    );
+    assert.match(page.live.at(-1).why, /could not be built/, 'and why');
+    await settle(60);
+    assert.deepStrictEqual(unhandled, [], 'and no watch was left as a rejection nobody handled');
+    console.log('✓ a worker with no reader tells every watch, and leaves no rejection');
+  }
+
+  // --- a folder denied under a page that is showing it ---------------------------------------
+  {
+    notes.state = 'granted';
+    const host5 = startHost();
+    const reader5 = await host5.reader;
+    const page = await openPage(host5, a.id);
+    assert.strictEqual((await page.backend.doc()).id, a.id, 'a document from a granted folder');
+
+    notes.state = 'prompt';
+    await rejection(page.backend.doc(), 'NeedsPermission');
+    assert.ok(reader5.pathOf(a.id), 'a folder that can be asked for again keeps the document held');
+
+    notes.state = 'denied';
+    await rejection(page.backend.doc(), 'NoDocument');
+    assert.strictEqual(
+      reader5.pathOf(a.id),
+      null,
+      'one that was denied lets go of it, so nothing polls a file the page no longer shows',
+    );
+    await rejection(page.backend.doc(), 'NoDocument');
+    notes.state = 'granted';
+    console.log('✓ a denied folder lets go of its document; one to ask again does not');
+  }
+
+  // --- a link into a folder whose grant has lapsed -----------------------------------------
+  {
+    const archive = folder('archive', { 'x.md': '# X\n\nEx.\n' });
+    archive.state = 'prompt';
+    const host6 = startHost();
+    const reader6 = await host6.reader;
+    const page = await openPage(host6);
+    const arch = await page.backend.addRoot(archive);
+    const here = await page.backend.open(`web:${root.rootId}/a.md`);
+    page.id = here.id;
+
+    const notesAsked = notes.asked; // what earlier tests asked, which is not this test's
+    notes.state = 'prompt';
+    await rejection(page.backend.open(`web:${root.rootId}/b.md`), 'NeedsPermission');
+    assert.deepStrictEqual(page.asked, [{ name: 'notes' }], 'a lapsed folder is asked for by name');
+    assert.ok(reader6.pathOf(here.id), 'and the page is left on the document it had');
+    assert.strictEqual(notes.asked, notesAsked, 'with nobody asked yet');
+
+    // The link is into another folder than the one on screen, and the button has to say which.
+    page.asked.length = 0;
+    await rejection(page.backend.open(`web:${arch.rootId}/x.md`), 'NeedsPermission');
+    assert.deepStrictEqual(page.asked, [{ name: 'archive' }], 'the folder the link was into');
+    assert.strictEqual(await page.backend.reopen(), true, 'and asking is for that one');
+    assert.deepStrictEqual(
+      [archive.asked, notes.asked - notesAsked],
+      [1, 0],
+      'not the one on screen',
+    );
+    const x = await page.backend.open(`web:${arch.rootId}/x.md`);
+    assert.strictEqual(reader6.pathOf(x.id), `web:${arch.rootId}/x.md`, 'which then opens');
+
+    // Not a permission: a file that is not there is still only an error.
+    await assert.rejects(page.backend.open(`web:${arch.rootId}/nope.md`), (err) => {
+      return err.name !== 'NeedsPermission';
+    });
+    notes.state = 'granted';
+    assert.deepStrictEqual(unhandled, [], 'nothing was left unhandled');
+    console.log('✓ a link into a folder that must be asked for again says which folder to ask');
+  }
+
   // --- a file with no handle ---------------------------------------------------------------
   {
     const host4 = startHost();
@@ -3817,11 +3907,19 @@ const memoryKv = () => {
     /\.requestPermission\(/.test(backendSrc) && !/\.requestPermission\(/.test(workerSrc),
     'only the page asks the user for a permission: it needs a window and a click',
   );
-  assert.ok(
-    !/Date\.now|setInterval/.test(backendSrc.replace(/\/\/.*$/gm, '')) ||
-      /setInterval\(\(\) => port\.postMessage\(\{ t: 'ping' \}\), pingMs\)/.test(backendSrc),
-    'the page pings, and nothing else on a timer',
-  );
+  {
+    const code = backendSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    assert.deepStrictEqual(
+      code.match(/\b(?:setInterval|setTimeout|Date\.now)\b/g),
+      ['setInterval'],
+      'the page has one timer in it, and no clock of its own',
+    );
+    assert.match(
+      code,
+      /setInterval\(\(\) => port\.postMessage\(\{ t: 'ping' \}\), pingMs\)/,
+      'and it is the ping',
+    );
+  }
   for (const bundle of ['backend-web.js', 'reader-worker.js']) {
     const file = new URL(`./public/vendor/${bundle}`, import.meta.url);
     assert.ok(fs.existsSync(file), `build:web writes ${bundle}`);

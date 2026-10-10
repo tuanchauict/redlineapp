@@ -144,7 +144,9 @@ quietly decide something on its own.
 document on a page's behalf and has to let go of it (the web worker retains on `hello`). A
 host's own calls go in `extra`, tried before the session, and reach the page through the
 client's `call`, which the page never uses itself: a host's wrapper does. A `live` message
-may carry `needs`, the host's hint at what would fix it — `'permission'`, today.
+may carry `needs`, the host's hint at what would fix it — `'permission'`, today. An error
+travels as `{ name, message }` and, when a host's error is about one root, its `rootId`: the
+only thing beyond those two that `encodeError` and `decodeError` keep.
 
 The reader says when it cannot read a file it could. Node and Tauri answer an unreadable file
 with `null`, but a browser handle whose permission was taken back *throws*, so the poll
@@ -413,13 +415,20 @@ reader a tab over the one IndexedDB store.
 - **A reload is `?id=`.** The worker remembers `docId → { rootId, rel }` in the `opened` store,
   so a fresh worker can find the file again. The folder's permission decides what happens:
   `granted` opens it, `prompt` is `NeedsPermission`, and `denied` or a root the registry does
-  not have is `NoDocument` — the page's cue for the welcome and a clean address.
+  not have is `NoDocument` — the page's cue for the welcome and a clean address. `doc` asks
+  again on every call, so a folder denied under a page that is showing it is `NoDocument` too,
+  and lets go of the document, which the reader would otherwise go on polling; a `prompt` keeps
+  what it holds, because a grant brings it back.
 - **Permission is asked only by a page, from a click.** The worker can *query* a handle and
   never ask. On `NeedsPermission` — from a load, or from a watch whose poll was refused
   (`live` with `needs: 'permission'`) — the page finds the root's name in the stores and tells
   whoever called `onNeedsPermission(fn)`; its button calls `reopen()`, which
   `requestPermission`s on the handle it already holds and then tells the worker (`grant`), which
   checks for itself before it believes it. The button is the welcome page's work.
+  `NeedsPermission` carries the `rootId` it is about, because a link into another folder
+  (`open` on a lapsed root, whose first read is refused) is not the document on screen, and the
+  button must ask for the folder the link was into. The page then stays on what it was
+  showing, and opening the link again after the grant is the page's to do.
 - **Handles go to the worker as they are** (`addRoot`, over `postMessage`), and only the worker
   writes the `roots` store, so two tabs picking one folder at once are one root
   (`isSameEntry`). The page reads the stores, to hold the handle it will ask about.

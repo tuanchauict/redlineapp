@@ -48,6 +48,9 @@ const safeName = (n) => typeof n === 'string' && n !== '.' && n !== '..' && /^[^
  * @param {number} [opts.silentMs]
  * @param {number} [opts.sweepMs]
  * @param {() => number} [opts.now]
+ * @param {typeof createReader} [opts.makeReader]  For a test. Building the reader touches no
+ *   storage and so cannot fail on this platform; a test that wants to see what a failed build
+ *   does to every call has to put the failure there.
  */
 export function createWebHost({
   stores,
@@ -55,6 +58,7 @@ export function createWebHost({
   silentMs = SILENT_MS,
   sweepMs = SWEEP_MS,
   now = Date.now,
+  makeReader = createReader,
 } = {}) {
   const kv = stores ?? {
     files: createIdbKv('files'),
@@ -69,7 +73,7 @@ export function createWebHost({
   // (`readerP`) and code that has already waited reads it from here.
   let reader = null;
   let session = null;
-  const readerP = createReader({ platform, label: handles.label, pollMs }).then((r) => {
+  const readerP = makeReader({ platform, label: handles.label, pollMs }).then((r) => {
     session = createSession((reader = r));
     return r;
   });
@@ -157,7 +161,8 @@ export function createWebHost({
       throw new Closed();
     }
     if (conn.pending) {
-      throw new NeedsPermission(handles.nameOf(conn.pending.rootId) ?? 'this folder');
+      const { rootId } = conn.pending;
+      throw new NeedsPermission(handles.nameOf(rootId) ?? 'this folder', rootId);
     }
     if (conn.failure) throw conn.failure;
     throw new NoDocument();
@@ -188,15 +193,24 @@ export function createWebHost({
         // otherwise be shown the old text and told nothing.
         if (was) {
           const state = await handles.permission(was.rootId);
-          if (state === 'prompt') throw new NeedsPermission(handles.nameOf(was.rootId));
-          if (state !== 'granted') throw new NoDocument();
+          if (state === 'prompt') {
+            throw new NeedsPermission(handles.nameOf(was.rootId), was.rootId);
+          }
+          if (state !== 'granted') {
+            // Denied, or the handle is gone: there is nothing to show and nothing to wait for,
+            // so the document is let go of. Holding it would have the reader poll a file the
+            // page no longer shows until the tab opens another. A `prompt` is the other case --
+            // a grant brings it back live -- and keeps what it holds.
+            release(conn);
+            throw new NoDocument();
+          }
         }
         try {
           return await session.doc(held, baseline);
         } catch (err) {
           // `queryPermission` and the read can disagree for a moment; the read is right.
           if (was && err?.name === 'NotAllowedError') {
-            throw new NeedsPermission(handles.nameOf(was.rootId));
+            throw new NeedsPermission(handles.nameOf(was.rootId), was.rootId);
           }
           throw err;
         }
@@ -223,7 +237,20 @@ export function createWebHost({
           throw new BadRequest('Redline reads only files it was given');
         }
         await conn.ready;
-        const next = await reader.retain(path); // throws before anything is released
+        let next;
+        try {
+          next = await reader.retain(path); // throws before anything is released
+        } catch (err) {
+          // A link into a folder whose grant has lapsed reads for the first time here, and is
+          // refused by the browser. That is the same thing a reload is told, so the page can say
+          // so the same way -- and name *this* folder, which is not always the one it shows.
+          const link =
+            err?.name === 'NotAllowedError' ? parseWebPath(platform.resolve(path)) : null;
+          if (link) {
+            throw new NeedsPermission(handles.nameOf(link.rootId) ?? 'this folder', link.rootId);
+          }
+          throw err;
+        }
         const abs = reader.pathOf(next);
         const was = parseWebPath(abs);
         try {
@@ -280,15 +307,20 @@ export function createWebHost({
         } else {
           // A hello is still being dealt with, and `watch` cannot wait for it, so it is
           // subscribed once it is done, and a failure then is a watch that is not live.
-          Promise.all([readerP, conn.ready]).then(() =>
-            setTimeout(() => {
-              if (stopped) return;
-              try {
-                off = subscribe();
-              } catch (err) {
-                notLive(err);
-              }
-            }, 0),
+          Promise.all([readerP, conn.ready]).then(
+            () =>
+              setTimeout(() => {
+                if (stopped) return;
+                try {
+                  off = subscribe();
+                } catch (err) {
+                  notLive(err);
+                }
+              }, 0),
+            // The reader could not be built. `settled` is then never true, so every watch comes
+            // here, and each would be a rejection nobody handles and a page that is never told.
+            // After the `ret`, like every other way of not being live.
+            (err) => setTimeout(() => notLive(err), 0),
           );
         }
         return () => {
