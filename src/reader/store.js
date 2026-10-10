@@ -227,6 +227,20 @@ export class DocStore {
     return this.platform.readText(this.objectPath(hash));
   }
 
+  /**
+   * Write an object that is missing, and write again one that is old. Being on disk is not
+   * enough to survive the index write that is about to name it: a version that comes back
+   * after it was forgotten finds its object still there, unreferenced and as old as the day it
+   * was written, and a sweep in another process would take it in between, leaving an index
+   * that names nothing. Writing it makes it young again. Half the grace period is the margin,
+   * so the two processes' clocks need not agree to the second.
+   */
+  async #writeObject(hash, text) {
+    const dest = this.objectPath(hash);
+    const at = await this.platform.modified(dest);
+    if (at == null || Date.now() - at > GC_GRACE_MS / 2) await this.platform.writeText(dest, text);
+  }
+
   get latest() {
     return this.data.history.at(-1) || null;
   }
@@ -254,9 +268,8 @@ export class DocStore {
     // The object before the index that names it, never the other way round: an index that names
     // an object nobody wrote is a version that cannot be read, where an object no index names
     // yet is only litter, and gc leaves it alone while it is young. Writes replace a file whole,
-    // so an object that exists is a whole one, and this need not look at it again.
-    const dest = this.objectPath(hash);
-    if (!(await this.platform.exists(dest))) await this.platform.writeText(dest, text);
+    // so an object that exists is a whole one, and this need not read it back.
+    await this.#writeObject(hash, text);
 
     let added = false;
     await this.#update((d) => {
@@ -412,8 +425,7 @@ export class DocStore {
     const entries = [];
     for (const v of versions) {
       const hash = hashContent(v.text);
-      const dest = this.objectPath(hash);
-      if (!(await this.platform.exists(dest))) await this.platform.writeText(dest, v.text);
+      await this.#writeObject(hash, v.text);
       entries.push({ hash, ts: v.ts, size: byteLength(v.text), git: v.git });
     }
 

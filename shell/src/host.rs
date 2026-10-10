@@ -353,8 +353,9 @@ pub struct Handoff {
     pub files: Vec<String>,
     pub active: Option<String>,
     /// Whether this window is the one that should sweep the store on the way
-    /// up. Exactly one window a launch gets it: two sweeps at once could take
-    /// away a snapshot another window had written but not yet recorded.
+    /// up. Exactly one window a launch gets it, because one sweep finds all
+    /// there is to find. It is not what keeps a sweep safe: gc's grace period
+    /// is, and that holds against other programs too.
     pub gc: bool,
 }
 
