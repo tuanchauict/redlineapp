@@ -44,7 +44,7 @@ export function createRpcBackend({ docId, post, onMessage, onDisconnect, host })
       case 'ev':
         return watcher?.onEvent(msg.e);
       case 'live':
-        return watcher?.onLive(msg.on, msg.why);
+        return watcher?.onLive(msg.on, msg.why, msg.needs);
       case 'command':
         for (const fn of commands) fn(msg.name);
     }
@@ -95,6 +95,13 @@ export function createRpcBackend({ docId, post, onMessage, onDisconnect, host })
       commands.add(fn);
       return () => commands.delete(fn);
     },
+
+    /**
+     * A call the host answers itself -- `serveRpc`'s `extra`. The surface above is the reader's;
+     * what a host adds to it (taking a folder, say) is reached through here by its wrapper, and
+     * never by the page, which is written against the surface alone.
+     */
+    call,
 
     /** Tell the reader this page is going away. */
     bye: () => post({ t: 'bye' }),

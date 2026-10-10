@@ -143,7 +143,26 @@ export async function createReader({
       d.timer = setTimeout(async () => {
         d.timer = null;
         if (docs.get(d.id) !== d) return; // released mid-flight
-        const content = await platform.readText(d.abs);
+        let content;
+        try {
+          content = await platform.readText(d.abs);
+        } catch (err) {
+          // Node and Tauri answer a file they cannot read with null, so this is the web's: a
+          // handle whose permission was taken back throws `NotAllowedError`, and left alone that
+          // is a rejection nobody handles in a timer callback and a page that goes on showing a
+          // file it can no longer follow. Said once, on the way into the failure; the poll goes
+          // on, so the way out is noticed too.
+          if (docs.get(d.id) === d && !d.unreadable) {
+            d.unreadable = true;
+            const name = err?.name ?? 'Error';
+            emit(d.id, { type: 'unreadable', name, why: err?.message ?? '' });
+          }
+          return;
+        }
+        if (d.unreadable) {
+          d.unreadable = false;
+          if (docs.get(d.id) === d) emit(d.id, { type: 'readable' });
+        }
         if (content == null) {
           // Mid atomic save (write temp + rename) the path briefly disappears.
           if (retry > 0) check(retry - 1);

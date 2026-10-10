@@ -23,8 +23,8 @@ a change that is not in the window, which looks exactly like the change not work
 
 | | |
 | --- | --- |
-| `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js` and `public/vendor/backend-tauri.js` — the renderer, DOMPurify and the reader, for a page that has no node to import them from |
-| `npm run build:dist` | Stages `shell/dist`: `public/`, the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end |
+| `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from |
+| `npm run build:dist` | Stages `shell/dist`: `public/`, the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
 
 `npm run app`, `npm run dev`, `npm run bundle` and `npm test` each run the ones they
 need, so the only time to reach for them by hand is after editing `src/` with a

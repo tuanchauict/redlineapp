@@ -12,7 +12,7 @@
 //
 //   index.html, app.js, backend.js, styles.css,  public/
 //   host.js
-//   vendor/render.js, vendor/backend-tauri.js    built by build-web.mjs
+//   vendor/render.js, vendor/backend-tauri.js    built by build-web.mjs (not the web app's)
 //   vendor/github-markdown.css, vendor/hljs-*    node_modules
 //   vendor/mermaid/                              node_modules (the whole tree)
 //   icon.svg                                     assets/
@@ -55,7 +55,14 @@ const MERMAID_CHUNKS = path.join(path.dirname(MERMAID_ENTRY), 'chunks', 'mermaid
 fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST, { recursive: true });
 
-fs.cpSync(path.join(ROOT, 'public'), DIST, { recursive: true });
+// Not the web app's bundles. `build:web` writes every host's into public/vendor/, and the desktop
+// app embeds the page it is given, and these two are code it never loads.
+// (`stagePage` in 012 makes this a rule for every host; until then it is this one line.)
+const OTHER_HOSTS = new Set(['backend-web.js', 'reader-worker.js']);
+fs.cpSync(path.join(ROOT, 'public'), DIST, {
+  recursive: true,
+  filter: (src) => !OTHER_HOSTS.has(path.basename(src)),
+});
 for (const [to, from] of Object.entries(FILES)) {
   fs.mkdirSync(path.join(DIST, path.dirname(to)), { recursive: true });
   fs.copyFileSync(from, path.join(DIST, to));

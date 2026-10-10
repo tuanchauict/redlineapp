@@ -2767,6 +2767,42 @@ sixth.server.close();
   console.log('✓ a reader notices another process marking a version read');
 }
 
+// IndexedDB as a Map, for 12c and 12d. `tx` stages what `fn` does and keeps it only if `fn`
+// finishes, one transaction at a time: the two things a readwrite transaction gives. What a Map
+// cannot do is end a transaction early, which is the thing `idb.js` has to be built not to need.
+const memoryKv = () => {
+  const data = new Map();
+  const seen = { puts: 0 };
+  const over = (m) => ({
+    get: async (k) => structuredClone(m.get(k)),
+    put: async (k, v) => void (seen.puts++, m.set(k, structuredClone(v))),
+    del: async (k) => void m.delete(k),
+    keys: async (prefix) => [...m.keys()].filter((k) => k.startsWith(prefix)).sort(),
+  });
+  let queue = Promise.resolve();
+  const tx = (fn) => {
+    const run = queue.then(async () => {
+      const staged = new Map(data);
+      const out = await fn(over(staged));
+      data.clear();
+      for (const [k, v] of staged) data.set(k, v);
+      return out;
+    });
+    queue = run.catch(() => {});
+    return run;
+  };
+  const now = over(data);
+  return {
+    data,
+    seen,
+    get: now.get,
+    keys: now.keys,
+    put: (k, v) => tx((t) => t.put(k, v)),
+    del: (k) => tx((t) => t.del(k)),
+    tx,
+  };
+};
+
 // --- 12c. the store over a key-value store, and the web platform -------------------------
 // What the web app runs on, with a Map where IndexedDB will be. `idb.js` is the one file here
 // that is only imported and never run: node has no IndexedDB and this repository has no browser,
@@ -2780,41 +2816,6 @@ sixth.server.close();
   const pp = makePaths('/');
   const ROOT = '/redline';
 
-  // IndexedDB as a Map. `tx` stages what `fn` does and keeps it only if `fn` finishes, one
-  // transaction at a time: the two things a readwrite transaction gives. What a Map cannot do is
-  // end a transaction early, which is the thing `idb.js` has to be built not to need.
-  const memoryKv = () => {
-    const data = new Map();
-    const seen = { puts: 0 };
-    const over = (m) => ({
-      get: async (k) => structuredClone(m.get(k)),
-      put: async (k, v) => void (seen.puts++, m.set(k, structuredClone(v))),
-      del: async (k) => void m.delete(k),
-      keys: async (prefix) => [...m.keys()].filter((k) => k.startsWith(prefix)).sort(),
-    });
-    let queue = Promise.resolve();
-    const tx = (fn) => {
-      const run = queue.then(async () => {
-        const staged = new Map(data);
-        const out = await fn(over(staged));
-        data.clear();
-        for (const [k, v] of staged) data.set(k, v);
-        return out;
-      });
-      queue = run.catch(() => {});
-      return run;
-    };
-    const now = over(data);
-    return {
-      data,
-      seen,
-      get: now.get,
-      keys: now.keys,
-      put: (k, v) => tx((t) => t.put(k, v)),
-      del: (k) => tx((t) => t.del(k)),
-      tx,
-    };
-  };
   const realNow = Date.now;
 
   // --- #9: the file operations, then DocStore on them ----------------------------------
@@ -3267,6 +3268,571 @@ sixth.server.close();
   console.log(
     '✓ the web platform reads handles and drops, writes only the store, and runs a reader',
   );
+}
+
+// --- 12d. the web app's reader: a worker per origin, and a permission the user can take back ---
+// The pieces of W2 end to end, over in-process ports, with folders that are fakes of what the File
+// System Access API hands out and a Map where IndexedDB will be. What no test here can say is
+// whether a browser behaves as the fakes do: whether a `SharedWorker` can call `getFile()` and
+// `queryPermission()`, and what a handle throws once the grant is revoked, are the two checks
+// docs/web-and-vscode/017 leaves to a person with a browser (#5 and #27).
+// (docs/web-and-vscode/010 §6 to §8)
+{
+  const { createWebHost } = await import('./src/hosts/web/worker.js');
+  const { createWebBackend } = await import('./src/hosts/web/backend.js');
+  const { createHandles, parseWebPath, webPath } = await import('./src/hosts/web/handles.js');
+  const { createWebPlatform } = await import('./src/hosts/web/platform.js');
+  const { createReader } = await import('./src/reader/reader.js');
+
+  const refusal = (name) => Object.assign(new Error(name), { name });
+  const settle = (ms = 40) => new Promise((r) => setTimeout(r, ms));
+
+  // A promise that rejects and is not handled would only be a warning in a browser's console and
+  // a crash here, and either way it is the failure #35 is about: so every one is written down.
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+
+  // IndexedDB keeps a handle by cloning it, which a fake cannot be cloned to do, so the two
+  // stores that hold handles do not clone. The third is the real shape of one.
+  const plainKv = () => {
+    const m = new Map();
+    return {
+      m,
+      get: async (k) => m.get(k),
+      put: async (k, v) => void m.set(k, v),
+      del: async (k) => void m.delete(k),
+      keys: async (prefix) => [...m.keys()].filter((k) => k.startsWith(prefix)).sort(),
+    };
+  };
+  const newStores = () => ({ files: memoryKv(), roots: plainKv(), opened: plainKv() });
+
+  /** A folder as the File System Access API shapes one, with a permission a test can move. */
+  const folder = (name, files) => {
+    const h = {
+      kind: 'directory',
+      name,
+      state: 'granted',
+      allow: true, // what the user says when asked
+      asked: 0,
+      reads: 0,
+      mtime: 1000,
+      files: { ...files },
+      queryPermission: async () => h.state,
+      requestPermission: async () => {
+        h.asked++;
+        if (h.allow) h.state = 'granted';
+        return h.state;
+      },
+      isSameEntry: async (other) => other === h,
+      getDirectoryHandle: async () => {
+        throw refusal('NotFoundError');
+      },
+      getFileHandle: async (n) => {
+        if (!Object.hasOwn(h.files, n)) throw refusal('NotFoundError');
+        return {
+          kind: 'file',
+          name: n,
+          getFile: async () => {
+            // What a handle does once the grant has gone, and the whole of what #35 turns on.
+            if (h.state !== 'granted') throw refusal('NotAllowedError');
+            h.reads++;
+            return { text: async () => h.files[n], lastModified: h.mtime };
+          },
+        };
+      },
+    };
+    return h;
+  };
+  const edit = (h, n, text) => {
+    h.files[n] = text;
+    h.mtime += 1000;
+  };
+
+  // A pair of ports that deliver what is posted, a turn later and in order, like a MessageChannel.
+  // Everything is cloned on the way, as it would be, except the handle and the file a page hands
+  // over: those are cloned by the browser, and a fake is not something a clone can be made of.
+  const ports = () => {
+    const end = () => ({ onmessage: null, peer: null, closed: false });
+    const [a, b] = [end(), end()];
+    a.peer = b;
+    b.peer = a;
+    for (const me of [a, b]) {
+      me.postMessage = (data) => {
+        const raw = data?.t === 'call' && /^add(Root|Drop)$/.test(data.m);
+        const sent = raw ? data : structuredClone(data);
+        setImmediate(() => !me.peer.closed && me.peer.onmessage?.({ data: sent }));
+      };
+      me.close = () => {
+        me.closed = me.peer.closed = true;
+      };
+    }
+    return [a, b];
+  };
+
+  // --- serveRpc: `bye` ----------------------------------------------------------------
+  {
+    const log = [];
+    let hear;
+    const stop = serveRpc({
+      session: { watch: () => () => log.push('unwatch') },
+      post: () => {},
+      onMessage: (handler) => {
+        hear = handler;
+      },
+      onHello: (doc) => log.push(`hello ${doc}`),
+      onBye: () => log.push('bye'),
+    });
+    hear({ t: 'hello', doc: 'abc' });
+    hear({ t: 'call', id: 1, m: 'watch', a: ['abc'] });
+    await settle(5);
+    hear({ t: 'ping' });
+    hear({ t: 'bye' });
+    assert.deepStrictEqual(
+      log,
+      ['hello abc', 'unwatch', 'bye'],
+      'bye stops the watch and then tells the host; a ping is neither',
+    );
+    stop();
+    assert.deepStrictEqual(log.slice(3), [], 'closing the connection is not a bye');
+    // Without it, as every host before this one is served.
+    const quiet = serveRpc({ session: {}, post: () => {}, onMessage: (h) => h({ t: 'bye' }) });
+    quiet();
+    console.log('✓ serveRpc tells the host when a page says bye, after its watch has stopped');
+  }
+
+  // --- the reader's poll: a file it may no longer read -------------------------------------
+  {
+    const dir = folder('notes', { 'a.md': '# A\n\nOne.\n' });
+    const platform = createWebPlatform({
+      kv: memoryKv(),
+      root: async (id) => (id === 'r1' ? dir : null),
+      drops: new Map(),
+    });
+    const reader = await createReader({ platform, pollMs: 30 });
+    const id = await reader.retain('web:r1/a.md');
+    const heard = [];
+    reader.subscribe(id, (e) => heard.push(e));
+    await settle(120);
+    assert.deepStrictEqual(heard, [], 'a file that can be read says nothing');
+
+    dir.state = 'prompt'; // the grant goes
+    await until(() => heard.length, 'the poll to say it cannot read');
+    await settle(150); // several more polls, which have nothing new to say
+    assert.deepStrictEqual(
+      heard.map((e) => [e.type, e.name]),
+      [['unreadable', 'NotAllowedError']],
+      'a poll refused by the browser says so, once, with the reason',
+    );
+
+    dir.state = 'granted';
+    await until(() => heard.length === 2, 'the poll to read again');
+    assert.strictEqual(heard[1].type, 'readable', 'and says when it can read again');
+    edit(dir, 'a.md', '# A\n\nTwo.\n');
+    await until(() => heard.some((e) => e.type === 'change'), 'the edit after the grant');
+    assert.deepStrictEqual(unhandled, [], 'and none of it was a rejection nobody handled');
+    reader.closeAll();
+    console.log('✓ a poll that cannot read the file says so once, and says when it can again');
+  }
+
+  // --- handles.js ----------------------------------------------------------------------
+  {
+    const stores = newStores();
+    let n = 0;
+    const handles = createHandles({
+      roots: stores.roots,
+      opened: stores.opened,
+      randomId: () => `root-${++n}`,
+    });
+    const docs = folder('docs', { 'a.md': '# A\n' });
+    const other = folder('other', {});
+
+    const [first, again] = await Promise.all([handles.addRoot(docs), handles.addRoot(docs)]);
+    assert.deepStrictEqual(
+      [first, again],
+      [
+        { rootId: 'root-1', name: 'docs', kind: 'directory' },
+        { rootId: 'root-1', name: 'docs', kind: 'directory' },
+      ],
+      'the same folder granted twice, even at once, is one root',
+    );
+    assert.strictEqual((await handles.addRoot(other)).rootId, 'root-2', 'another is another');
+    assert.strictEqual(stores.roots.m.size, 2, 'and two are stored');
+
+    assert.strictEqual(await handles.permission('root-1'), 'granted', 'a root says what it may');
+    docs.state = 'prompt';
+    assert.strictEqual(await handles.permission('root-1'), 'prompt', 'and says when that changes');
+    assert.strictEqual(await handles.permission('nope'), 'gone', 'a root it never had is gone');
+    docs.queryPermission = async () => {
+      throw refusal('InvalidStateError');
+    };
+    assert.strictEqual(
+      await handles.permission('root-1'),
+      'gone',
+      'so is one that cannot be asked',
+    );
+
+    await handles.rememberOpened('abc123', 'root-1', 'sub/a.md');
+    assert.deepStrictEqual(
+      await handles.openedAs('abc123'),
+      { rootId: 'root-1', rel: 'sub/a.md' },
+      'what a doc id was is remembered',
+    );
+    assert.strictEqual(await handles.openedAs('zzz'), null, 'and one that was never opened is not');
+
+    assert.deepStrictEqual(parseWebPath(webPath('r', 'a/b.md')), { rootId: 'r', rel: 'a/b.md' });
+    assert.strictEqual(parseWebPath('drop:x.md'), null, 'only a web: path has a root');
+    assert.strictEqual(parseWebPath('/etc/passwd'), null, 'and no other kind has');
+
+    assert.deepStrictEqual(
+      handles.label('web:root-1/sub/a.md'),
+      { pathLabel: 'docs/sub/a.md', dirLabel: 'docs/sub' },
+      'a file in a folder is labelled as part of it',
+    );
+    assert.deepStrictEqual(
+      handles.label('web:root-1/a.md'),
+      { pathLabel: 'docs/a.md', dirLabel: 'docs' },
+      'and one at its top by the folder alone',
+    );
+    assert.deepStrictEqual(
+      handles.label('drop:d.md'),
+      { pathLabel: 'drop: d.md', dirLabel: 'drop:' },
+      'a drop says what it is',
+    );
+    console.log('✓ the handle registry: one root per folder, what may be read, what an id was');
+  }
+
+  // --- the worker, and the pages of a browser ----------------------------------------------
+  const clock = { t: 0 };
+  const stores = newStores();
+  const notes = folder('notes', {
+    'a.md': '# A\n\nOne.\n',
+    'b.md': '# B\n\nBee.\n',
+  });
+  const hosts = [];
+  const startHost = () => {
+    const host = createWebHost({
+      stores,
+      pollMs: 30,
+      silentMs: 1000,
+      sweepMs: 10,
+      now: () => clock.t,
+    });
+    hosts.push(host);
+    return host;
+  };
+  const pages = [];
+  /** A tab: a backend on its own port into `host`, which shows whatever `shows` is. */
+  const openPage = async (host, shows = null) => {
+    const [mine, theirs] = ports();
+    host.connect(theirs);
+    const page = { id: shows, win: new EventTarget(), port: mine, live: [], events: [], asked: [] };
+    page.backend = await createWebBackend({
+      docId: () => page.id,
+      connect: async () => ({ port: mine, onError() {} }),
+      stores: { roots: stores.roots, opened: stores.opened },
+      win: page.win,
+      pingMs: 60_000,
+    });
+    page.backend.onNeedsPermission((who) => page.asked.push(who));
+    page.watch = () =>
+      page.backend.watch({
+        onLive: (on, why) => page.live.push({ on, why }),
+        onEvent: (e) => page.events.push(e),
+      });
+    page.fire = (type, init = {}) => page.win.dispatchEvent(Object.assign(new Event(type), init));
+    pages.push(page);
+    return page;
+  };
+  const rejection = (p, name) =>
+    assert.rejects(p, (err) => err.name === name, `rejects with ${name}`);
+
+  const host1 = startHost();
+  const reader1 = await host1.reader;
+  const tab1 = await openPage(host1);
+
+  // A page with nothing to show is told so, and not shown somebody else's file.
+  await rejection(tab1.backend.doc(), 'NoDocument');
+
+  const root = await tab1.backend.addRoot(notes);
+  assert.deepStrictEqual(
+    [root.name, root.kind, typeof root.rootId],
+    ['notes', 'directory', 'string'],
+    'a folder handed over comes back with the id it is known by',
+  );
+  assert.strictEqual(
+    (await tab1.backend.addRoot(notes)).rootId,
+    root.rootId,
+    'and handed over again, the same one',
+  );
+  await rejection(tab1.backend.addRoot({ name: 'x' }), 'BadRequest');
+
+  const a = await tab1.backend.open(`web:${root.rootId}/a.md`);
+  tab1.id = a.id;
+  assert.strictEqual(a.path, `web:${root.rootId}/a.md`, 'open answers the path it opened');
+  assert.deepStrictEqual(
+    await stores.opened.get(a.id),
+    { rootId: root.rootId, rel: 'a.md' },
+    'and remembers what the id means, for the reload',
+  );
+  const docA = await tab1.backend.doc();
+  assert.strictEqual(docA.id, a.id, 'the document is the one that was opened');
+  assert.match(docA.pathLabel, /^notes\/a\.md$/, 'and is labelled by its folder');
+  assert.strictEqual(docA.caps.git, false, 'and says what the web reader lacks');
+
+  // A second tab opens another file: the first is not taken along with it.
+  const tab2 = await openPage(host1);
+  const b = await tab2.backend.open(`web:${root.rootId}/b.md`);
+  tab2.id = b.id;
+  assert.notStrictEqual(b.id, a.id, 'another file is another document');
+  assert.strictEqual(
+    (await tab1.backend.doc()).id,
+    a.id,
+    'a tab keeps its document when another opens one',
+  );
+  assert.strictEqual((await tab2.backend.doc()).id, b.id, 'and each has its own');
+  tab1.id = b.id;
+  await rejection(tab1.backend.doc(), 'Closed');
+  tab1.id = null;
+  assert.strictEqual(
+    (await tab1.backend.doc()).id,
+    a.id,
+    'a call that names no document is answered with the tab\'s own, never the first open',
+  );
+  tab1.id = a.id;
+
+  // What a page may open: what it was given, and nothing else.
+  await rejection(tab1.backend.open('/redline/objects/x.md'), 'BadRequest');
+  await rejection(tab1.backend.open('/etc/hosts'), 'BadRequest');
+  await rejection(tab1.backend.open(''), 'BadRequest');
+  assert.ok(await tab1.backend.open(`web:${root.rootId}/nope.md`).then(() => false, () => true));
+  assert.strictEqual(
+    (await tab1.backend.doc()).id,
+    a.id,
+    'a file that will not open leaves the page on the one it had',
+  );
+
+  // --- hello and bye -----------------------------------------------------------------------
+  const tab3 = await openPage(host1, a.id); // a reload of a document the worker has open
+  assert.strictEqual(
+    (await tab3.backend.doc()).id,
+    a.id,
+    'a page that says hello joins the document',
+  );
+  tab3.fire('pagehide');
+  await settle(30);
+  assert.ok(reader1.pathOf(a.id), 'a bye lets go of what that page held, not what another does');
+  tab1.fire('pagehide');
+  await until(() => reader1.pathOf(a.id) === null, 'the last holder to let go');
+  assert.ok(reader1.pathOf(b.id), 'and a tab that is still there keeps its own');
+  tab1.fire('pageshow', { persisted: false });
+  await settle(30);
+  assert.strictEqual(
+    reader1.pathOf(a.id),
+    null,
+    'a page shown for the first time has said hello already',
+  );
+
+  tab1.watch();
+  await until(() => tab1.live.length, 'the watch to be subscribed');
+  tab1.fire('pageshow', { persisted: true });
+  await until(() => reader1.pathOf(a.id), 'a page back from the cache to be held again');
+  await until(() => tab1.events.some((e) => e.type === 'change'), 'it to be told to look again');
+  edit(notes, 'a.md', '# A\n\nTwo.\n');
+  const before = tab1.events.length;
+  await until(() => tab1.events.length > before, 'the watch to follow the file after a restore');
+  assert.match(
+    (await tab1.backend.doc()).text,
+    /Two\./,
+    'and the document is what is on disk now',
+  );
+
+  // --- silence ---------------------------------------------------------------------------
+  clock.t += 500;
+  tab1.port.postMessage({ t: 'ping' });
+  clock.t += 600; // 1100 ms since the start, 600 since the ping
+  await settle(60);
+  assert.ok(reader1.pathOf(a.id), 'a page that pinged lately is still held');
+  clock.t += 5000;
+  await until(() => reader1.pathOf(a.id) === null, 'a silent page to be let go of');
+  assert.strictEqual(reader1.pathOf(b.id), null, 'as is every other that has said nothing');
+  const seenBefore = tab1.events.length;
+  tab1.port.postMessage({ t: 'ping' }); // a tab whose timers were held back, back at last
+  await until(() => reader1.pathOf(a.id), 'the next thing it says to hold its document again');
+  await until(() => tab1.events.length > seenBefore, 'and to be told to look again');
+  assert.strictEqual((await tab1.backend.doc()).id, a.id, 'and it is answered as before');
+  tab2.port.postMessage({ t: 'ping' });
+  await until(() => reader1.pathOf(b.id), 'the other tab, the same way');
+  tab1.fire('pagehide');
+
+  // --- a reload: what the worker finds when the id is all it has ------------------------------
+  // The first worker is gone and a new one starts over the same stores. Only `opened` knows what
+  // the id was, and only the handle in `roots` can say whether it may be read.
+  for (const p of pages) p.backend.close();
+  host1.close();
+  const host2 = startHost();
+  const reader2 = await host2.reader;
+  const open = await openPage(host2, a.id);
+  const docAgain = await open.backend.doc();
+  assert.strictEqual(docAgain.id, a.id, 'a granted folder opens the document the id names');
+  assert.ok(docAgain.history?.length >= 1, 'with the history the store already had');
+  assert.ok(reader2.pathOf(a.id), 'and holds it');
+
+  const later = await openPage(host2, a.id); // a second tab on the same reload
+  assert.strictEqual((await later.backend.doc()).id, a.id, 'a second tab joins the open document');
+
+  notes.state = 'prompt';
+  const asking = await openPage(host2, b.id);
+  await rejection(asking.backend.doc(), 'NeedsPermission');
+  assert.deepStrictEqual(asking.asked, [{ name: 'notes' }], 'a folder to ask for again says which');
+  assert.strictEqual(notes.asked, 0, 'and nothing has asked the user yet');
+  asking.watch();
+  await until(() => asking.live.length >= 2, 'the watch to say what it waits for');
+  assert.deepStrictEqual(
+    asking.live.map((l) => l.on),
+    [true, false],
+    'a watch begun while the document waits is subscribed, and then says it is not live',
+  );
+  assert.match(asking.live.at(-1).why, /permission/i, 'and what it is waiting for');
+  notes.allow = false;
+  assert.strictEqual(await asking.backend.reopen(), false, 'a user who says no is not a grant');
+  await rejection(asking.backend.doc(), 'NeedsPermission');
+  notes.allow = true;
+  assert.strictEqual(await asking.backend.reopen(), true, 'one who says yes is');
+  assert.strictEqual(notes.asked, 2, 'the page asked, each time from its own click');
+  assert.strictEqual((await asking.backend.doc()).id, b.id, 'and the document is there after it');
+
+  // The same id on a worker that has nothing open: only `opened` and `roots` say what it is.
+  notes.state = 'denied';
+  const hostD = startHost();
+  await rejection((await openPage(hostD, a.id)).backend.doc(), 'NoDocument');
+  assert.strictEqual(notes.asked, 2, 'a folder that was denied is not asked again');
+  notes.state = 'granted';
+  const roots = new Map(stores.roots.m);
+  await stores.roots.del(root.rootId);
+  const hostG = startHost();
+  await rejection((await openPage(hostG, a.id)).backend.doc(), 'NoDocument');
+  await rejection((await openPage(hostG, 'eeeeeeeeeeee')).backend.doc(), 'NoDocument');
+  for (const [k, v] of roots) await stores.roots.put(k, v);
+  console.log('✓ a worker holds a tab\'s document from hello to bye or silence, and reloads it');
+
+  // --- #35: a permission taken back mid-session ---------------------------------------------
+  {
+    await stores.roots.put(root.rootId, { handle: notes, name: 'notes', kind: 'directory' });
+    notes.state = 'granted';
+    const host3 = startHost();
+    const watcher = await openPage(host3, a.id);
+    await watcher.backend.doc();
+    watcher.watch();
+    await until(() => watcher.live.some((l) => l.on), 'the watch to be live');
+    watcher.live.length = 0;
+    watcher.asked.length = 0;
+
+    notes.state = 'prompt'; // the grant goes; the next read throws NotAllowedError
+    await until(() => watcher.live.some((l) => !l.on), 'the watcher to hear it is not live');
+    assert.match(watcher.live[0].why, /permission/i, 'and why');
+    assert.deepStrictEqual(watcher.asked, [{ name: 'notes' }], 'and what to ask the user for');
+    await settle(120);
+    assert.strictEqual(watcher.live.length, 1, 'once, and not on every poll after it');
+    await rejection(watcher.backend.doc(), 'NeedsPermission');
+
+    const reads = notes.reads;
+    assert.strictEqual(await watcher.backend.reopen(), true, 'the user says yes');
+    await until(() => watcher.live.at(-1)?.on === true, 'the watcher to go live again');
+    edit(notes, 'a.md', '# A\n\nThree.\n');
+    const seen = watcher.events.length;
+    await until(() => watcher.events.length > seen, 'a change after the grant');
+    assert.ok(notes.reads > reads, 'it is reading the file again');
+    assert.deepStrictEqual(unhandled, [], 'nothing was left unhandled');
+    console.log('✓ a permission taken back mid-session: not live, then a grant makes it live');
+  }
+
+  // --- a file with no handle ---------------------------------------------------------------
+  {
+    const host4 = startHost();
+    const dropper = await openPage(host4);
+    let text = '# Dropped\n\nFirst.\n';
+    const file = { name: 'd.md', text: async () => text, lastModified: 1 };
+    const p = await dropper.backend.addDrop(file);
+    assert.strictEqual(p, 'drop:d.md', 'a drop is a path of its own');
+    const sneaky = { name: '../d.md', text: async () => '' };
+    await rejection(dropper.backend.addDrop(sneaky), 'BadRequest');
+    await rejection(dropper.backend.addDrop({ name: 'd.md' }), 'BadRequest');
+    const opened = await dropper.backend.open(p);
+    dropper.id = opened.id;
+    const dropped = await dropper.backend.doc();
+    assert.strictEqual(dropped.pathLabel, 'drop: d.md', 'and says it is one');
+    assert.strictEqual(await stores.opened.get(opened.id), undefined, 'it is not remembered');
+    dropper.watch();
+    await until(() => dropper.live.some((l) => l.on), 'the watch to be live');
+    // Dropped again, the file changed: the same name, so the same document, and a change to follow.
+    text = '# Dropped\n\nSecond.\n';
+    const again = { ...file, text: async () => text, lastModified: 2 };
+    const next = await dropper.backend.addDrop(again);
+    assert.strictEqual(next, p, 'the same name replaces what was dropped');
+    await until(() => dropper.events.some((e) => e.type === 'change'), 'the new file to be read');
+    console.log('✓ a dropped file opens as a document of its own, and a drop again replaces it');
+  }
+
+  for (const p of pages) p.backend.close();
+  for (const h of hosts) h.close();
+  process.off('unhandledRejection', onUnhandled);
+
+  // --- wired up ------------------------------------------------------------------------
+  const read = (f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+  const pageBackend = read('./public/backend.js');
+  assert.ok(
+    pageBackend.indexOf('__REDLINE_HOST') < pageBackend.indexOf('__REDLINE_WEB') &&
+      /__REDLINE_WEB\)[\s\S]*?import\('\.\/vendor\/backend-web\.js'\)/.test(pageBackend),
+    'createBackend picks the web backend, after the shell and before http',
+  );
+  const buildWeb = read('./scripts/build-web.mjs');
+  assert.match(buildWeb, /hosts\/web\/backend\.js.*backend-web\.js/, 'backend-web.js is built');
+  assert.match(buildWeb, /hosts\/web\/worker\.js.*reader-worker\.js/, 'reader-worker.js is built');
+  assert.match(
+    read('./scripts/build-dist.mjs'),
+    /OTHER_HOSTS[\s\S]*backend-web\.js[\s\S]*reader-worker\.js/,
+    'and neither is staged into the desktop app',
+  );
+  const workerSrc = read('./src/hosts/web/worker.js');
+  assert.match(
+    workerSrc,
+    /SharedWorkerGlobalScope[\s\S]*onconnect = \(e\) => host\.connect\(e\.ports\[0\]\)/,
+    'a SharedWorker connects each port to the host, and only a SharedWorker does',
+  );
+  const backendSrc = read('./src/hosts/web/backend.js');
+  assert.match(
+    backendSrc,
+    /new globalThis\.SharedWorker\(WORKER_URL, \{ type: 'module', name: 'redline' \}\)/,
+    'the page joins the one worker called redline',
+  );
+  assert.ok(
+    /inner\.bye\(\)/.test(backendSrc) &&
+      /addEventListener\?\.\('pagehide', onPageHide\)/.test(backendSrc) &&
+      /if \(!e\.persisted\) return;\s+port\.postMessage\(\{ t: 'hello'/.test(backendSrc) &&
+      /addEventListener\?\.\('pageshow', onPageShow\)/.test(backendSrc),
+    'the page says bye as it hides, and hello as it comes back from the cache',
+  );
+  assert.ok(
+    /\.requestPermission\(/.test(backendSrc) && !/\.requestPermission\(/.test(workerSrc),
+    'only the page asks the user for a permission: it needs a window and a click',
+  );
+  assert.ok(
+    !/Date\.now|setInterval/.test(backendSrc.replace(/\/\/.*$/gm, '')) ||
+      /setInterval\(\(\) => port\.postMessage\(\{ t: 'ping' \}\), pingMs\)/.test(backendSrc),
+    'the page pings, and nothing else on a timer',
+  );
+  for (const bundle of ['backend-web.js', 'reader-worker.js']) {
+    const file = new URL(`./public/vendor/${bundle}`, import.meta.url);
+    assert.ok(fs.existsSync(file), `build:web writes ${bundle}`);
+    assert.ok(!/node:/.test(fs.readFileSync(file, 'utf8')), `${bundle} imports nothing from node`);
+  }
+  assert.ok(
+    !read('./public/vendor/backend-web.js').includes('unreadable') &&
+      read('./public/vendor/reader-worker.js').includes('unreadable'),
+    'the page\'s half is not the reader, which is in the worker\'s',
+  );
+  console.log('✓ the web backend is picked by createBackend, built, and not staged into the app');
 }
 
 // --- 13. the store followed the app's name --------------------------------

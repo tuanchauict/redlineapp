@@ -2,7 +2,7 @@
 //
 //   npm run build:web
 //
-// Three bundles, all of them code that started life in src/ and has to end up
+// Five bundles, all of them code that started life in src/ and has to end up
 // running in a webview:
 //
 //   render.js         src/core/document.js -- the diff and the markdown rendering.
@@ -12,6 +12,12 @@
 //                     Tauri platform, for the desktop build where there is no
 //                     server to ask. Loaded only when the shell has left its
 //                     facts on the window, so a browser never fetches it.
+//   backend-web.js    src/hosts/web/backend.js -- the page's end of the web app: the
+//                     rpc client, the permission prompt, the page's lifecycle. Small,
+//                     because the reader is not in it.
+//   reader-worker.js  src/hosts/web/worker.js -- the reader, the store and the web
+//                     platform, as the SharedWorker's script, and as the module a
+//                     page without SharedWorker imports to be its own worker.
 //
 // No entry point touches node:, which is the property that makes this
 // possible and the one src/reader/platform.js exists to preserve.
@@ -39,6 +45,8 @@ const BUNDLES = [
   { entry: 'src/core/document.js', out: 'render.js' },
   { entry: 'src/page/sanitize.js', out: 'sanitize.js' },
   { entry: 'src/hosts/tauri/backend.js', out: 'backend-tauri.js' },
+  { entry: 'src/hosts/web/backend.js', out: 'backend-web.js' },
+  { entry: 'src/hosts/web/worker.js', out: 'reader-worker.js' },
 ];
 
 const dev = process.argv.includes('--dev');

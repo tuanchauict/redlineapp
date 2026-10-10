@@ -1,11 +1,12 @@
 // What the page needs from whatever is behind it.
 //
-// Two things can be behind it. In the CLI there is an http server (src/hosts/node/server.js)
+// Three things can be behind it. In the CLI there is an http server (src/hosts/node/server.js)
 // and the page reaches it over fetch and an event stream. In the desktop app
 // there is no server and nothing to reach: the reader (src/reader/reader.js) is in the
-// page already, holding the store and the file watch directly. This module is
-// the seam between those two, so that everything above it -- the whole of
-// app.js -- is written once, and neither host gets its own copy of what marking
+// page already, holding the store and the file watch directly. In the web app the reader is in
+// a worker, reached over messages (src/hosts/web/backend.js). This module is
+// the seam between those, so that everything above it -- the whole of
+// app.js -- is written once, and no host gets its own copy of what marking
 // a document read does to the screen.
 //
 // The shape follows the reader's own surface, because the reader is what sits
@@ -36,6 +37,12 @@ export async function createBackend({ docId }) {
   if (globalThis.__REDLINE_HOST) {
     const { createTauriBackend } = await import('./vendor/backend-tauri.js');
     return createTauriBackend({ docId });
+  }
+  // The static web app: no server, and the reader in a worker. Its `host.js` leaves this flag
+  // where the shell leaves its own, and the backend is as lazily loaded as the desktop's.
+  if (globalThis.__REDLINE_WEB) {
+    const { createWebBackend } = await import('./vendor/backend-web.js');
+    return createWebBackend({ docId });
   }
   return httpBackend({ docId });
 }
