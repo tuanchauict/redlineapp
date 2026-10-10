@@ -94,9 +94,9 @@ const state = {
   tocAt: -1,
   // The window's other documents, in a native window. A browser tab has none.
   tabs: [],
-  // Whether each sidebar is showing — the files and versions down the left,
-  // the contents down the right. Read back from the classes the inline script
-  // set before first paint, so neither flashes.
+  // Whether each sidebar is showing — the files down the left, the contents and
+  // versions down the right. Read back from the classes the inline script set
+  // before first paint, so neither flashes.
   side: document.documentElement.classList.contains('side-open'),
   tocSide: document.documentElement.classList.contains('toc-open'),
   // The version whose "forget everything older" is waiting to be confirmed.
@@ -300,6 +300,7 @@ async function load({ keepScroll = true } = {}) {
       state.data = null;
       doc.replaceChildren();
       clearSidebars();
+      paintFolder();
       unwatch?.();
       unwatch = null;
       showWelcome();
@@ -314,6 +315,7 @@ async function load({ keepScroll = true } = {}) {
   adopt(data);
   hideWelcome();
   paint();
+  paintFolder();
   if (keepScroll) pane.scrollTo(0, y);
   return true;
 }
@@ -444,6 +446,93 @@ function paintTabs() {
   );
 }
 
+/**
+ * Whether there is a left column at all. The desktop app fills it with the
+ * window's tabs and the web app with the folder the document came from; a CLI
+ * tab has one file and neither, so there its button is gone (styles.css) and
+ * ⌘B does nothing, rather than open an empty strip. The head script asks the
+ * same question before first paint.
+ */
+const leftColumn = document.documentElement.matches('.native, .web');
+
+// Which document the folder list was last built for, so that the change and
+// history events that load the same one again do not walk the folder each time.
+// Set when the walk starts rather than when it ends: the first load and the
+// sidebar's own first paint arrive together, and one walk is enough for both.
+let folderFor;
+let folderRun = 0;
+
+/**
+ * The web app's left column: the markdown in the folder the document was opened
+ * from, the document itself filled in, any other a click away. Listed again on
+ * a new document and whenever the column is opened (`again`), which is when a
+ * file added to the folder since shows up — the browser says nothing when one
+ * is. Not built while the column is shut, as the tabs are not.
+ */
+async function paintFolder({ again = false } = {}) {
+  if (!backend.folder || !state.side) return;
+  if (!again && folderFor === state.docId) return;
+  folderFor = state.docId;
+  const run = ++folderRun;
+  const list = $('folderList');
+  let f;
+  try {
+    f = await backend.folder();
+  } catch (err) {
+    if (run !== folderRun) return;
+    // A grant that lapsed is one of these, and the document says so with a
+    // button of its own; the list only has to not pretend. The next load tries
+    // again.
+    console.error('could not list the folder', err);
+    folderFor = null;
+    $('folderName').textContent = 'Files';
+    list.replaceChildren(el('p', 'side-empty', 'Could not list this folder.'));
+    return;
+  }
+  // Two documents opened faster than a folder is walked: the later one's list.
+  if (run !== folderRun) return;
+  $('folderName').textContent = f?.name ?? 'Files';
+  if (!f) {
+    list.replaceChildren(
+      el(
+        'p',
+        'side-empty',
+        state.docId
+          ? 'This file was opened by itself. Open its folder to list the files beside it.'
+          : 'Open a folder to list its files here.',
+      ),
+    );
+    return;
+  }
+
+  let on = null;
+  const rows = f.files.map(({ rel, path }) => {
+    const row = document.createElement('button');
+    const here = rel === f.current;
+    row.className = here ? 'tab on' : 'tab';
+    row.title = rel;
+    row.ariaCurrent = here ? 'true' : 'false';
+    if (here) on = row;
+    // The one on screen is already open, and opening it again would only drop
+    // the place in it.
+    else row.addEventListener('click', () => openFile(path));
+    // Name over the folder it is in, as the tabs are: two README.md are told
+    // apart by the line that can be clipped.
+    const cut = rel.lastIndexOf('/');
+    const label = el('span', 'label');
+    label.append(
+      el('span', 'label-name', rel.slice(cut + 1)),
+      el('span', 'label-dir', ltrPath(cut < 0 ? '' : rel.slice(0, cut))),
+    );
+    row.append(label);
+    return row;
+  });
+  if (!rows.length) rows.push(el('p', 'side-empty', 'No markdown in this folder.'));
+  if (f.capped) rows.push(el('p', 'side-empty', `Only the first ${rows.length} are listed.`));
+  list.replaceChildren(...rows);
+  on?.scrollIntoView({ block: 'nearest' });
+}
+
 /** Remembered, because it is the kind of thing you set once and keep. */
 function setSide(on, remember = true) {
   state.side = on;
@@ -459,6 +548,7 @@ function setSide(on, remember = true) {
   // The list is not built while the column is shut — there is nothing to
   // build it into — so opening it is what fills it.
   paintTabs();
+  paintFolder({ again: true });
 }
 
 /**
@@ -2360,9 +2450,9 @@ $('prev').addEventListener('click', () => goToChange(-1));
 
 $('view').addEventListener('click', () => toggleView());
 
-// Both columns and their keys work in a browser tab as much as in the
-// desktop app; only the list of open files inside the left one is the
-// shell's.
+// Both columns and their keys work in the web app as much as in the desktop
+// app, each filling the left one with a list of its own; a CLI tab has only
+// the right one (see `leftColumn`).
 $('side').addEventListener('click', () => setSide(!state.side));
 $('tocBtn').addEventListener('click', () => setTocSide(!state.tocSide));
 
@@ -3016,7 +3106,7 @@ document.addEventListener('keydown', (e) => {
   if (!native && e.code === 'KeyB' && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     if (e.altKey) setTocSide(!state.tocSide);
-    else setSide(!state.side);
+    else if (leftColumn) setSide(!state.side);
   }
   // ⌘F comes from the Edit menu in the desktop app; in a browser tab it would
   // otherwise open the browser's own find, which cannot see into `#doc` the

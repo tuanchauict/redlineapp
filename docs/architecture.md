@@ -341,7 +341,13 @@ is no component model — the document pane is `innerHTML` from the payload, thr
   `redline:sidew`, `redline:toc`, `redline:tocw`, `redline:diff`, `redline:view` and
   `redline:shut`, and the ones that affect layout are mirrored onto `<html>` by an
   inline script in `index.html` **before first paint** — otherwise the window
-  flashes at the wrong size, or with the marks on, on every open. The two sidebar
+  flashes at the wrong size, or with the marks on, on every open. `redline:shut` is the
+  list of folded sections, one key per disclosure (`files`, `folder`, `toc`, `hist`):
+  `shutNow` reads every twist on the page, hidden ones too, so two sections under one
+  key would undo each other. Whether there is a left column at all is decided there as
+  well: `html.native` from `?native`, `html.web` from the web app's `host.js`, and with
+  neither — a CLI tab — `redline:side` is not honoured, the `#side` button is not
+  drawn, and ⌘B does nothing (`leftColumn` in `app.js`). The two sidebar
   widths are clamped against each other so the document keeps 320px whatever they
   were dragged to, and that clamp is therefore in two places: `fitWidths` in
   `app.js` and the same arithmetic in the inline script. Either alone is a visible
@@ -500,6 +506,17 @@ connection on `versionchange`. The page learns the build from the shim the build
   - After the first document opens from a click the welcome asks for
     `navigator.storage.persist()`, once. It is a request the browser answers from how it has been
     used, and Firefox asks the user, which it may do only for a click.
+- **The left column is the folder.** A web page has one tab, so `#filesSec` (Open files,
+  `data-shell`) has nothing to list; `#folderSec` (`data-web`, shown only under `html.web`)
+  stands in for it. `backend.folder()` looks the document's id up in `opened`, and for a root
+  that is a directory walks it with the welcome's own `listMarkdown` — in the page, not the
+  worker: the grant is the origin's, and the page already holds the handle — answering `{ name,
+  current, capped, files: [{ rel, path }] }`, or null for no document, a file picked alone, or a
+  drop. `paintFolder` in `app.js` draws it as `.tab` rows, the current one filled, a click
+  `openFile(path)`. It walks again for a new document and whenever the column opens (`again`),
+  not for the change and history events that load the same one; the latest of two walks in
+  flight is the one drawn, and a walk that throws — a lapsed grant among them — says *Could not
+  list this folder* and is tried again on the next load.
 - **What the host cannot do is not offered** (`caps`, on every payload). `state.caps` is read in
   `adopt`, and `applyCaps` hides the `git HEAD` option of *Compare against* unless `caps.git`; a
   saved choice of git is shown as *Last read* where there is none. The option is `hidden` in the
@@ -508,8 +525,8 @@ connection on `versionchange`. The page learns the build from the shim the build
   (`showDiagramError`), and there is no Settings row for it to hide yet.
 - **What is not verified from here:** the pickers, a drop, `persist()` and how a `SharedWorker`
   calls `getFile()` and `queryPermission()` are behaviours of a browser. The tests stand in
-  fakes for them (test-smoke.js, 12d), and the layout and contrast of the welcome have not been
-  looked at.
+  fakes for them (test-smoke.js, 12d), and the layout and contrast of the welcome and of the
+  folder list have not been looked at.
 
 ### Staging the page, and the web app's build
 

@@ -26,8 +26,8 @@ against, whether to compare at all, which counts as read, and which to forget. A
 history gets long, and a row has room to say what a version actually *is* where a
 one-line bar has room for none of it — so the bar keeps what the document is and how
 it is being shown, and a second, shorter list of the same versions is one list too
-many. The sidebar works in a browser tab too, with the open-files section left out —
-there, the versions are the whole of it.
+many. The right column — Contents above, History below, **⌥⌘B** — is the same in a
+browser tab as in the desktop app.
 
 ## Reading a version by itself
 

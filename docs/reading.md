@@ -178,10 +178,19 @@ open". The icon says the second thing.
 
 - **Open files** — the tabs of this window, and nothing else. Desktop app only;
   see [Tabs](native-window.md#tabs).
+- **The folder** — in the web app, which has no tabs: the markdown in the folder
+  the document was opened from, three folders down, as the welcome lists it, under
+  the folder's name. The document on screen is filled in; click another to read
+  it. It is listed again whenever a document opens or the column does, which is
+  when a file added since turns up — a browser does not say when one is. A file
+  picked by itself or dropped has no folder to list, and the column says so.
 
 It is the one list you stop needing once you have picked a file, and it gets the
 column to itself so that choice fades once it is made instead of sitting next to
 the document asking to be looked at again.
+
+A CLI tab has neither: it was handed one file and has nowhere else to go, so its
+left column and the button for it are not there, and ⌘B does nothing.
 
 **⌥⌘B — the right column**, which is where you are in what you are reading:
 
