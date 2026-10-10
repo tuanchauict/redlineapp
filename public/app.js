@@ -140,13 +140,11 @@ function clearDocId() {
 // something has one -- the web app's -- so a window shown a document by a shell, or a server told
 // one on a command line, never reaches any of this and nothing here has to ask which it is.
 const welcomeEl = $('welcome');
+const openBtn = $('openBtn');
 const welcome = backend.welcome?.(welcomeEl, {
   open: (path) => openFile(path),
   granted: () => reopened(),
-  back: () => {
-    pendingLink = null;
-    hideWelcome();
-  },
+  back: () => backToDocument(),
   // A drop lands on the window whatever is showing. A folder is answered with a list, which is
   // drawn in the welcome, so the welcome has to be up first -- but only if it is not already:
   // showing it again would tell it there is nothing to ask for again, and a "Reopen" button the
@@ -179,6 +177,7 @@ function showWelcome({ reopen = null } = {}) {
   document.documentElement.classList.add('welcoming');
   welcomeEl.hidden = false;
   doc.hidden = true;
+  syncOpenBtn();
   if (seen === welcomeSeen) return;
   welcomeSeen = seen;
   welcomeAsks = reopen;
@@ -198,6 +197,36 @@ function hideWelcome() {
   document.documentElement.classList.remove('welcoming');
   welcomeEl.hidden = true;
   doc.hidden = false;
+  syncOpenBtn();
+}
+
+/** Back to the document the welcome was put up over. Whether there was one to go back to. */
+function backToDocument() {
+  if (welcomeEl.hidden || !state.data) return false;
+  pendingLink = null;
+  hideWelcome();
+  return true;
+}
+
+/**
+ * The Open button belongs to the welcome, and so to the web app alone. It is there while there is
+ * a document to put the welcome over and come back to, and pressed while the welcome is over it.
+ * With nothing open the welcome is the whole page, and a button to put it up would do nothing.
+ */
+function syncOpenBtn() {
+  openBtn.hidden = !state.data;
+  openBtn.setAttribute('aria-pressed', String(!welcomeEl.hidden));
+}
+
+if (welcome) {
+  openBtn.addEventListener('click', () => {
+    if (!backToDocument()) showWelcome();
+  });
+  // A step away from the document, and Escape is the step back. Not while Settings is up: the
+  // Escape is the dialog's, and closes it alone.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('prefs').open) backToDocument();
+  });
 }
 
 // The backend says which folder; the load that hit the lapse says only that it did.
@@ -2995,6 +3024,13 @@ document.addEventListener('keydown', (e) => {
   if (!native && e.code === 'KeyF' && (e.metaKey || e.ctrlKey)) {
     e.preventDefault();
     openFind();
+  }
+  // ⌘O is the web app's alone: a window has File ▸ Open…, and a CLI tab is handed its file and
+  // has no welcome to put up. Caught even with nothing to do -- the welcome already up -- because
+  // the browser's own would open the file as a page of its own, outside Redline.
+  if (welcome && e.code === 'KeyO' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+    e.preventDefault();
+    if (welcomeEl.hidden && !$('prefs').open) showWelcome();
   }
 });
 

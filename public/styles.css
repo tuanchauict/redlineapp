@@ -973,6 +973,13 @@ button:focus-visible,
   color: var(--fg);
 }
 
+/* Filled while the welcome it put up is over the document, as the find toggle
+   is while its bar is open: the button that put something up takes it down. */
+#openBtn[aria-pressed="true"] {
+  background: var(--sel);
+  color: var(--fg);
+}
+
 #side {
   display: inline-flex;
   padding: 4px;

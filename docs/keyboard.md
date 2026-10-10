@@ -24,6 +24,13 @@ With a [sidebar's inner edge](reading.md#the-sidebars) focused — tab to it —
 → move it a step at a time and Home / End take it to its limits. The arrows follow
 the edge, so on the right-hand one it is ← that makes the column wider.
 
+## In the web app
+
+`⌘O` (Ctrl+O off a Mac) opens another folder or file: it puts the welcome up over the
+document — **Open folder…**, **Open file…**, or a drop — and Escape, or **Back to the
+document**, goes back to it. The folder button before the document's name does the same.
+A CLI tab has neither: it is handed its file, and `⌘O` there is the browser's.
+
 ## The app menu
 
 The native window adds, on top of all of the above:

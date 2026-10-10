@@ -3559,6 +3559,10 @@ const memoryKv = () => {
       'what a doc id was is remembered',
     );
     assert.strictEqual(await handles.openedAs('zzz'), null, 'and one that was never opened is not');
+    assert.strictEqual(await handles.lastOpened(), null, 'with nothing shown yet there is no last');
+    await handles.rememberLast('abc123');
+    assert.strictEqual(await handles.lastOpened(), 'abc123', 'the last document shown is kept');
+    assert.strictEqual(await handles.openedAs('last'), null, 'in a key that no doc id can be');
 
     assert.deepStrictEqual(parseWebPath(webPath('r', 'a/b.md')), { rootId: 'r', rel: 'a/b.md' });
     assert.strictEqual(parseWebPath('drop:x.md'), null, 'only a web: path has a root');
@@ -3602,15 +3606,18 @@ const memoryKv = () => {
     return host;
   };
   const pages = [];
-  /** A tab: a backend on its own port into `host`, which shows whatever `shows` is. */
-  const openPage = async (host, shows = null) => {
+  /**
+   * A tab: a backend on its own port into `host`, which shows whatever `shows` is. `kv` is what
+   * the page reads, which is the host's stores; a host on stores of its own needs them passed.
+   */
+  const openPage = async (host, shows = null, kv = stores) => {
     const [mine, theirs] = ports();
     host.connect(theirs);
     const page = { id: shows, win: new EventTarget(), port: mine, live: [], events: [], asked: [] };
     page.backend = await createWebBackend({
       docId: () => page.id,
       connect: async () => ({ port: mine, onError() {} }),
-      stores: { roots: stores.roots, opened: stores.opened },
+      stores: { roots: kv.roots, opened: kv.opened },
       win: page.win,
       pingMs: 60_000,
     });
@@ -3942,6 +3949,89 @@ const memoryKv = () => {
     assert.strictEqual(next, p, 'the same name replaces what was dropped');
     await until(() => dropper.events.some((e) => e.type === 'change'), 'the new file to be read');
     console.log('✓ a dropped file opens as a document of its own, and a drop again replaces it');
+  }
+
+  // --- a visit with no `?id=`: the document a tab last showed ---------------------------------
+  // The app's bare address -- a bookmark, a new tab -- comes back to where the user was, as a
+  // reopened app does, and not to the welcome every time. On stores of its own, so that which
+  // document is the last is this test's and not the sum of every test above.
+  {
+    const own = newStores();
+    const hostOn = () => {
+      const host = createWebHost({
+        stores: own,
+        pollMs: 30,
+        silentMs: 1000,
+        sweepMs: 10,
+        now: () => clock.t,
+      });
+      hosts.push(host);
+      return host;
+    };
+    const desk = folder('desk', { 'one.md': '# One\n\nFirst.\n', 'two.md': '# Two\n\nSecond.\n' });
+    const hostL = hostOn();
+    const readerL = await hostL.reader;
+
+    const first = await openPage(hostL, null, own);
+    await rejection(first.backend.doc(), 'NoDocument'); // nothing was ever shown: the welcome
+    const dr = await first.backend.addRoot(desk);
+    const one = await first.backend.open(`web:${dr.rootId}/one.md`);
+    first.id = one.id;
+    assert.strictEqual(await own.opened.get('last'), one.id, 'a file opened is the last shown');
+
+    const bare = await openPage(hostL, null, own);
+    const resumed = await bare.backend.doc();
+    assert.strictEqual(resumed.id, one.id, 'a page that names none is given the last one');
+    assert.match(resumed.text, /First\./, 'with its text');
+    bare.id = resumed.id; // what the page's `adopt` does with the id it was given
+    const two = await bare.backend.open(`web:${dr.rootId}/two.md`);
+    bare.id = two.id;
+    assert.strictEqual(await own.opened.get('last'), two.id, 'and the next one opened is');
+    assert.strictEqual((await first.backend.doc()).id, one.id, 'which takes no tab along with it');
+
+    // A drop is gone with the worker that had it: never the last, so the one before it stays.
+    const dropper = await openPage(hostL, null, own);
+    assert.strictEqual((await dropper.backend.doc()).id, two.id, 'a third bare page is given two');
+    const loose = { name: 'loose.md', text: async () => '# Loose\n', lastModified: 1 };
+    dropper.id = (await dropper.backend.open(await dropper.backend.addDrop(loose))).id;
+    assert.strictEqual(await own.opened.get('last'), two.id, 'a drop is not the last');
+
+    // A tab in the background, let go of for its silence and taken back: not the user going
+    // anywhere, so it does not take `last` back from the tab in front.
+    clock.t += 5000;
+    await until(() => readerL.pathOf(one.id) === null, 'the quiet tabs to be let go of');
+    first.port.postMessage({ t: 'ping' });
+    await until(() => readerL.pathOf(one.id), 'the tab on one to be taken back');
+    assert.strictEqual((await first.backend.doc()).id, one.id, 'on the document it had');
+    assert.strictEqual(await own.opened.get('last'), two.id, 'and the last is still two');
+
+    // A reload on a document is the user going back to it.
+    const reload = await openPage(hostL, one.id, own);
+    await reload.backend.doc();
+    assert.strictEqual(await own.opened.get('last'), one.id, 'a reload on one makes it last');
+    for (const p of [first, bare, dropper, reload]) p.backend.close();
+    hostL.close();
+
+    // The browser started again: a worker with nothing open, and the stores.
+    const fresh = await openPage(hostOn(), null, own);
+    assert.strictEqual((await fresh.backend.doc()).id, one.id, 'a new worker finds the last one');
+
+    desk.state = 'prompt';
+    const asking = await openPage(hostOn(), null, own);
+    await rejection(asking.backend.doc(), 'NeedsPermission');
+    assert.deepStrictEqual(asking.asked, [{ name: 'desk' }], 'a lapsed folder is asked for');
+    assert.strictEqual(await asking.backend.reopen(), true, 'from the page, which names no id');
+    assert.strictEqual((await asking.backend.doc()).id, one.id, 'and the last one is there after');
+
+    desk.state = 'denied';
+    await rejection((await openPage(hostOn(), null, own)).backend.doc(), 'NoDocument');
+    assert.strictEqual(desk.asked, 1, 'a denied folder is not asked for: the welcome');
+    desk.state = 'granted';
+    await own.roots.del(dr.rootId);
+    await rejection((await openPage(hostOn(), null, own)).backend.doc(), 'NoDocument');
+    await rejection((await openPage(hostOn(), 'last', own)).backend.doc(), 'NoDocument');
+    assert.deepStrictEqual(unhandled, [], 'nothing was left unhandled');
+    console.log('✓ a page with no id is given the last document a tab showed, if it can be read');
   }
 
   // --- W3: the welcome ---------------------------------------------------------------------
@@ -4630,6 +4720,44 @@ const memoryKv = () => {
       /const why = await backend\.linkNote\?\.\(state\.data\?\.path\);\s*if \(why\) notify\(why\);/,
       'a link a file cannot follow says why, rather than doing nothing',
     );
+
+    // The way from a document to the welcome, which only the web app has.
+    const head = pageHtml.indexOf('<header class="bar"');
+    const bar = pageHtml.slice(head, pageHtml.indexOf('</header>', head));
+    assert.match(
+      bar,
+      /<button\s+id="openBtn"\s+class="icon"[^>]*\saria-pressed="false"\s+hidden\s*>/,
+      'the Open button is in the bar and starts hidden, so a build with no welcome never shows it',
+    );
+    assert.ok(!/#openBtn[^{]*\{[^}]*display/.test(pageCss), 'and no display beats its [hidden]');
+    assert.match(
+      appJs,
+      /function syncOpenBtn\(\) \{\s*openBtn\.hidden = !state\.data;\s*openBtn\.setAttribute\('aria-pressed', String\(!welcomeEl\.hidden\)\);/,
+      'it is there while there is a document, and pressed while the welcome is over it',
+    );
+    const showing = appJs.match(/function showWelcome\([\s\S]*?\n\}/)?.[0] ?? '';
+    const hiding = appJs.match(/function hideWelcome\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /syncOpenBtn\(\);\s*if \(seen === welcomeSeen\) return;/.test(showing) &&
+        /syncOpenBtn\(\);\s*\}$/.test(hiding),
+      'and is told each time the welcome comes or goes, before showWelcome can return early',
+    );
+    assert.match(
+      appJs,
+      /if \(welcome\) \{\s*openBtn\.addEventListener\('click', \(\) => \{\s*if \(!backToDocument\(\)\) showWelcome\(\);/,
+      'a click puts the welcome up or takes it down, and only where there is a welcome',
+    );
+    assert.match(
+      appJs,
+      /e\.key === 'Escape' && !\$\('prefs'\)\.open\) backToDocument\(\);/,
+      'Escape goes back to the document, and does not when it is closing Settings',
+    );
+    assert.match(
+      appJs,
+      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(welcomeEl\.hidden && !\$\('prefs'\)\.open\) showWelcome\(\);/,
+      '⌘O puts it up, in the web app alone: a window has File ▸ Open…',
+    );
+    assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");
     assert.ok(
       /welcome: \(el, hooks\)/.test(backendSrc) &&
         ['./src/hosts/tauri/backend.js', './public/backend.js', './src/rpc/client.js'].every(
