@@ -8,6 +8,7 @@ npm test
 rustup toolchain install stable   # once, for the native window
 npm run app -- sample.md     # the native window
 npm run dev -- sample.md     # the same window, page reloadable without a recompile
+npm run webapp               # the web app, built and served on 127.0.0.1:8081
 ```
 
 For the browser there is no build step worth the name: `src/` and `public/` run as
@@ -17,21 +18,27 @@ the first compile takes a few minutes. After that it is seconds.
 
 ## What is generated
 
-Two commands, and the reason to know about them is that the app **embeds** its copy
-of the page at compile time. A change to `public/` that has not been through both is
-a change that is not in the window, which looks exactly like the change not working.
+Three commands, and the reason to know about the first two is that the app **embeds**
+its copy of the page at compile time. A change to `public/` that has not been through
+both is a change that is not in the window, which looks exactly like the change not
+working.
 
 | | |
 | --- | --- |
 | `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from |
 | `npm run build:dist` | Stages `shell/dist`: `public/`, the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
+| `npm run build:webapp` | Stages `dist/web`, the web app: the same page, with the web bundles in and the Tauri backend left out, the web app's `host.js` over the empty one, and a `_headers` file. See [The web app](#the-web-app) |
 
-`npm run app`, `npm run dev`, `npm run bundle` and `npm test` each run the ones they
-need, so the only time to reach for them by hand is after editing `src/` with a
+`npm run app`, `npm run dev`, `npm run bundle`, `npm run webapp` and `npm test` each run
+the ones they need, so the only time to reach for them by hand is after editing `src/` with a
 window already open — and `npm run dev` re-runs them for you on every edit, which is
 [the point of it](#the-dev-loop).
 
-There is a third, `npm run build:site`, but it generates nothing the app or the
+`build:dist` and `build:webapp` are both `stagePage` in `scripts/stage-page.mjs`, called
+for a different host: it is the one place that knows what goes into a page and what only
+one host's page gets. A new host is a row in its `HOSTS` table and one more call.
+
+There is one more, `npm run build:site`, but it generates nothing the app or the
 reader uses — see [The landing page](#the-landing-page).
 
 And one that is committed rather than built every time: `npm run notices` writes
@@ -49,6 +56,49 @@ gives it its own preferences and its own snapshot store:
 ```
 HOME=/tmp/redline-dev npm run app -- sample.md
 ```
+
+## The web app
+
+```
+npm run webapp               # build:web, build:webapp, then serve dist/web
+npm run webapp -- -p 4000 --no-open
+```
+
+`build:webapp` writes `dist/web/` (gitignored, emptied on every run), a directory any static
+host can serve. `npm run webapp` builds it and serves it on `127.0.0.1`, the way
+`npm run site` serves the landing page, and **answers with the headers in `_headers`**, so
+the content security policy that the deployed copy has is one that was run first. It has to
+be served: the page is a module and the reader is a SharedWorker, and a browser refuses both
+from `file://`. File System Access needs a secure context, and `localhost` and `127.0.0.1`
+count as one without a certificate.
+
+- **One port, one origin.** The web app's history and the folders a user has granted live in
+  IndexedDB, which belongs to an origin, and `127.0.0.1:8082` is another one. So a taken port
+  is an error rather than a step to the next, unlike `npm run site`: a server that moved
+  quietly would open an app with no history in it, which looks like data lost. Pick another
+  with `-p` and it is a choice.
+- **`_headers`** is generated from `src/core/csp.js`, the same list the CLI's server and the
+  Tauri config are compared with: the CLI's policy with the head script's hash, plus
+  `worker-src 'self'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`,
+  as one rule for every path. The hash is of the head script in the *staged* `index.html`, so
+  a change to that script moves it, and a build that did not would ship a page whose first
+  script is blocked. Every path, because a worker is held to the policy on its own response.
+- **The worker is named for the build**, `redline@<version>+<hash>`: the shim that
+  `stage-page.mjs` stages puts `package.json`'s version and a hash of the two staged bundles
+  (`vendor/backend-web.js` and `vendor/reader-worker.js`, sha256, 12 hex) on the window, and the
+  page reads it. A SharedWorker is found by URL and name, so without that a deploy leaves new
+  pages joining the old reader that an old tab keeps alive. The hash is there because the
+  version is not enough: it is the same across every `npm run webapp` and every redeploy of a
+  release, and each is new reader code. The same bytes are the same name, so a rebuild that
+  changed nothing does not leave a worker behind.
+- **Size.** About 5.9 MB staged, of which Mermaid's minified ESM tree is 5.2 MB in 105 files.
+  That is the tree the desktop app ships too, it is fetched only by a document that draws a
+  diagram, and it is far from the limits on files and file size that a static host such as
+  Cloudflare Pages sets.
+- **What is not checked here.** That Pages serves Mermaid's `.mjs` chunks as
+  `text/javascript`: a module script is refused under any other type, and the local server
+  sets it by extension, so the first deploy is where it is first a fact about Pages. If it is
+  wrong, a `Content-Type` rule for `/vendor/mermaid/*` in `_headers` is the fix.
 
 ## The dev loop
 

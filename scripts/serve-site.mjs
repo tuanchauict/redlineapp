@@ -35,74 +35,95 @@ const MIME = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-const opts = { port: 8080, open: true };
+/**
+ * A static server over `root`, not yet listening. A function and not a module-level `const` so
+ * that a test can make one, which is how its answer to a bad request is tested at all.
+ *
+ * @param {string} [root]  Default: site/.
+ * @returns {import('node:http').Server}
+ */
+export function createSiteServer(root = SITE) {
+  return http.createServer((req, res) => {
+    const send = (code, body, type = MIME['.txt']) => {
+      // Nothing is cached, however briefly. A stylesheet held for a minute during
+      // a round of edits is a change that looks like it did not land.
+      res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
+      res.end(body);
+    };
 
-for (let i = 2; i < process.argv.length; i++) {
-  const a = process.argv[i];
-  if (a === '-p' || a === '--port') opts.port = Number(process.argv[++i]);
-  else if (a.startsWith('--port=')) opts.port = Number(a.slice(7));
-  else if (a === '--no-open') opts.open = false;
-  else {
-    console.error(`Unknown argument: ${a}\n\n  npm run site -- [-p <n>] [--no-open]`);
-    process.exit(1);
-  }
+    // A target that does not parse (`//`) or does not decode (`/100%`) throws, and a throw in a
+    // request handler is an uncaught exception: one bad request and the server is gone.
+    let rel;
+    try {
+      rel = decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname).replace(/^\/+/, '');
+    } catch {
+      return send(400, 'Bad request');
+    }
+    const file = path.join(root, rel.endsWith('/') || rel === '' ? `${rel}index.html` : rel);
+
+    // Whatever the path said, it has to land inside site/. This listens on the
+    // loopback only, so the exposure is small, but a static server that will hand
+    // out ../../.ssh for the asking is not a thing to leave lying in a repo.
+    if (path.relative(root, file).startsWith('..')) return send(403, 'Forbidden');
+
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      return send(404, `Not found: /${rel}`);
+    }
+
+    send(200, fs.readFileSync(file), MIME[path.extname(file)] || 'application/octet-stream');
+  });
 }
 
-const server = http.createServer((req, res) => {
-  const send = (code, body, type = MIME['.txt']) => {
-    // Nothing is cached, however briefly. A stylesheet held for a minute during
-    // a round of edits is a change that looks like it did not land.
-    res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
-    res.end(body);
-  };
+async function main() {
+  const opts = { port: 8080, open: true };
 
-  const url = new URL(req.url, 'http://127.0.0.1');
-  const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
-  const file = path.join(SITE, rel.endsWith('/') || rel === '' ? `${rel}index.html` : rel);
-
-  // Whatever the path said, it has to land inside site/. This listens on the
-  // loopback only, so the exposure is small, but a static server that will hand
-  // out ../../.ssh for the asking is not a thing to leave lying in a repo.
-  if (path.relative(SITE, file).startsWith('..')) return send(403, 'Forbidden');
-
-  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
-    return send(404, `Not found: /${rel}`);
+  for (let i = 2; i < process.argv.length; i++) {
+    const a = process.argv[i];
+    if (a === '-p' || a === '--port') opts.port = Number(process.argv[++i]);
+    else if (a.startsWith('--port=')) opts.port = Number(a.slice(7));
+    else if (a === '--no-open') opts.open = false;
+    else {
+      console.error(`Unknown argument: ${a}\n\n  npm run site -- [-p <n>] [--no-open]`);
+      process.exit(1);
+    }
   }
 
-  send(200, fs.readFileSync(file), MIME[path.extname(file)] || 'application/octet-stream');
-});
+  const server = createSiteServer();
 
-// The same next-free-port walk the reader's own CLI does, for the same reason:
-// a second window on the same page should not be an error message.
-const port = await new Promise((resolve, reject) => {
-  const tryPort = (p, left) => {
-    server.once('error', (err) => {
-      if (err.code === 'EADDRINUSE' && left > 0) tryPort(p + 1, left - 1);
-      else reject(err);
+  // The same next-free-port walk the reader's own CLI does, for the same reason:
+  // a second window on the same page should not be an error message.
+  const port = await new Promise((resolve, reject) => {
+    const tryPort = (p, left) => {
+      server.once('error', (err) => {
+        if (err.code === 'EADDRINUSE' && left > 0) tryPort(p + 1, left - 1);
+        else reject(err);
+      });
+      server.listen(p, '127.0.0.1', () => resolve(server.address().port));
+    };
+    tryPort(Number.isFinite(opts.port) ? opts.port : 8080, 20);
+  });
+
+  const url = `http://127.0.0.1:${port}/`;
+  console.log(`redline site  ${SITE}`);
+  console.log(`              ${url}   (ctrl-c to stop)`);
+
+  if (opts.open) {
+    const cmd =
+      process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    const p = spawn(cmd, [url], {
+      stdio: 'ignore',
+      detached: true,
+      shell: process.platform === 'win32',
     });
-    server.listen(p, '127.0.0.1', () => resolve(server.address().port));
-  };
-  tryPort(Number.isFinite(opts.port) ? opts.port : 8080, 20);
-});
+    p.unref();
+  }
 
-const url = `http://127.0.0.1:${port}/`;
-console.log(`redline site  ${SITE}`);
-console.log(`              ${url}   (ctrl-c to stop)`);
-
-if (opts.open) {
-  const cmd =
-    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
-  const p = spawn(cmd, [url], {
-    stdio: 'ignore',
-    detached: true,
-    shell: process.platform === 'win32',
-  });
-  p.unref();
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    process.on(sig, () => {
+      server.close();
+      process.exit(0);
+    });
+  }
 }
 
-for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => {
-    server.close();
-    process.exit(0);
-  });
-}
+if (process.argv[1] === fileURLToPath(import.meta.url)) await main();
