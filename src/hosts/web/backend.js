@@ -97,16 +97,26 @@ export async function createWebBackend({
   // on a database read.
   let pending = null;
 
-  /** The root behind the document being shown, with the handle to ask about it. Or null. */
+  /** A root, with the handle to ask about it. Or null. */
+  async function rootById(rootId) {
+    const rec = rootId ? await kv.roots.get(rootId) : null;
+    return rec ? { rootId, name: rec.name, handle: rec.handle } : null;
+  }
+
+  /** The root behind the document being shown. Or null. */
   async function rootOfDoc() {
     const id = docId();
     const was = id ? await kv.opened.get(id) : null;
-    const rec = was ? await kv.roots.get(was.rootId) : null;
-    return rec ? { rootId: was.rootId, name: rec.name, handle: rec.handle } : null;
+    return rootById(was?.rootId);
   }
 
-  async function needsPermission() {
-    pending = await rootOfDoc();
+  /**
+   * The root the worker named, or failing that the one behind the document being shown. The
+   * worker names it when it can -- a link into another folder is not the document on screen --
+   * and a page that is shown a lapsed folder on reload has only its own id to go by.
+   */
+  async function needsPermission(rootId) {
+    pending = (await rootById(rootId)) ?? (await rootOfDoc());
     if (pending) for (const fn of askers) fn({ name: pending.name });
   }
 
@@ -138,7 +148,19 @@ export async function createWebBackend({
       try {
         return await inner.doc(baseline);
       } catch (err) {
-        if (err?.name === 'NeedsPermission') await needsPermission();
+        if (err?.name === 'NeedsPermission') await needsPermission(err.rootId);
+        throw err;
+      }
+    },
+
+    // A link into a folder whose grant has lapsed is refused like a reload is. The page stays on
+    // the document it had, and the button asks for the folder the link was into; once granted,
+    // opening the link again is the page's to do.
+    async open(path) {
+      try {
+        return await inner.open(path);
+      } catch (err) {
+        if (err?.name === 'NeedsPermission') await needsPermission(err.rootId);
         throw err;
       }
     },
