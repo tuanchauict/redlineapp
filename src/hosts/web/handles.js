@@ -5,6 +5,11 @@
 //
 //   roots    rootId -> { handle, name, kind }   a folder or a file the user handed over
 //   opened   docId  -> { rootId, rel }          what a doc id means, so `?id=` outlives the tab
+//            'last' -> docId                     the document a tab last showed, for the visit
+//                                                that comes with no `?id=` at all
+//
+// `last` shares a store with the ids rather than having one of its own, because a new store is
+// a schema upgrade (`idb.js`), and a doc id is twelve hex digits, which `last` cannot be.
 //
 // A root is named by a random id and not by anything about the folder: the id is an identity,
 // not a content hash, and the same folder granted twice is one root (`isSameEntry`), so it keeps
@@ -18,6 +23,8 @@
 import { makePaths } from '../../core/paths.js';
 
 const paths = makePaths('/');
+
+const LAST = 'last';
 
 /** `web:<rootId>/<rel>`, the path of a file inside a root. */
 export const webPath = (rootId, rel) => `web:${rootId}/${rel}`;
@@ -151,7 +158,19 @@ export function createHandles({
     rememberOpened: (id, rootId, rel) => opened.put(id, { rootId, rel }),
 
     /** What a doc id was, or null if the registry never saw it. */
-    openedAs: async (id) => (await opened.get(id)) ?? null,
+    openedAs: async (id) => (id === LAST ? null : ((await opened.get(id)) ?? null)),
+
+    /**
+     * Remember that a tab is showing this document now, so that a visit to the app's bare
+     * address -- a bookmark, a new tab -- comes back to it instead of to the welcome. Only for an
+     * id `rememberOpened` was told: anything else is a last document nothing could open.
+     */
+    rememberLast: async (id) => {
+      await opened.put(LAST, id);
+    },
+
+    /** The doc id `rememberLast` was last told, or null. */
+    lastOpened: async () => (await opened.get(LAST)) ?? null,
 
     /**
      * How a path is shown: the root's name in front, so a folder's files read as part of it and a

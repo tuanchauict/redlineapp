@@ -370,8 +370,9 @@ for the traffic lights and hides the rows and buttons that are the shell's to an
 `app.js` is written once and does not ask.
 
 - **A native window's first document comes from `onTabs`, not from a blind
-  `load()`.** A browser tab's starting document is whatever `?id=` names, or
-  nothing, which `load()` is written to handle on its own. A native window has no
+  `load()`.** A browser tab's starting document is whatever `?id=` names, or with
+  none whatever the other side answers — the server's file, the web app's last
+  document — which `load()` is written to handle on its own. A native window has no
   such id to ask with — `state.docId` starts `''` — so it has to wait for the
   shell's own answer, over `md:tabs`, naming which of its restored tabs is active.
   The module's own bottom-of-file startup `await`s a `firstTabShown` promise that
@@ -436,6 +437,14 @@ connection on `versionchange`. The page learns the build from the shim the build
   again on every call, so a folder denied under a page that is showing it is `NoDocument` too,
   and lets go of the document, which the reader would otherwise go on polling; a `prompt` keeps
   what it holds, because a grant brings it back.
+- **A visit with no `?id=` is the last document a tab showed.** `opened` has one key that is not
+  a doc id, `last → docId`, and a `hello` that names nothing is given it, after which it goes as
+  a reload does: `granted` opens it, `prompt` is the **Reopen** button, `denied` or gone is the
+  welcome. It is written when a page opens a file in a root and when a `hello` or a `grant` takes
+  one, and not by a tab taken back after a silence — a background tab waking is not the user
+  going anywhere, and would take `last` back from the tab in front — nor by the page it was
+  given to, since another tab may have moved it on meanwhile, nor by a drop, which is gone with
+  its worker. One per browser profile, not per tab: a new tab is not the one that was closed.
 - **Permission is asked only by a page, from a click.** The worker can *query* a handle and
   never ask. On `NeedsPermission` — from a load, or from a watch whose poll was refused
   (`live` with `needs: 'permission'`) — the page finds the root's name in the stores and tells
@@ -462,6 +471,11 @@ connection on `versionchange`. The page learns the build from the shim the build
   file the reader has let go of) or `NeedsPermission` (and offers **Reopen** *name*: `reopen()`,
   then the page loads again, or opens the link that was refused). No other backend has a
   `welcome`, which is the whole of why a shell, VS Code and the CLI's tab never show one.
+  - **Open, with a document on screen**: the folder button before the name (`#openBtn`) and ⌘O
+    put the welcome up over the document, with **Back to the document**; the button again or
+    Escape takes it down (`backToDocument`). The button is `hidden` in the markup, wired only
+    `if (welcome)`, and shown by `syncOpenBtn` while there is a document, so no other build has
+    it and the welcome with nothing behind it does not offer to put itself up.
   - **Open folder…** (`showDirectoryPicker({ mode: 'read' })`, the primary button) lists the
     files a link would open — `MD_LINK`, in `core/links.js`, the same pattern the page follows
     links by — three folders down and at most 500, without entering dot-folders or

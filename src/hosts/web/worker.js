@@ -10,7 +10,9 @@
 // folder has to be asked for again says so instead of failing.
 //
 //   hello   retain the document the page says it shows -- by what `opened` remembers, which for a
-//           reload is the whole of how the file is found, after asking `queryPermission`
+//           reload is the whole of how the file is found, after asking `queryPermission`. A page
+//           that names none is given the last one a tab showed, and the welcome only if there
+//           is none to give or it cannot be read
 //   bye     release it. A page in the back/forward cache is gone as far as this is concerned,
 //           and says hello again when it comes back
 //   ping    nothing, but any message counts as "still there": a connection silent for
@@ -99,8 +101,14 @@ export function createWebHost({
    *
    * `gen` is how a slow one notices it has been overtaken -- by a bye, a newer hello, an open --
    * and gives back what it took rather than keep a document nobody is holding it for.
+   *
+   * A page that names no document is a visit to the app's bare address, and is given the one a
+   * tab last showed, as an app opened again comes back to where it was. Holding a document makes
+   * it that one, unless `remember` is false: a connection taken back after a silence is a tab
+   * that was in the background, not the user going anywhere, and it would otherwise take `last`
+   * back from the tab in front every time it woke.
    */
-  function acquire(conn) {
+  function acquire(conn, { remember = true } = {}) {
     const gen = ++conn.gen;
     conn.pending = null;
     conn.failure = null;
@@ -109,8 +117,15 @@ export function createWebHost({
       let rootId = null;
       try {
         await readerP;
-        const id = conn.docId;
-        if (!id) return;
+        let id = conn.docId;
+        const resumed = !id;
+        if (resumed) {
+          id = await handles.lastOpened();
+          if (gen !== conn.gen || !id) return;
+          // Kept, so that what comes after -- a grant, the next `doc` asking again, a revival --
+          // takes the same document and not whichever is last by then.
+          conn.docId = id;
+        }
         // Open already, for another tab or an earlier visit of this one: join it. Otherwise the
         // id is only a hash, and `opened` is what says which file it was a hash of.
         let path = reader.pathOf(id);
@@ -136,6 +151,10 @@ export function createWebHost({
           return;
         }
         conn.held = held;
+        // Not for a resumed one, which was `last` already: another tab may have moved it on in the
+        // meantime. And only a file in a root -- a drop another tab has open is gone with this
+        // worker. Not a reason to fail, either: the page has its document.
+        if (remember && !resumed && rootId) await handles.rememberLast(held).catch(() => {});
       } catch (err) {
         if (gen !== conn.gen) return;
         // `queryPermission` said yes and the read said no: the grant went between the two.
@@ -266,6 +285,9 @@ export function createWebHost({
         conn.pending = null;
         conn.failure = null;
         if (prev) reader.release(prev);
+        // After the page has it, and so not a reason to refuse it. A drop is not remembered: it is
+        // gone with this worker, and the one before it is the last that could come back.
+        if (was) await handles.rememberLast(next).catch(() => {});
         return { id: next, path: abs };
       },
 
@@ -403,7 +425,7 @@ export function createWebHost({
             conn.swept = false;
             // Nothing was watching the file while it was let go of, so what the page shows may be
             // out of date; a `change` makes it look again, as it would for an edit.
-            conn.ready = acquire(conn).then(() => {
+            conn.ready = acquire(conn, { remember: false }).then(() => {
               if (conn.held) post({ t: 'ev', e: { type: 'change' } });
             });
           }
