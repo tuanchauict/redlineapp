@@ -45,6 +45,10 @@ src/hosts/tauri/        the app's shell, in the page
   platform.js           the platform over the shell's IPC, on core/paths.js
   native.js             `window.mdNative` over the shell's IPC
   backend.js            the entry point the app's page imports
+src/hosts/web/          the web app's shell: no server, no node, files in IndexedDB
+  kv-files.js           the store's file operations over a key-value store
+  idb.js                that key-value store, over IndexedDB; the one file no test runs
+  platform.js           the platform over `web:` handles, `drop:` files and the store
 
 public/host.js          a classic script, first in the head, empty here; a host's own shim
 public/index.html       the page: toolbar, two sidebars, document pane, Settings sheet
