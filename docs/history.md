@@ -72,19 +72,29 @@ the background: the file opens immediately and the rows appear a moment later.
 
 ## Cleaning up
 
-The **cut icon** on a row forgets that version and every version older than it — it
-cuts the list at that point rather than takes a row out of the middle of it. **Point
-at it and the rows that would go turn grey**, so the scope is readable before the
-click and not only in the sentence after it. The row then turns into its own
-confirmation, since it is the one thing here that cannot be undone, and the rows stay
-grey while it asks.
+Each row has a **…** at its end, out of sight until the row is pointed at. It and a
+right-click on the row open the same small menu, Redline's own in the app as much as
+in a browser tab:
 
-It used to be a bin, which was the wrong sign: a bin on a row offers to remove that
-row, and no amount of wording in a tooltip undoes what the icon has already promised.
-It was open scissor blades after that — cutting is the right verb — but at the size of
-a row they read as a stray mark more than a tool. What it draws now is the line you'd
-cut along rather than the tool that cuts it: a perforation, angled so it still reads
-as an edge and not a row of dots.
+- **Mark as read** puts the `read` mark on that version — see
+  [Marking read](changes.md#marking-read). It is greyed out on the row that already
+  carries `read`.
+- **Forget this and older…** — **Forget this version…** on the last row — forgets
+  that version and every version older than it. It cuts the list at that point rather
+  than takes a row out of the middle of it. **Point at it and the rows that would go
+  turn grey**, so the scope is readable before the click and not only in the sentence
+  after it. The row then turns into its own confirmation, since it is the one thing
+  here that cannot be undone, and the rows stay grey while it asks.
+
+The newest row's menu has only Mark as read, because the version on disk is never
+forgotten. From the keyboard, tab to the **…** and press Return, Space or ↓, or press
+the context-menu key; ↑ and ↓ move through the menu and Escape puts it away.
+
+Forgetting used to be an icon on the row, and three pictures of "this one and
+everything older" were tried: a bin, which promised to remove only that row; open
+scissor blades, which at that size read as a stray mark; then a perforation. A menu
+item can simply say it, and a row with a second thing to offer had room for one
+control.
 
 **Clear history**, under the list, is the same act on the second row — forget
 everything but the version on disk — and previews itself the same way. It sits under
@@ -109,10 +119,10 @@ version is split again to find it, so no text is copied into the index.
 Clearing history does **not** delete the object behind a version that a check-off
 names. The version leaves the list, but its object stays on disk so the check-off
 still works. Without that, clearing history would turn every check-off made in that
-version back into "added the whole thing". Marking a version read clears the
-check-offs, and with them these references. An object that has gone anyway, such as
-one deleted by hand, makes that check-off show the block as plain *added* again,
-with no error.
+version back into "added the whole thing". Marking the version on disk read clears
+the check-offs, and with them these references; marking an older version read keeps
+them. An object that has gone anyway, such as one deleted by hand, makes that
+check-off show the block as plain *added* again, with no error.
 
 A check-off written by an older Redline is a bare key with no version. It is kept
 and behaves as it always did.

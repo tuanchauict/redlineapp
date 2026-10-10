@@ -244,7 +244,7 @@ assert.match(appJs, /closest\('\.diagram'\)\.innerHTML = sanitizeSvg\(out\.svg\)
   'and so is a PlantUML drawing, which the jar made from the document');
 assert.deepStrictEqual(
   [...appJs.matchAll(/([\w$]+)(?:\([^)]*\))?\.innerHTML =/g)].map((m) => m[1]).sort(),
-  ['ack', 'closest', 'count', 'cut', 'doc', 'x'],
+  ['ack', 'closest', 'count', 'doc', 'more', 'x'],
   'no innerHTML the page does not know is safe',
 );
 const sanitizeJs = fs.readFileSync(new URL('./src/page/sanitize.js', import.meta.url), 'utf8');
@@ -588,12 +588,15 @@ assert.ok(!pageHtml.includes('id="markRead"'), 'no "Mark read" button on the bar
 assert.match(pageHtml, /no-diff/, 'marks suppressed before first paint');
 assert.match(pageJs, /classList\.toggle\('no-diff'/, 'the switch drives the class');
 assert.match(pageJs, /v\.current\) return !state\.diff/, 'the newest row shows that state');
-// Moving the read mark has no control in the list: the row it would have sat
-// on is the one you click to compare against that version, and from an inch
-// apart the two did nearly the same thing. What is left is the part the list
-// cannot do — saying "I have seen this" with the sidebar shut.
-assert.ok(!pageJs.includes('readAction') && !pageCss.includes('.ver-act'), 'no control on the row');
-assert.match(pageJs, /function markRead/, 'but the key still moves the mark');
+// Moving the read mark is not a button on the row: the row is the button you
+// click to compare against its version, and the two side by side did nearly the
+// same thing from an inch apart. It is in the row's menu instead, beside
+// forgetting, where any row can be marked — an older one meaning "read up to
+// here" — and the keys still say it with the sidebar shut.
+assert.ok(!pageJs.includes('readAction') && !pageCss.includes('.ver-act'), 'no button for it on the row');
+assert.match(pageJs, /markRead\(v\.current \? undefined : v\.hash\)/, "the row's menu marks that row read");
+assert.match(pageJs, /if \(at\) setMarks\(true, \{ redraw: false \}\);/, 'an older one with the marks on');
+assert.match(pageJs, /function markRead/, 'and the key still moves the mark');
 assert.match(pageJs, /key === 'm'/, 'and `m` is what reaches it');
 // Undo went with it. The version the mark came off is still in the history, so
 // the way back is clicking its row; a second, stored way back is a field, an
@@ -723,21 +726,45 @@ assert.ok(!pageJs.includes('redline:panel'), 'and nothing else reads it');
 assert.match(pageJs, /No headings in this document/, 'an empty contents list says so');
 
 // Forgetting versions is the only destructive thing in the sidebar, and it does
-// not stop at the row it sits on. A bin said otherwise — a bin on a row offers
-// to remove that row — so it cuts a list at a point instead, and pointing at
-// it dims every row that would go. That preview is pure CSS off a sibling
-// combinator, which holds only while the list is rows in one order.
-assert.ok(!pageJs.includes('M3 5h10'), 'the bin is no longer a bin');
+// not stop at the row it sits on. It was a picture on the row — a bin, then
+// scissors, then a perforation — and none of them could say "this one and
+// everything older"; a menu item can. Pointing at the item still dims every row
+// that would go. That preview is pure CSS off a sibling combinator, which holds
+// only while the list is rows in one order.
+assert.ok(!pageJs.includes('cutButton') && !pageCss.includes('.ver-cut'), 'the cut icon is gone');
+assert.match(pageHtml, /<div id="verMenu" class="menu" role="menu"/, 'a version has a menu');
+assert.match(pageJs, /row\.append\(text, moreButton\(row, v, n\)\);/, 'behind a "…" on every row');
 assert.match(
   pageJs,
-  /closest\('\.ver'\)\?\.classList\.toggle\('cutting'/,
-  'the cut icon says what it would take',
+  /row\.addEventListener\('contextmenu', \(e\) => \{\s*e\.preventDefault\(\);/,
+  'and behind a right-click on it, which the browser no longer answers',
 );
+assert.match(
+  pageJs,
+  /const mark = \(on\) => row\.classList\.toggle\('cutting', on\);\s*forget\.addEventListener\('pointerenter'/,
+  'Forget… says what it would take',
+);
+assert.match(pageJs, /if \(!v\.current\) \{\s*const one = n === 1;\s*const forget = /, 'and is never offered for the version on disk');
+assert.match(pageJs, /closeVerMenu\(\);\s*askPrune\(v\.hash\);/, 'and asks in the row, as the icon did');
 assert.ok(pageCss.includes('.ver.cutting ~ .ver'), 'and the stylesheet dims that far down');
-// `.ver:hover .ver-cut` is a class heavier than a bare `.ver-cut:hover`, so the
+// `.ver:hover .ver-more` is a class heavier than a bare `.ver-more:hover`, so the
 // hover state has to be qualified or it never applies and the control you are
 // pointing at sits at the same hint as the one you are not.
-assert.ok(pageCss.includes('.ver .ver-cut:hover'), 'the cut icon lights fully when pointed at');
+assert.ok(pageCss.includes('.ver .ver-more:hover'), 'the "…" lights fully when pointed at');
+assert.match(pageJs, /read\.disabled = !!v\.baseline;/, '"Mark as read" is off on the row already read');
+assert.match(pageCss, /\.menu button:disabled \{\s*background: none;/, 'and does not light up as if it were on');
+// The menu's keys are its own while it has them: `m` would otherwise mark the
+// newest version read from under a menu opened on an older one.
+assert.match(
+  pageJs,
+  /\$\('verMenu'\)\.addEventListener\('keydown', \(e\) => \{[^}]*e\.stopPropagation\(\);/,
+  'the menu keeps its keys',
+);
+assert.match(
+  pageJs,
+  /function paintHistory\(d\) \{[^}]*closeVerMenu\(\);/,
+  'and a repaint closes a menu about a row it is replacing',
+);
 assert.match(pageJs, /'ver ask cutting'/, 'the confirmation keeps the dim it was reached from');
 assert.match(
   pageJs,
@@ -1639,6 +1666,27 @@ console.log('✓ check a change off');
   // "All of this is seen" subsumes every "that bit is seen".
   const marked = render(await reader.markRead(id));
   assert.deepStrictEqual([marked.acked, marked.ackedFrom], [[], []], 'marking read clears the check-offs');
+
+  // An older version is "I have read up to here", which says nothing about what
+  // came after it: the mark goes back to it, and a check-off on a change made
+  // since is still a check-off.
+  await edit(`${later}\nA line written after the read, and then checked off.\n`);
+  const v5 = await show();
+  await check(v5, v5.changes[0]);
+  assert.ok(!v5.history.find((h) => h.hash === v2.hash)?.baseline, 'v2 is an older version, not the one read');
+  const upTo = render(await reader.markRead(id, v2.hash));
+  assert.strictEqual(upTo.history.find((h) => h.baseline)?.hash, v2.hash, 'the read mark moves to the version named');
+  assert.strictEqual(upTo.base, `# Doc\n\n${now}\n`, 'and the marks are measured from it');
+  assert.deepStrictEqual(upTo.acked, [v5.changes[0].key], 'with the check-off made since kept');
+  // A row drawn before another window forgot its version: nothing moves, and
+  // the list that comes back says why.
+  const stale = render(await reader.markRead(id, 'f'.repeat(16)));
+  assert.strictEqual(stale.history.find((h) => h.baseline)?.hash, v2.hash, 'a version not in the history moves nothing');
+  assert.deepStrictEqual(stale.acked, upTo.acked, 'and clears nothing');
+  // Naming the version on disk is the plain mark-read, check-offs and all.
+  const named = render(await reader.markRead(id, v5.hash));
+  assert.ok(named.history.find((h) => h.baseline)?.current, 'the version on disk, named, is marked read');
+  assert.deepStrictEqual(named.acked, [], 'and takes the check-offs with it, as it always has');
   reader.closeAll();
 
   // Check-offs written before they carried a version are kept, as keys.
@@ -1960,6 +2008,15 @@ assert.deepStrictEqual(
   { added: 0, removed: 0, modified: 0 },
   'marking read again still works',
 );
+// Any row can be marked read from its menu, and an older one is "read up to
+// here": the mark goes back to it, and the version on disk is one more away.
+if (older) {
+  const upTo = await postDoc('/api/mark-read?at=' + older.hash);
+  assert.strictEqual(upTo.history.find((h) => h.baseline)?.hash, older.hash, 'mark-read?at= moves the mark there');
+  assert.deepStrictEqual(upTo.stats, doc.stats, 'and the marks are what changed since it');
+  const again = await postDoc('/api/mark-read');
+  assert.ok(again.history.find((h) => h.baseline)?.current, 'and without it, back to the version on disk');
+}
 // Nothing is kept for an undo that no longer exists, including in a store
 // written by a version that had one.
 const indexDir = path.join(process.env.REDLINE_HOME, 'docs');
@@ -2561,6 +2618,23 @@ sixth.server.close();
     (await httpP(`/api/prune?upto=${head2.hash}`, { method: 'POST' })).body,
     'refusing to forget the newest is the same answer on both',
   );
+  // Reading up to an older version, the same both ways; and a version is a string or nothing.
+  const olderP = trimmed.history.find((h) => !h.current);
+  assert.deepStrictEqual(
+    plain(await rpc.markRead(olderP.hash)),
+    (await httpP(`/api/mark-read?at=${olderP.hash}`, { method: 'POST' })).body,
+    'marking an older version read answers with the same document',
+  );
+  await assert.rejects(rpc.markRead(42), { name: 'BadRequest' }, 'and a version that is not one is refused');
+  // Every backend the page can be handed takes the version along.
+  for (const [f, through] of [
+    ['./src/rpc/client.js', /markRead: \(at\) => call\('markRead', docId\(\), at\),/],
+    ['./src/hosts/tauri/backend.js', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
+    ['./public/backend.js', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
+    ['./src/hosts/web/worker.js', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
+  ]) {
+    assert.match(fs.readFileSync(new URL(f, import.meta.url), 'utf8'), through, `${f} passes the version on`);
+  }
 
   // Following a link: both land on the sibling, and the page is told the id it is on now.
   const sibling = path.join(tmp, 'parity-sibling.md');

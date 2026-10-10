@@ -35,7 +35,14 @@ export function createSession(reader) {
     /** The document, built against `baseline`; blank means whichever it was last compared to. */
     doc: (id, baseline) => reader.doc(id, baseline || 'last:read'),
 
-    markRead: (id) => reader.markRead(id),
+    /**
+     * Count a version as read: the one named by `at`, or the one on disk when it is blank, which
+     * is how a page that names nothing sends it.
+     */
+    markRead(id, at) {
+      if (at != null && typeof at !== 'string') throw new BadRequest('no version named');
+      return reader.markRead(id, at || undefined);
+    },
 
     /**
      * Check one change off or back on, or uncheck all of them. Answers `{ acked }`: the list of

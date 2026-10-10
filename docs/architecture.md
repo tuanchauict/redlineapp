@@ -168,7 +168,7 @@ later poll succeeds. Nothing else listens for them yet but the web worker.
 | --- | --- |
 | `GET /api/doc?id&baseline` | The whole document payload (below) |
 | `GET /events?id` | SSE: `{type:'change'}`, `{type:'file'}`, `{type:'history'}` |
-| `POST /api/mark-read?id` | Move the read mark to the current version; answers with a fresh payload |
+| `POST /api/mark-read?id&at` | Move the read mark to the current version, clearing the check-offs, or with `at` to that version in the history, keeping them. Answers with a fresh payload |
 | `POST /api/ack?id&key&on&at&block` | Check one change off, or bring it back. `at` is the version the page was showing and `block` the change's own block in it, so an edit to it later is marked against what was read. `?clear=1` for all of them. Answers with the key list and nothing else — the page has already hidden the mark |
 | `POST /api/prune?id&upto&baseline` | Forget a version and everything older; sweeps unreferenced objects |
 | `POST /api/open?id&path` | Show a different file in this page — a link to the document beside this one. Answers `{id, path}`, and the id is not the one sent: opening releases the document the page was on. Browser only; the app answers the same link with a window of its own |

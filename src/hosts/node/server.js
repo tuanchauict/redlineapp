@@ -175,7 +175,7 @@ export async function createServer({ file, plantumlJar, platform = nodePlatform 
       return answer(() => session.doc(id, param('baseline')));
     }
     if (url.pathname === '/api/mark-read' && post) {
-      return answer(() => session.markRead(id));
+      return answer(() => session.markRead(id, param('at')));
     }
     if (url.pathname === '/api/ack' && post) {
       return answer(() =>

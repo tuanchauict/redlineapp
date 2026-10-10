@@ -716,6 +716,7 @@ for (const twist of document.querySelectorAll('.side-twist')) {
 
 /** The chevron's list — the sidebar's rows, for when the sidebar is closed. */
 function openTabMenu() {
+  closeVerMenu();
   const list = $('tabList');
   list.replaceChildren(
     ...state.tabs.map((t) => {
@@ -1331,6 +1332,9 @@ function clearSidebars() {
 function paintHistory(d) {
   const list = $('histList');
   const versions = d.history ?? [];
+  // A row's menu is about a row that is about to be replaced, and possibly
+  // with different numbers in it — a save has arrived, or a version has gone.
+  closeVerMenu();
 
   $('histCount').textContent = versions.length > 1 ? String(versions.length) : '';
   $('histClear').hidden = versions.length < 2;
@@ -1396,7 +1400,23 @@ function versionRow(d, v, i) {
       : bytes(v.size);
   sub.append(el('span', 'ver-note', [longAgo(v.ts), moved].filter(Boolean).join(' · ')));
   text.append(top, sub);
-  row.append(text);
+
+  // How many would go with it: this row and every row under it, which is the
+  // same arithmetic the confirmation does.
+  const n = d.history.length - i;
+  row.append(text, moreButton(row, v, n));
+  // A right-click opens the same menu, at the pointer, in place of the
+  // browser's own: Back, Reload and Inspect have nothing to say about a
+  // version, and a right-click on an item in a list is where any app keeps
+  // what is done to it less often than a click does.
+  row.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // The context-menu key has no pointer to open at, and reports the corner.
+    const keyboard = !e.clientX && !e.clientY;
+    const from = keyboard ? row.querySelector('.ver-more') : null;
+    openVerMenu(row, v, n, { from, keyboard, x: e.clientX, y: e.clientY });
+  });
 
   // The version on disk: picking it leaves nothing to compare, which is the
   // document read plainly. It is still not a version to throw away, though —
@@ -1434,9 +1454,6 @@ function versionRow(d, v, i) {
     state.baseline = v.baseline ? 'read' : `snap:${v.hash}`;
     load({ keepScroll: true });
   });
-  // How many would go with it: this row and every row under it, which is the
-  // same arithmetic the confirmation does.
-  row.append(cutButton(v, d.history.length - i));
   return row;
 }
 
@@ -1501,68 +1518,209 @@ $('histSolo').addEventListener('click', toggleSolo);
 $('soloTag').addEventListener('click', () => setSolo(false));
 
 /**
- * Move the read mark to the version on disk. It is about the stored pointer
- * rather than what is on screen, so it works just as well while looking at an
- * older version or with the marks off.
+ * Move the read mark: to `at`, a version in the list, or without it to the
+ * version on disk. It is about the stored pointer rather than what is on
+ * screen, so it works just as well while looking at an older version or with
+ * the marks off.
  *
- * There is no control for this on the row any more. The row it would have sat
- * on is the one you click to compare against that version, and the two did
- * very nearly the same thing from an inch apart — a clean document either way.
- * What is left is the part the list cannot do: saying "I have seen this"
- * without opening the sidebar at all. Hence `m`, ⇧⌘M and the View menu, and
- * the `read` chip to say where the mark ended up.
+ * The version on disk is the usual one, and the one with keys — `m`, ⇧⌘M and
+ * the View menu — because saying "I have seen this" should not need the
+ * sidebar open. Any row can say it from its menu, where an older one means "I
+ * have read up to here". That one turns the marks on as well: the point of it
+ * is the changes that came after, and with the marks off the click would look
+ * like it had missed — the same reason picking a row turns them on.
  */
-async function markRead() {
+async function markRead(at) {
   const y = pane.scrollTop;
-  adopt(await backend.markRead());
+  state.pruneAsk = null;
+  if (at) setMarks(true, { redraw: false });
+  adopt(await backend.markRead(at));
   paint();
   pane.scrollTo(0, y);
 }
 
+/** Turn a row into its own question, and put the keyboard on the answer. */
+function askPrune(hash) {
+  state.pruneAsk = hash;
+  paintHistory(state.data);
+  $('histList').querySelector('.ask-go')?.focus();
+}
+
 /**
- * Forget this version and everything behind it — the only destructive act here.
+ * The row's "…": what can be done to a version besides comparing against it.
  *
- * It was a bin, which was the wrong sign: a bin on a row promises to remove
- * that row, and this removes the row and every row under it. It was open
- * scissor blades after that, cutting being the right verb — but at the size
- * of a row they read as a stray mark more than a tool. What it draws now is
- * the line you'd cut along rather than the tool that cuts it: a perforation,
- * angled so it still reads as an edge and not a row of dots. Pointing at it
- * dims exactly what would go, so the scope is readable before the click
- * instead of only in the confirmation after it.
+ * Comparing is what a click on the row does, because it is what is done to a
+ * version all the time; marking one read and forgetting one are done now and
+ * then, and one of them cannot be undone, so neither is a click away. They
+ * used to be one control each, at the end of the row, and a row has room for
+ * one. The cut icon that forgot versions was the third attempt at a picture of
+ * "this one and everything older" — a bin, then scissors, then a perforation —
+ * and a menu item can simply say it.
+ *
+ * Out of sight until the row is pointed at, like the × on an open file. A
+ * right-click on the row opens the same menu, for anyone who reaches for that
+ * first; this is for those who do not, and for the keyboard.
  */
-function cutButton(v, n) {
-  const cut = el('span', 'ver-cut');
-  cut.role = 'button';
-  cut.tabIndex = 0;
-  cut.title =
-    n === 1
+function moreButton(row, v, n) {
+  const more = el('span', 'ver-more');
+  more.role = 'button';
+  more.tabIndex = 0;
+  more.title = 'Mark as read, forget…';
+  more.setAttribute('aria-label', 'Actions for this version');
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-expanded', 'false');
+  more.innerHTML =
+    '<svg class="i" viewBox="0 0 16 16" aria-hidden="true">' +
+    '<circle cx="3.5" cy="8" r="1.25" /><circle cx="8" cy="8" r="1.25" />' +
+    '<circle cx="12.5" cy="8" r="1.25" /></svg>';
+
+  const open = (e, keyboard) => {
+    // Inside the row, which is a button: a click here is not a click on it.
+    e.stopPropagation();
+    e.preventDefault();
+    if (verMenu.more === more) closeVerMenu();
+    else openVerMenu(row, v, n, { from: more, keyboard });
+  };
+  more.addEventListener('click', (e) => open(e, false));
+  more.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') open(e, true);
+  });
+  return more;
+}
+
+// The row the menu is open for and the "…" on it. Kept rather than looked up,
+// because the list can be repainted under an open menu — a save arrives — and
+// the menu has to let go of what it lit even once that row has been replaced.
+const verMenu = { row: null, more: null };
+
+/**
+ * One menu for every row, filled for the row it is opened on. `n` is how many
+ * versions forgetting this one would take.
+ *
+ * Drawn by the page in every host, the desktop app included. A native menu
+ * there would be a round trip through the shell for each item, and could not
+ * do the thing this one is for: pointing at Forget greys the rows that would
+ * go, the same preview the list has always given, before anything is asked.
+ *
+ * Under the "…" it was opened from, or at the pointer for a right-click;
+ * turned upward or leftward when it would hang off the window. From the
+ * keyboard the first item is focused, and from a pointer the menu itself is —
+ * so the arrows and Escape work either way, with no focus ring for a click.
+ */
+function openVerMenu(row, v, n, { from, keyboard = false, x = 0, y = 0 }) {
+  closeVerMenu();
+  closeTabMenu();
+  const menu = $('verMenu');
+
+  const read = el('button', null, 'Mark as read');
+  read.type = 'button';
+  read.role = 'menuitem';
+  // The mark is already here. Left in rather than taken out, so the menu has
+  // the same shape on every row and the item is where it was last time.
+  read.disabled = !!v.baseline;
+  read.title = v.current
+    ? 'Count the file as it is now as read, which clears the marks (m)'
+    : 'Count this version as read: the marks then show what changed since it';
+  read.addEventListener('click', () => {
+    closeVerMenu();
+    markRead(v.current ? undefined : v.hash);
+  });
+  const items = [read];
+
+  // Never the version on disk: everything else is compared against it.
+  if (!v.current) {
+    const one = n === 1;
+    const forget = el('button', null, one ? 'Forget this version…' : 'Forget this and older…');
+    forget.type = 'button';
+    forget.role = 'menuitem';
+    forget.title = one
       ? 'Forget this version'
       : `Forget these ${n} versions — this one and everything older`;
-  cut.setAttribute('aria-label', cut.title);
-  cut.innerHTML =
-    '<svg class="i" viewBox="0 0 16 16" aria-hidden="true">' +
-    '<path d="M2 12h5M4.5 8h5M7 4h5" /></svg>';
+    // On the row rather than on the list, so the stylesheet can take it from
+    // there with `~`: what goes is this row and every row below it, which is
+    // exactly what a sibling combinator says.
+    const mark = (on) => row.classList.toggle('cutting', on);
+    forget.addEventListener('pointerenter', () => mark(true));
+    forget.addEventListener('pointerleave', () => mark(false));
+    forget.addEventListener('focus', () => mark(true));
+    forget.addEventListener('blur', () => mark(false));
+    forget.addEventListener('click', () => {
+      closeVerMenu();
+      askPrune(v.hash);
+    });
+    items.push(forget);
+  }
 
-  // On the row rather than on the list, so the stylesheet can take it from
-  // here with `~`: what goes is this row and every row below it, which is
-  // exactly what a sibling combinator says.
-  const mark = (on) => cut.closest('.ver')?.classList.toggle('cutting', on);
-  cut.addEventListener('pointerenter', () => mark(true));
-  cut.addEventListener('pointerleave', () => mark(false));
-  cut.addEventListener('focus', () => mark(true));
-  cut.addEventListener('blur', () => mark(false));
+  menu.replaceChildren(...items);
+  menu.hidden = false;
+  verMenu.row = row;
+  verMenu.more = row.querySelector('.ver-more');
+  row.classList.add('held');
+  verMenu.more?.setAttribute('aria-expanded', 'true');
 
-  const ask = (e) => {
-    e.stopPropagation();
-    state.pruneAsk = v.hash;
-    paintHistory(state.data);
-    $('histList').querySelector('.ask-go')?.focus();
-  };
-  cut.addEventListener('click', ask);
-  cut.addEventListener('keydown', (e) => (e.key === 'Enter' || e.key === ' ') && ask(e));
-  return cut;
+  const w = menu.offsetWidth;
+  const h = menu.offsetHeight;
+  let left = x;
+  let top = y;
+  if (from) {
+    const r = from.getBoundingClientRect();
+    left = r.right - w;
+    top = r.bottom + 2;
+    if (top + h > innerHeight - 6) top = r.top - 2 - h;
+  } else {
+    if (left + w > innerWidth - 6) left -= w;
+    if (top + h > innerHeight - 6) top -= h;
+  }
+  menu.style.left = `${Math.max(6, Math.min(left, innerWidth - w - 6))}px`;
+  menu.style.top = `${Math.max(6, Math.min(top, innerHeight - h - 6))}px`;
+
+  const first = items.find((b) => !b.disabled);
+  if (keyboard && first) first.focus();
+  else menu.focus({ preventScroll: true });
 }
+
+/** `refocus` puts the keyboard back on the "…", for a menu left with Escape. */
+function closeVerMenu({ refocus = false } = {}) {
+  const menu = $('verMenu');
+  if (menu.hidden) return;
+  menu.hidden = true;
+  // Taken off here and not only on the item's blur: Escape with the pointer
+  // still on Forget leaves the menu without the pointer ever leaving it.
+  verMenu.row?.classList.remove('held', 'cutting');
+  verMenu.more?.setAttribute('aria-expanded', 'false');
+  if (refocus && verMenu.more?.isConnected) verMenu.more.focus();
+  verMenu.row = verMenu.more = null;
+}
+
+$('verMenu').addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return closeVerMenu();
+  // The menu's keys and no one else's while it has them: an arrow here moves
+  // between items rather than scrolling the document, and a letter is not a
+  // command to the page behind it — `m` would mark the newest version read.
+  e.stopPropagation();
+  const items = [...$('verMenu').querySelectorAll('button:not(:disabled)')];
+  const at = items.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    const step = e.key === 'ArrowDown' ? 1 : -1;
+    const next = at < 0 ? (step > 0 ? 0 : items.length - 1) : at + step;
+    items[(next + items.length) % items.length]?.focus();
+  } else if (e.key === 'Escape' || e.key === 'Tab') {
+    e.preventDefault();
+    closeVerMenu({ refocus: true });
+  }
+});
+// A click in the menu that is not on an item — its padding, a disabled one —
+// leaves it open, the way a native menu stays up for a click on its edge.
+$('verMenu').addEventListener('click', (e) => e.stopPropagation());
+document.addEventListener('click', () => closeVerMenu());
+document.addEventListener('contextmenu', () => closeVerMenu());
+document.addEventListener('keydown', (e) => e.key === 'Escape' && closeVerMenu());
+// Fixed to the window, so anything that moves the row out from under it
+// leaves it pointing at nothing.
+$('histList').addEventListener('scroll', () => closeVerMenu());
+addEventListener('resize', () => closeVerMenu());
+addEventListener('blur', () => closeVerMenu());
 
 /** The row, turned into its own confirmation. `n` is how many would go. */
 function pruneAskRow(v, n) {
@@ -1603,15 +1761,12 @@ $('histClear').addEventListener('click', () => {
   // "Clear" is the same act as forgetting everything below the current
   // version, so it asks in the same place, on that row.
   const second = state.data?.history?.[1];
-  if (!second) return;
-  state.pruneAsk = second.hash;
-  paintHistory(state.data);
-  $('histList').querySelector('.ask-go')?.focus();
+  if (second) askPrune(second.hash);
 });
 
-// And it previews the same way the cut icon does, from the row it would cut at —
-// everything but the version on disk. A button under the list says what it
-// acts on far less plainly than the list going dim does.
+// And it previews the same way Forget in a row's menu does, from the row it
+// would cut at — everything but the version on disk. A button under the list
+// says what it acts on far less plainly than the list going dim does.
 for (const [on, when] of [
   [true, 'pointerenter'],
   [false, 'pointerleave'],
