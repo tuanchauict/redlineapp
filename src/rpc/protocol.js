@@ -14,7 +14,8 @@
 //     { t: 'ret', id, v }        the result of call `id`
 //     { t: 'err', id, e }        call `id` failed; `e` is { name, message }
 //     { t: 'ev', e }             a reader event: change, file or history
-//     { t: 'live', on, why }     what `onLive` would have said
+//     { t: 'live', on, why, needs }  what `onLive` would have said; `needs` is a host's hint of
+//                                what would fix it ('permission'), and absent otherwise
 //     { t: 'command', name }     a command the host started, such as a keybinding
 //
 // `watch` is an ordinary call: its `ret` means "subscribed", and `ev` messages follow. A

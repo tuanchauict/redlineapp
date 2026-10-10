@@ -49,6 +49,9 @@ src/hosts/web/          the web app's shell: no server, no node, files in Indexe
   kv-files.js           the store's file operations over a key-value store
   idb.js                that key-value store, over IndexedDB; the one file no test runs
   platform.js           the platform over `web:` handles, `drop:` files and the store
+  handles.js            the folders the user granted, what a doc id was, what may be read now
+  worker.js             the reader, in a SharedWorker: one per origin, a document per tab
+  backend.js            the page's end of it: finds the worker, pings it, asks for permission
 
 public/host.js          a classic script, first in the head, empty here; a host's own shim
 public/index.html       the page: toolbar, two sidebars, document pane, Settings sheet
@@ -136,6 +139,17 @@ way; `ret`, `err`, `ev`, `live`, `command` the other, all structured-cloneable),
 `createRpcBackend` is the third implementation of the seam below. A test serves one reader
 over http and over a `MessageChannel` and holds the answers equal, so a transport cannot
 quietly decide something on its own.
+
+`bye` stops the connection's watch and then calls the host's `onBye`, for a host that holds a
+document on a page's behalf and has to let go of it (the web worker retains on `hello`). A
+host's own calls go in `extra`, tried before the session, and reach the page through the
+client's `call`, which the page never uses itself: a host's wrapper does. A `live` message
+may carry `needs`, the host's hint at what would fix it — `'permission'`, today.
+
+The reader says when it cannot read a file it could. Node and Tauri answer an unreadable file
+with `null`, but a browser handle whose permission was taken back *throws*, so the poll
+catches it and emits `{ type: 'unreadable', name, why }` once, and `{ type: 'readable' }` when a
+later poll succeeds. Nothing else listens for them yet but the web worker.
 
 | | |
 | --- | --- |
@@ -368,18 +382,49 @@ already on the window.
 The label is there so the page can say which window's events it wants; see the third
 of the [three Rust things](#the-desktop-shell) below for why that is not the default.
 
-`public/backend.js` reads the first of those and becomes one of two things (a third,
-`src/rpc/client.js`, is the same surface over messages, for a host that has neither a
-server nor the reader in the page):
+`public/backend.js` reads the first of those and becomes one of three things (the
+`createRpcBackend` in `src/rpc/client.js` is the same surface over messages, for a host that
+has neither a server nor the reader in the page, and the third is built on it):
 
 | | |
 | --- | --- |
 | No `__REDLINE_HOST` | `fetch` and an `EventSource` against the server the page came from. Reconnecting a dropped stream lives here, because that is a fact about http and means nothing further up |
 | `__REDLINE_HOST` | A dynamic import of `vendor/backend-tauri.js`, which builds the reader **in the page** over `hosts/tauri/platform.js` and calls it directly. A browser tab never downloads it |
+| `__REDLINE_WEB` | A dynamic import of `vendor/backend-web.js`, which reaches the reader **in a SharedWorker** (`vendor/reader-worker.js`, over `hosts/web/platform.js`) through `createRpcBackend`, and adds what a tab has that the others do not. See below |
 
-Both expose the same methods with the same arguments, which is the whole point: the
+All three expose the same methods with the same arguments, which is the whole point: the
 one implementation of the diff runs wherever the page is, so a tab and the app
 cannot disagree about what changed.
+
+### The web app's reader
+
+One reader for every tab of the origin, so two tabs on one file share a poll and a snapshot
+store. It is `createWebHost` in `src/hosts/web/worker.js`, run as a SharedWorker named
+`redline`; a browser with none gets the same code in the page behind a `MessageChannel`, one
+reader a tab over the one IndexedDB store.
+
+- **A tab holds a document from `hello` to `bye` or to silence.** `hello` retains the document
+  the page names, `bye` releases it, and a page that has said neither for 30 s is let go of,
+  because a closed tab cannot say so. The page pings every 10 s. A sweep that finds a tab
+  silent releases it; its next message of any kind takes the document again and answers with a
+  `change`, so a hidden tab whose timers were throttled catches up instead of going stale. The
+  back/forward cache is `pagehide` → `bye` and `pageshow` (persisted) → `hello`, a new watch
+  and a `change`; that wiring is in `backend.js`, where a test can reach it.
+- **A reload is `?id=`.** The worker remembers `docId → { rootId, rel }` in the `opened` store,
+  so a fresh worker can find the file again. The folder's permission decides what happens:
+  `granted` opens it, `prompt` is `NeedsPermission`, and `denied` or a root the registry does
+  not have is `NoDocument` — the page's cue for the welcome and a clean address.
+- **Permission is asked only by a page, from a click.** The worker can *query* a handle and
+  never ask. On `NeedsPermission` — from a load, or from a watch whose poll was refused
+  (`live` with `needs: 'permission'`) — the page finds the root's name in the stores and tells
+  whoever called `onNeedsPermission(fn)`; its button calls `reopen()`, which
+  `requestPermission`s on the handle it already holds and then tells the worker (`grant`), which
+  checks for itself before it believes it. The button is the welcome page's work.
+- **Handles go to the worker as they are** (`addRoot`, over `postMessage`), and only the worker
+  writes the `roots` store, so two tabs picking one folder at once are one root
+  (`isSameEntry`). The page reads the stores, to hold the handle it will ask about.
+- A document from a drop has no handle to keep: `drop:<name>` lives in the worker's memory, and
+  does not outlive it.
 
 ## The desktop shell
 
