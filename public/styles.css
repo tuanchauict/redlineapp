@@ -1946,6 +1946,10 @@ main::-webkit-scrollbar-thumb:hover {
   background: transparent;
   box-shadow: none;
   text-align: left;
+  /* `text-overflow` cuts a line short only where the line cannot wrap; without this a long path
+     wrapped onto a second row instead, and the ellipsis never had anything to do. The two spans
+     inside are inline with nothing between them, so they stay on the one row. */
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }

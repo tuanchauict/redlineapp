@@ -108,11 +108,19 @@ const NOT_MARKDOWN =
  * @param {() => Promise<void>} deps.granted  `reopen` was granted: load again, or open the link
  *   that was refused.
  * @param {() => void} deps.back  Leave the welcome for the document that is still on screen.
+ * @param {() => void} [deps.show]  Bring the welcome up if it is not. A drop lands on the window,
+ *   with a document on screen, and a folder's list is drawn in a section that is hidden.
+ * @param {(text: string) => void} [deps.notify]  Say something where the user is looking. What
+ *   the welcome has to say while it is hidden -- a refusal -- goes here, since revealing it for
+ *   that would take the user off the document for a file they were told they cannot open.
  * @param {typeof globalThis} [deps.win]  Pickers, `navigator`, and what fires `dragover`.
  * @param {Document} [deps.doc]
  * @returns {{ sync: (state: { reopen?: string|null, back?: boolean }) => void }}
  */
-export function mountWelcome(el, { backend, open, granted, back, win = globalThis, doc }) {
+export function mountWelcome(
+  el,
+  { backend, open, granted, back, show = () => {}, notify = null, win = globalThis, doc },
+) {
   doc ??= el.ownerDocument ?? win.document;
   const canFolder = typeof win.showDirectoryPicker === 'function';
   const canFile = typeof win.showOpenFilePicker === 'function';
@@ -129,6 +137,9 @@ export function mountWelcome(el, { backend, open, granted, back, win = globalThi
     attrs: { role: 'status' },
   });
   const say = (text) => {
+    // The status line is inside the section, so while that is hidden nobody can read it: a drop
+    // onto a page with a document open that cannot be opened would otherwise say nothing at all.
+    if (text && el.hidden && notify) return notify(text);
     status.textContent = text ?? '';
     status.hidden = !text;
   };
@@ -192,6 +203,10 @@ export function mountWelcome(el, { backend, open, granted, back, win = globalThi
   );
 
   async function showFolder(handle) {
+    // Before anything is drawn: bringing the welcome up syncs it, and a sync clears the status and
+    // the list, so it would wipe what was filled in if it came after. A drop is the one way here
+    // with the section hidden, and a folder is the one kind of drop that is answered by a list.
+    show();
     say(`Reading ${handle.name}…`);
     const { files, capped } = await listMarkdown(handle);
     say(files.length ? '' : `${handle.name} has no markdown files, nor do the folders in it.`);

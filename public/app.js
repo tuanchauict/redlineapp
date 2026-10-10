@@ -147,6 +147,16 @@ const welcome = backend.welcome?.(welcomeEl, {
     pendingLink = null;
     hideWelcome();
   },
+  // A drop lands on the window whatever is showing. A folder is answered with a list, which is
+  // drawn in the welcome, so the welcome has to be up first -- but only if it is not already:
+  // showing it again would tell it there is nothing to ask for again, and a "Reopen" button the
+  // user is looking at would go.
+  show: () => {
+    if (welcomeEl.hidden) showWelcome();
+  },
+  // What it has to say while it is hidden (a file that is not markdown, one that would not open)
+  // goes where the user is looking instead of onto a screen they have not been taken to.
+  notify: (text) => notify(text),
 });
 
 // The link the user clicked when the folder it is in turned out to need asking for again: asked
@@ -260,6 +270,7 @@ async function load({ keepScroll = true } = {}) {
       clearDocId();
       state.data = null;
       doc.replaceChildren();
+      clearSidebars();
       unwatch?.();
       unwatch = null;
       showWelcome();
@@ -1301,6 +1312,20 @@ function isBaseline(d, v) {
   // HEAD holds of it. Reached only through the Settings default.
   if (d.baseline === 'git:HEAD') return v.hash === d.history.find((h) => h.git)?.hash;
   return false;
+}
+
+/**
+ * The two sidebars for a page with no document. The welcome hides `#doc`, but Contents and
+ * History are not inside it: left alone they go on listing the headings and versions of a file
+ * the reader has let go of, and a row clicked would scroll to a node that is no longer there.
+ * Painting them with nothing resets the counts and the rows' bookkeeping; the lists are then
+ * emptied, because "No headings in this document" would be a claim about one.
+ */
+function clearSidebars() {
+  paintToc({});
+  paintHistory({});
+  $('tocList').replaceChildren();
+  $('histList').replaceChildren();
 }
 
 function paintHistory(d) {

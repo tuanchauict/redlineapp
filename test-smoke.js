@@ -4053,9 +4053,11 @@ const memoryKv = () => {
 
     /**
      * A tab showing the welcome, with `extra` as what the browser has on `window`. `shows` is the
-     * `?id=` it was loaded with, which the worker is told as the page connects.
+     * `?id=` it was loaded with, which the worker is told as the page connects. `wiring` is for a
+     * page that has a document on screen: `hidden` starts the section hidden, as `#welcome` is
+     * then, and `hooks` are the page's own, which a page without a document has no need of.
      */
-    const mount = async (host, extra, shows = null) => {
+    const mount = async (host, extra, shows = null, wiring = {}) => {
       const page = await openPage(host, shows);
       const doc = fakeDoc();
       const calls = { opened: [], ids: [], granted: 0, back: 0, persist: 0 };
@@ -4064,6 +4066,7 @@ const memoryKv = () => {
         ...extra,
       });
       const el = doc.createElement('section');
+      el.hidden = Boolean(wiring.hidden);
       // What the page's `openFile` does: ask the backend, and show it if it opens.
       const open = async (path) => {
         try {
@@ -4077,7 +4080,7 @@ const memoryKv = () => {
         }
       };
       const granted = async () => void calls.granted++;
-      const hooks = { open, granted, back: () => void calls.back++ };
+      const hooks = { open, granted, back: () => void calls.back++, ...wiring.hooks };
       return { page, doc, el, calls, w: page.backend.welcome(el, hooks) };
     };
     const dropOf = (page, items, files = [], types = ['Files']) => {
@@ -4356,6 +4359,63 @@ const memoryKv = () => {
       assert.deepStrictEqual(unhandled, [], 'nothing was left unhandled');
       console.log('✓ the welcome asks again for a lapsed folder, and offers the way back');
     }
+
+    // --- a drop with a document on screen: the welcome is hidden, and nothing it draws is seen ---
+    {
+      const said = [];
+      const asked = [];
+      const w = await mount(hostW, { showDirectoryPicker: async () => proj }, null, {
+        hidden: true,
+        hooks: {
+          // What the page's `show` does: nothing if the welcome is up, and otherwise `showWelcome`,
+          // which un-hides it and syncs it -- and a sync clears the status and the list.
+          show: () => {
+            asked.push(files(w.el).length);
+            if (!w.el.hidden) return;
+            w.el.hidden = false;
+            w.w.sync({ back: true });
+          },
+          notify: (text) => said.push(text),
+        },
+      });
+      const item = (give) => ({ kind: 'file', ...give });
+      const copy = (n, text) => ({ name: n, text, lastModified: 5 });
+
+      dropOf(w.page, [item({ getAsFileSystemHandle: async () => proj })]);
+      await until(() => files(w.el).length === 2, 'a dropped folder to be listed');
+      assert.deepStrictEqual(asked, [0], 'the page is asked for the welcome before the list');
+      assert.ok(!w.el.hidden, 'so the welcome is up');
+      assert.ok(shown(named(w.el, 'welcome-list')[0]), 'and the list is where it can be read');
+      assert.ok(shown(button(w.el, 'Back to the document')), 'with the way back to the document');
+      assert.deepStrictEqual(said, [], 'a folder is answered in the welcome and not by a notice');
+
+      // Back to the document: the welcome is hidden again, and a refusal must still be heard.
+      w.el.hidden = true;
+      dropOf(w.page, [item({ getAsFile: () => copy('pic.png', async () => '') })]);
+      await until(() => said.length === 1, 'a picture dropped on a document to be refused');
+      assert.match(said[0], /Redline opens markdown/, 'is told so by the page');
+      assert.ok(w.el.hidden && asked.length === 1, 'and the user is not taken off the document');
+      assert.strictEqual(status(w.el).textContent, '', 'nor is it said where it cannot be read');
+
+      const bad = async () => {
+        throw refusal('NotReadableError');
+      };
+      dropOf(w.page, [item({ getAsFile: () => copy('unreadable.md', bad) })]);
+      await until(() => said.length === 2, 'a file that will not open to be refused');
+      assert.match(said[1], /^Could not open that/, 'a failure is said the same way');
+      assert.ok(w.el.hidden, 'and still without the welcome');
+
+      const before = w.calls.opened.length;
+      dropOf(w.page, [item({ getAsFile: () => copy('fine.md', async () => '# Fine\n') })]);
+      await until(() => w.calls.opened.length === before + 1, 'a markdown file to open');
+      assert.deepStrictEqual(
+        [said.length, asked.length, w.el.hidden],
+        [2, 1, true],
+        'a file that opens is just opened: no notice, and the welcome stays out of the way',
+      );
+      assert.deepStrictEqual(unhandled, [], 'and none of it left a rejection nobody handled');
+      console.log('✓ a drop on a document: the welcome for a folder, a notice for a refusal');
+    }
   }
 
   for (const p of pages) p.backend.close();
@@ -4464,6 +4524,33 @@ const memoryKv = () => {
       'the backend naming a lapsed folder shows it, with its name',
     );
     assert.match(appJs, /hideWelcome\(\);\s*paint\(\);/, 'and a document that paints hides it');
+    const hooks = appJs.match(/backend\.welcome\?\.\(welcomeEl, \{([\s\S]*?)\n\}\);/)?.[1] ?? '';
+    assert.ok(
+      /show: \(\) => \{\s*if \(welcomeEl\.hidden\) showWelcome\(\);\s*\},/.test(hooks) &&
+        /notify: \(text\) => notify\(text\),/.test(hooks),
+      'a drop on a document brings the welcome up if it is not, and a refusal goes to the notice',
+    );
+    assert.match(
+      appJs,
+      /doc\.replaceChildren\(\);\s*clearSidebars\(\);/,
+      'a document that is none takes Contents and History with it',
+    );
+    const clearing = appJs.match(/function clearSidebars\(\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+    assert.deepStrictEqual(
+      clearing.trim().split('\n').map((l) => l.trim()),
+      [
+        'paintToc({});',
+        'paintHistory({});',
+        "$('tocList').replaceChildren();",
+        "$('histList').replaceChildren();",
+      ],
+      'which resets what they keep and empties their lists',
+    );
+    const fileRule = pageCss.match(/\n\.welcome-file \{([^}]*)\}/)?.[1] ?? '';
+    assert.ok(
+      /white-space: nowrap;/.test(fileRule) && /text-overflow: ellipsis;/.test(fileRule),
+      'a long path in the folder list is cut short and does not wrap, which needs both',
+    );
     assert.match(
       appJs,
       /const why = await backend\.linkNote\?\.\(state\.data\?\.path\);\s*if \(why\) notify\(why\);/,

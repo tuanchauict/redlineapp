@@ -446,9 +446,10 @@ reader a tab over the one IndexedDB store.
   (`showWelcome` and `hideWelcome` in `app.js`: they hide `#doc` and set `html.welcoming`) and
   the module owns what is inside; it builds it with `createElement` and `textContent`, because a
   file name is the user's. It shows when `doc` is `NoDocument` (and then drops `?id=` from the
-  address) or `NeedsPermission` (and offers **Reopen** *name*: `reopen()`, then the page loads
-  again, or opens the link that was refused). No other backend has a `welcome`, which is the
-  whole of why a shell, VS Code and the CLI's tab never show one.
+  address, and empties Contents and History, which are outside `#doc` and would go on listing a
+  file the reader has let go of) or `NeedsPermission` (and offers **Reopen** *name*: `reopen()`,
+  then the page loads again, or opens the link that was refused). No other backend has a
+  `welcome`, which is the whole of why a shell, VS Code and the CLI's tab never show one.
   - **Open folder…** (`showDirectoryPicker({ mode: 'read' })`, the primary button) lists the
     files a link would open — `MD_LINK`, in `core/links.js`, the same pattern the page follows
     links by — three folders down and at most 500, without entering dot-folders or
@@ -461,7 +462,11 @@ reader a tab over the one IndexedDB store.
   - **A drop** anywhere on the window — it is on the window, not the welcome, because a file
     dropped on a page that is not listening is opened *by the browser*, in place of the page.
     `getAsFileSystemHandle()` is read first and is the same as a pick, folder or file; a `File`
-    with no handle is a copy.
+    with no handle is a copy. A drop with a document on screen finds the welcome hidden, so it
+    reaches the page through two hooks: `show`, called before a folder's list is drawn (a sync
+    clears the list, so afterwards would wipe it; and a no-op if the welcome is already up, so it
+    cannot lose a **Reopen** button), and `notify`, for anything the welcome would say while
+    hidden. A refusal goes to the notice and does not take the user off the document.
   - **No File System Access** (no `showDirectoryPicker`): `<input type="file">`, and every file is
     a copy, `drop:<name>` — no watching, no links, and a name is the whole of its identity, so
     two files of one name are one history. The welcome says so.
