@@ -83,10 +83,14 @@ count as one without a certificate.
   as one rule for every path. The hash is of the head script in the *staged* `index.html`, so
   a change to that script moves it, and a build that did not would ship a page whose first
   script is blocked. Every path, because a worker is held to the policy on its own response.
-- **The worker is named for the build**, `redline@<version>`: the shim that `stage-page.mjs`
-  stages puts `package.json`'s version on the window, and the page reads it. A SharedWorker is
-  found by URL and name, so without that a deploy leaves new pages joining the old reader that
-  an old tab keeps alive. Deploys are on a release tag, so a new build is a new version.
+- **The worker is named for the build**, `redline@<version>+<hash>`: the shim that
+  `stage-page.mjs` stages puts `package.json`'s version and a hash of the two staged bundles
+  (`vendor/backend-web.js` and `vendor/reader-worker.js`, sha256, 12 hex) on the window, and the
+  page reads it. A SharedWorker is found by URL and name, so without that a deploy leaves new
+  pages joining the old reader that an old tab keeps alive. The hash is there because the
+  version is not enough: it is the same across every `npm run webapp` and every redeploy of a
+  release, and each is new reader code. The same bytes are the same name, so a rebuild that
+  changed nothing does not leave a worker behind.
 - **Size.** About 5.9 MB staged, of which Mermaid's minified ESM tree is 5.2 MB in 105 files.
   That is the tree the desktop app ships too, it is fetched only by a document that draws a
   diagram, and it is far from the limits on files and file size that a static host such as

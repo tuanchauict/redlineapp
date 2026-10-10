@@ -87,8 +87,15 @@ export function createWebappServer(root) {
       res.end(body);
     };
 
-    const url = new URL(req.url, 'http://127.0.0.1');
-    const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    // A target that does not parse (`//`) or does not decode (`/100%`, `/%E0%A4%A`) throws, and a
+    // throw in a request handler is an uncaught exception: one bad request and the server is gone,
+    // with the page that was being served from it.
+    let rel;
+    try {
+      rel = decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname).replace(/^\/+/, '');
+    } catch {
+      return send(400, 'Bad request');
+    }
     const file = path.join(root, rel.endsWith('/') || rel === '' ? `${rel}index.html` : rel);
 
     // Whatever the path said, it has to land inside the app. This listens on the loopback only,

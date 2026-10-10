@@ -4614,9 +4614,10 @@ const memoryKv = () => {
 // apart by name: those are for the first deploy and a person with a browser to show.
 {
   const vm = await import('node:vm');
-  const { stagePage } = await import('./scripts/stage-page.mjs');
+  const { HOSTS, stagePage, assertSafeDest, bundleHash } = await import('./scripts/stage-page.mjs');
   const { buildWebapp, headersFile } = await import('./scripts/build-webapp.mjs');
   const { createWebappServer } = await import('./scripts/serve-webapp.mjs');
+  const { createSiteServer } = await import('./scripts/serve-site.mjs');
   const { workerName, openPort } = await import('./src/hosts/web/backend.js');
   const read = (f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
   const version = JSON.parse(read('./package.json')).version;
@@ -4677,7 +4678,7 @@ const memoryKv = () => {
   assert.deepStrictEqual(Object.keys(shimOf(tauri)), [], 'and sets nothing on the window');
   const webWin = shimOf(web);
   assert.strictEqual(webWin.__REDLINE_WEB, true, 'the web app\'s shim says it is the web app');
-  assert.strictEqual(webWin.__REDLINE_VERSION, version, 'and which build');
+  assert.ok(webWin.__REDLINE_VERSION.startsWith(`${version}+`), 'and which build');
   fs.writeFileSync(path.join(web, 'stale.txt'), 'a file that stopped being part of the page');
   stagePage(web, { host: 'web' });
   assert.ok(!fs.existsSync(path.join(web, 'stale.txt')), 'restaging empties the directory first');
@@ -4691,6 +4692,43 @@ const memoryKv = () => {
   assert.match(read('./scripts/build-webapp.mjs'), /stagePage\(dest, \{ host: 'web' \}\)/,
     'and build:webapp is stagePage for the web');
   console.log('✓ stage-page gives each host its own reader, and the desktop page is as it was');
+
+  // --- stage-page empties what it is given, so it is not given the repository -----------------
+  // The guard is asked about the repository, and `stagePage` never is: were it ever to regress,
+  // the test that called `stagePage('.')` would be what deleted the repository, .git and all.
+  const repo = path.resolve(fileURLToPath(new URL('.', import.meta.url)));
+  const refused = (dir, root) => assert.throws(
+    () => assertSafeDest(dir, root),
+    (err) => err.message.includes(dir) && /refusing to empty/.test(err.message),
+    `${dir} is refused, by name`,
+  );
+  for (const dir of [
+    repo,
+    path.resolve(repo, ''),
+    path.resolve(repo, '.'),
+    path.resolve(repo, '..'),
+    path.dirname(path.dirname(repo)),
+    path.parse(repo).root,
+  ]) refused(dir);
+  refused('/x', '/x/..foo'); // `..foo` is a name, and the repository is in it: not a way up
+  const [shellDist, distWeb] = [path.join(repo, 'shell', 'dist'), path.join(repo, 'dist', 'web')];
+  for (const dir of [
+    shellDist,
+    distWeb,
+    path.join(repo, '..foo'),
+    path.join(path.dirname(repo), 'beside-the-repository'),
+    out,
+    web,
+  ]) assert.doesNotThrow(() => assertSafeDest(dir), `${dir} is somewhere to put a build`);
+  assert.doesNotThrow(() => assertSafeDest('/x/..foo', '/x'), '`..foo` inside it is fine');
+  const stageSrc = read('./scripts/stage-page.mjs');
+  const stageBody = stageSrc.slice(stageSrc.indexOf('export function stagePage'));
+  assert.ok(
+    stageBody.indexOf('assertSafeDest(out);') > 0 &&
+      stageBody.indexOf('assertSafeDest(out);') < stageBody.indexOf('fs.rmSync(out'),
+    'and stagePage asks before it removes anything, not after',
+  );
+  console.log('✓ stagePage will not empty the repository, or anything that holds it');
 
   // --- _headers: the hash is of what is staged, and the worker may load ----------------------
   const built = buildWebapp(path.join(out, 'app')).dest;
@@ -4731,10 +4769,38 @@ const memoryKv = () => {
   assert.ok(/^dist\/$/m.test(read('./.gitignore')), 'dist/web is build output, not source');
   console.log('✓ _headers: the hash is the staged head script\'s, and worker-src is there');
 
+  // --- the build is its version and the bundles the reader is made of -------------------------
+  // A version alone is the same across every rebuild at that version, and each of those is new
+  // reader code that a tab left open would keep alive for the new tabs to join.
+  const bundlesOf = (dir) =>
+    ['backend-web.js', 'reader-worker.js'].map((f) => fs.readFileSync(path.join(dir, 'vendor', f)));
+  const build = `${version}+${bundleHash(bundlesOf(web))}`;
+  assert.strictEqual(shimOf(web).__REDLINE_VERSION, build,
+    'the staged shim carries the version and the hash of the two staged bundles');
+  assert.strictEqual(shimOf(built).__REDLINE_VERSION, build, 'and build:webapp\'s page the same');
+  assert.match(build, /^\d+\.\d+\.\d+\S*\+[0-9a-f]{12}$/, 'written 0.7.0+3fa9c2d1e0b4');
+  const [first, second] = [Buffer.from('the reader'), Buffer.from('its page end')];
+  const hashed = bundleHash([first, second]);
+  assert.strictEqual(bundleHash([Buffer.from('the reader'), Buffer.from('its page end')]), hashed,
+    'the same bytes are the same name, so a rebuild that changed nothing starts no new worker');
+  assert.notStrictEqual(bundleHash([Buffer.from('the reader!'), second]), hashed,
+    'a byte of the first bundle changes it');
+  assert.notStrictEqual(bundleHash([first, Buffer.from('its page end!')]), hashed,
+    'and a byte of the second');
+  assert.notStrictEqual(bundleHash([second, first]), hashed, 'and the order they are in');
+  assert.notStrictEqual(
+    bundleHash([Buffer.from('the reade'), Buffer.from('rits page end')]),
+    hashed,
+    'and a byte moved over the join, which a bare concatenation would not see',
+  );
+  assert.deepStrictEqual(HOSTS.web.bundles, ['backend-web.js', 'reader-worker.js'],
+    'the two the web app loads are the two that are hashed, in this order');
+  console.log('✓ the build is the version and a hash of the bundles the reader is made of');
+
   // --- the worker is named for the build -------------------------------------------------
   assert.strictEqual(workerName({}), 'redline@dev', 'a page nobody built says dev');
-  assert.strictEqual(workerName(webWin), `redline@${version}`,
-    'the staged shim is what names it: this build\'s version');
+  assert.strictEqual(workerName(webWin), `redline@${build}`,
+    'the staged shim is what names it: this build, bundles and all');
   const joined = [];
   globalThis.SharedWorker = class {
     constructor(url, opts) {
@@ -4744,7 +4810,7 @@ const memoryKv = () => {
   };
   try {
     await openPort();
-    globalThis.__REDLINE_VERSION = '9.9.9';
+    globalThis.__REDLINE_VERSION = '9.9.9+0123456789ab';
     await openPort();
   } finally {
     delete globalThis.SharedWorker;
@@ -4752,7 +4818,10 @@ const memoryKv = () => {
   }
   assert.deepStrictEqual(
     joined.map((j) => j.opts),
-    [{ type: 'module', name: 'redline@dev' }, { type: 'module', name: 'redline@9.9.9' }],
+    [
+      { type: 'module', name: 'redline@dev' },
+      { type: 'module', name: 'redline@9.9.9+0123456789ab' },
+    ],
     'the page joins the worker of its own build, so a deploy does not hand it an old reader',
   );
   assert.ok(joined.every((j) => j.url.endsWith('/reader-worker.js')), 'at the bundle beside it');
@@ -4762,9 +4831,9 @@ const memoryKv = () => {
   const server = createWebappServer(built);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const site = `http://127.0.0.1:${server.address().port}`;
-  const rawPath = (p) =>
+  const rawPath = (p, srv = server) =>
     new Promise((resolve, reject) => {
-      http.get({ host: '127.0.0.1', port: server.address().port, path: p }, (res) => {
+      http.get({ host: '127.0.0.1', port: srv.address().port, path: p }, (res) => {
         res.resume();
         resolve(res.statusCode);
       }).on('error', reject);
@@ -4808,6 +4877,39 @@ const memoryKv = () => {
   assert.strictEqual(npmScripts.prewebapp, 'npm run build:web && npm run build:webapp',
     'which builds the bundles and the app first, so there is one command');
   console.log('✓ npm run webapp serves dist/web with its headers, .mjs as script, and no more');
+
+  // --- a request that does not parse is that request's problem, not the server's --------------
+  // A throw in a request handler is an uncaught exception, so one `GET /100%` ended the process
+  // and the page with it. Both static servers, since they are the same twenty lines.
+  for (const [name, serve] of [
+    ['webapp', () => createWebappServer(built)],
+    ['site', () => createSiteServer()],
+  ]) {
+    const srv = serve();
+    await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${srv.address().port}`;
+    try {
+      // `/%E0%A4%A` is half of a three-byte character and `/100%` is a bare `%`: neither
+      // decodes. `//` is a protocol-relative URL with no host, which does not parse at all.
+      for (const bad of ['/%E0%A4%A', '/100%', '/%', '//', '///']) {
+        assert.strictEqual(await rawPath(bad, srv), 400, `${name}: ${bad} is a bad request`);
+      }
+      const res = await fetch(`${base}/%E0%A4%A`);
+      assert.strictEqual(res.status, 400);
+      assert.strictEqual(await res.text(), 'Bad request');
+      assert.strictEqual(res.headers.get('cache-control'), 'no-store',
+        `${name}: it is answered like anything else, nothing held`);
+      if (name === 'webapp') {
+        assert.strictEqual(res.headers.get('content-security-policy'),
+          rule['Content-Security-Policy'], 'with the policy, which is on every response');
+      }
+      assert.strictEqual((await fetch(`${base}/`)).status, 200, `${name}: and is still serving`);
+    } finally {
+      srv.closeAllConnections?.();
+      srv.close();
+    }
+  }
+  console.log('✓ a request that does not parse is a 400, and both static servers stay up');
 
   fs.rmSync(out, { recursive: true, force: true });
 }
@@ -5466,7 +5568,9 @@ assert.match(serveSite, /'127\.0\.0\.1'/, 'on the loopback and nowhere else');
 assert.match(serveSite, /'cache-control': 'no-store'/, 'holding nothing between edits');
 // A static server over a directory in a repository full of things that are not
 // the landing page. `..` has to stop at site/, however it was spelt.
-assert.match(serveSite, /relative\(SITE, file\)\.startsWith\('\.\.'\)/, 'and serving only site/');
+assert.match(serveSite, /relative\(root, file\)\.startsWith\('\.\.'\)/, 'and serving only site/');
+assert.match(serveSite, /createSiteServer\(\);[\s\S]*server\.listen/,
+  'npm run site is the server this tests, not another one beside it');
 
 // The icon is copied in rather than committed, so the deploy has to run the
 // script that copies it -- an unbuilt site/ is a page with no icon and no link

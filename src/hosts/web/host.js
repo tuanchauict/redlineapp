@@ -7,6 +7,6 @@
 //
 // Not copied into `public/` -- the repository's own `public/host.js` stays the empty one, and the
 // web app's build stages this file over it (`stage-page.mjs`) so that a change here cannot reach
-// the Mac app or the CLI. The build also appends one line, `__REDLINE_VERSION`, which names the
-// worker (`workerName` in backend.js).
+// the Mac app or the CLI. The build also appends one line, `__REDLINE_VERSION`, which is the
+// version and a hash of the two bundles, and names the worker (`workerName` in backend.js).
 globalThis.__REDLINE_WEB = true;

@@ -413,13 +413,14 @@ cannot disagree about what changed.
 
 One reader for every tab of the origin, so two tabs on one file share a poll and a snapshot
 store. It is `createWebHost` in `src/hosts/web/worker.js`, run as a SharedWorker named
-`redline@<version>`; a browser with none gets the same code in the page behind a
+`redline@<version>+<hash>`; a browser with none gets the same code in the page behind a
 `MessageChannel`, one reader a tab over the one IndexedDB store. A SharedWorker is found by its
 URL and its name, so a name that did not change would, after a deploy, hand a new tab the old
-reader that a tab left open on the old build keeps alive. The version is in the name for that:
-two builds get a worker each, over the one store, which is the case the fallback already depends
-on and which `idb.js` allows by closing its connection on `versionchange`. The page learns the
-version from the shim the build stages (below).
+reader that a tab left open on the old build keeps alive. The build is in the name for that:
+the version and a hash of the two bundles the reader is made of, because the version alone is
+the same across every rebuild at one version. Two builds get a worker each, over the one store,
+which is the case the fallback already depends on and which `idb.js` allows by closing its
+connection on `versionchange`. The page learns the build from the shim the build stages (below).
 
 - **A tab holds a document from `hello` to `bye` or to silence.** `hello` retains the document
   the page names, `bye` releases it, and a page that has said neither for 30 s is let go of,
@@ -506,9 +507,13 @@ shim over `public/host.js`. `build:web` writes every host's bundles into `public
 `public/` is copied whole, so each host leaves out the others'. `build-dist.mjs` and
 `build-webapp.mjs` are one call each.
 
-- **The shim** is `src/hosts/web/host.js` with one line added, `__REDLINE_VERSION`, from
-  `package.json`. Only the staged copy has it: the repository's `public/host.js` stays empty, so a
-  change to the web app's shim cannot reach the desktop app or the CLI.
+- **The shim** is `src/hosts/web/host.js` with one line added, `__REDLINE_VERSION`: the version
+  from `package.json` and a hash of the staged web bundles, `0.7.0+3fa9c2d1e0b4`. Only the staged
+  copy has it: the repository's `public/host.js` stays empty, so a change to the web app's shim
+  cannot reach the desktop app or the CLI.
+- **`stagePage` empties its destination**, so it will not be given the repository or anything
+  that holds it (`assertSafeDest`): `''` and `'.'` are the repository, `.git` and all. It does not
+  stop a destination inside the repository, `src/` say, which is for whoever picks it.
 - **`_headers`**, for Cloudflare Pages, is the CLI's policy from `core/csp.js` with the *staged*
   `index.html`'s head-script hash and one directive more, `worker-src 'self'`, plus
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, as one rule for `/*`.
