@@ -383,6 +383,9 @@
          space bar have to reach it without a click first. -->
     <main tabindex="-1">
       <article id="doc" class="markdown-body"></article>
+      <!-- Nothing to read yet: the web app fills this with the ways to open something
+           (src/hosts/web/welcome.js), and no other build ever shows it. -->
+      <section id="welcome" class="welcome" hidden></section>
     </main>
 
     <!-- Find in the current document, ⌘F or the Edit menu. A floating bar
@@ -412,6 +415,10 @@
          resolves to, and a window with no address bar gives you no way to find
          out short of clicking it. -->
     <span id="peek" class="peek" hidden></span>
+
+    <!-- A sentence the page owes the user after something they did had no visible
+         effect — a link that cannot be followed from a file given on its own. -->
+    <div id="notice" class="notice" role="status" hidden></div>
 
     <!-- Settings. Every control here takes effect as you change it: there is
          no OK to press, the way a Mac preference pane works. Sections marked
@@ -553,7 +560,8 @@
                 <label>
                   <input type="radio" name="pBaseline" value="read" /><span>Last read</span>
                 </label>
-                <label>
+                <!-- Offered only where the reader can read a repository (`caps.git`). -->
+                <label id="setBaselineGit" hidden>
                   <input type="radio" name="pBaseline" value="git" /><span>git HEAD</span>
                 </label>
               </div>

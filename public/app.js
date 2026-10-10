@@ -1,4 +1,11 @@
-import { createMarkdown, renderDocument, titleOf, walkPath, shorten } from './vendor/render.js';
+import {
+  createMarkdown,
+  renderDocument,
+  titleOf,
+  walkPath,
+  shorten,
+  MD_LINK,
+} from './vendor/render.js';
 import { sanitizeDocument, sanitizeSvg } from './vendor/sanitize.js';
 import { createBackend } from './backend.js';
 
@@ -72,6 +79,9 @@ const state = {
   solo: false,
   baseline: 'read',
   data: null,
+  // What the reader behind this page can do — `{ git, plantuml }` — as the last payload said.
+  // Null until one has come, which is also the answer on the welcome, where nothing is open.
+  caps: null,
   changeIndex: -1,
   // The changes ticked off in this document, by the server's name for each.
   // Kept per document rather than per page, so closing the tab does not undo an
@@ -116,6 +126,85 @@ function setDocId(id) {
   return true;
 }
 
+/** The other half of `setDocId`: this page has no document, so a reload should not look for one. */
+function clearDocId() {
+  state.docId = '';
+  const url = new URL(location.href);
+  url.searchParams.delete('id');
+  history.replaceState(null, '', url);
+}
+
+// ---------- the welcome ----------
+
+// What the page shows when it has nothing to read. Only a backend that has to be given
+// something has one -- the web app's -- so a window shown a document by a shell, or a server told
+// one on a command line, never reaches any of this and nothing here has to ask which it is.
+const welcomeEl = $('welcome');
+const welcome = backend.welcome?.(welcomeEl, {
+  open: (path) => openFile(path),
+  granted: () => reopened(),
+  back: () => {
+    pendingLink = null;
+    hideWelcome();
+  },
+});
+
+// The link the user clicked when the folder it is in turned out to need asking for again: asked
+// for, it is the thing they wanted, and the document they were reading is not.
+let pendingLink = null;
+// What the welcome is showing now, as `showWelcome` was last told, so that being told the same
+// again -- a load, the watch and the backend's listener each report one lapsed folder -- does not
+// wipe a message or a list the user is looking at.
+let welcomeSeen = null;
+// The folder it is offering to ask for again, if it is. A load that is refused after the
+// backend's listener has already said which folder says only *that* it was, and must not
+// replace the name with a guess.
+let welcomeAsks = null;
+
+function showWelcome({ reopen = null } = {}) {
+  if (!welcome) return;
+  // A document that is still held is one the user can go back to; one that is gone is not.
+  const back = Boolean(state.data);
+  const seen = `${reopen}|${back}`;
+  document.documentElement.classList.add('welcoming');
+  welcomeEl.hidden = false;
+  doc.hidden = true;
+  if (seen === welcomeSeen) return;
+  welcomeSeen = seen;
+  welcomeAsks = reopen;
+  welcome.sync({ reopen, back });
+  if (!back) {
+    document.title = 'Redline';
+    $('name').textContent = 'Redline';
+    $('nameDir').textContent = '';
+    $('nameBox').title = '';
+  }
+}
+
+function hideWelcome() {
+  if (!welcome) return;
+  welcomeSeen = null;
+  welcomeAsks = null;
+  document.documentElement.classList.remove('welcoming');
+  welcomeEl.hidden = true;
+  doc.hidden = false;
+}
+
+// The backend says which folder; the load that hit the lapse says only that it did.
+backend.onNeedsPermission?.(({ name }) => showWelcome({ reopen: name }));
+
+/**
+ * The user said yes to the folder. What they were doing when it was refused is what to do now:
+ * the link they clicked if it was a link, otherwise the document the page was loading or
+ * watching.
+ */
+async function reopened() {
+  const link = pendingLink;
+  pendingLink = null;
+  if (link && (await openFile(link))) return;
+  if (await load({ keepScroll: false })) connect();
+}
+
 // One markdown renderer for the life of the page. Building it is not free and
 // it holds no per-document state -- what varies between documents is passed in
 // (see `renderDocument`), because the diff renders a single document twice and
@@ -142,6 +231,8 @@ function adopt(data) {
     ? { ...renderDocument(md, soloText(data), null), title: titleOf(md, data.text) }
     : renderDocument(md, data.text, data.base, checked);
   state.data = Object.assign(data, rendered);
+  state.caps = data.caps ?? null;
+  applyCaps();
   // The id is assigned by the reader when this page did not name one.
   setDocId(data.id);
   // The baseline asked for is not always the one that could be honoured — a
@@ -152,16 +243,39 @@ function adopt(data) {
   state.acked = new Set(data.acked ?? []);
 }
 
+/** Whether it painted a document. Not painting is not an error where there is a welcome. */
 async function load({ keepScroll = true } = {}) {
   const y = pane.scrollTop;
   const want = state.docId;
-  const data = await backend.doc(state.baseline);
+  let data;
+  try {
+    data = await backend.doc(state.baseline);
+  } catch (err) {
+    // The two things a page with nothing handed to it is told: there is no document, or there
+    // is one that has to be asked for again. Anything else is the reader failing.
+    if (!welcome || !['NoDocument', 'NeedsPermission'].includes(err?.name)) throw err;
+    if (err.name === 'NoDocument') {
+      // The id in the address is for a document that cannot be shown, and a reload would only
+      // be told so again. (A lapsed permission keeps it: asking again is what brings it back.)
+      clearDocId();
+      state.data = null;
+      doc.replaceChildren();
+      unwatch?.();
+      unwatch = null;
+      showWelcome();
+    } else {
+      showWelcome({ reopen: welcomeAsks ?? 'this folder' });
+    }
+    return false;
+  }
   // Switch tabs faster than the answer arrives and two loads are in flight;
   // the one you have already left must not paint over the one you are on.
-  if (want && want !== state.docId) return;
+  if (want && want !== state.docId) return false;
   adopt(data);
+  hideWelcome();
   paint();
   if (keepScroll) pane.scrollTo(0, y);
+  return true;
 }
 
 /**
@@ -774,8 +888,6 @@ const readable = (s) => {
 
 // A scheme, or the `//host` form that borrows the page's own.
 const HAS_SCHEME = /^[a-z][a-z0-9+.\-]*:|^\/\//i;
-/** A link this app can answer: the extensions it opens on a command line. */
-const MD_LINK = /\.(md|markdown|mdown|mkd|mdx|txt)$/i;
 
 /**
  * A destination written the way the document's author would recognise it: a URL
@@ -1064,8 +1176,34 @@ doc.addEventListener('click', (e) => {
   const abs = linkTarget(href);
   if (!abs) return;
   if (native) native.openPaths([abs]);
-  else openFile(abs);
+  else followLink(abs);
 });
+
+/**
+ * A link out of the document, in a browser tab. Where the reader can say that it will not open
+ * -- a file given on its own has nothing around it to resolve the link against -- the user is
+ * told, because the alternative is a click that does nothing and gives no reason.
+ */
+async function followLink(abs) {
+  const why = await backend.linkNote?.(state.data?.path);
+  if (why) notify(why);
+  else openFile(abs);
+}
+
+// ---------- notice ----------
+
+const notice = $('notice');
+let noticeTimer = 0;
+
+/** Say something once, for long enough to read it, where the user is already looking. */
+function notify(text) {
+  notice.textContent = text;
+  notice.hidden = false;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => {
+    notice.hidden = true;
+  }, 6000);
+}
 
 // ---------- history ----------
 
@@ -2528,7 +2666,25 @@ function paintPrefs() {
   const measure = getComputedStyle(document.documentElement).getPropertyValue('--doc-width');
   $('setWidthHint').textContent = `${measure.trim()} of text, centred in the window`;
   $('setMarks').checked = settings.marks;
-  setSeg('setBaseline', settings.baseline);
+  applyCaps();
+  // A choice the host cannot honour is not left looking made: with no git to read, what the
+  // page compares against is the last read, and that is what the control should say.
+  const git = settings.baseline === 'git' && state.caps?.git;
+  setSeg('setBaseline', git ? 'git' : 'read');
+}
+
+/**
+ * Hide what the reader behind this page cannot do. Every host says so in the payload
+ * (`caps`), and what the page offers follows it -- the one place it offers git is the
+ * baseline control. Called on each payload, and on opening Settings, which on the welcome has
+ * no payload to have been told by: unknown is treated as unavailable, because the welcome is
+ * only ever the web app's and the web app has no git.
+ *
+ * PlantUML is not handled here: a diagram that cannot draw already says why where it would have
+ * been (`showDiagramError`), and there is no Settings row for it to hide yet.
+ */
+function applyCaps() {
+  $('setBaselineGit').hidden = !state.caps?.git;
 }
 
 onSeg('setAppearance', (v) => writeSettings({ appearance: v }));
@@ -2742,6 +2898,7 @@ function connect() {
  * as it was, reading what it was reading.
  */
 async function openFile(path) {
+  pendingLink = null;
   unwatch?.();
   unwatch = null;
   try {
@@ -2750,14 +2907,22 @@ async function openFile(path) {
     // Whatever the file we came from was compared against says nothing about
     // this one, which has a comparison of its own to be put back on.
     state.baseline = keptBaseline();
-    await load({ keepScroll: false });
+    return await load({ keepScroll: false });
   } catch (err) {
-    // A link to a file that is not there is the document being out of date,
-    // not the reader breaking. Staying put is the answer, and the console is
-    // where the reason goes.
-    console.error('could not open', path, err);
+    if (err?.name === 'NeedsPermission') {
+      // The backend has told the welcome, which is asking for that folder. Opening the link
+      // once it is granted is ours to remember.
+      pendingLink = path;
+    } else {
+      // A link to a file that is not there is the document being out of date,
+      // not the reader breaking. Staying put is the answer, and the console is
+      // where the reason goes.
+      console.error('could not open', path, err);
+    }
+    return false;
   } finally {
-    connect();
+    // With no document there is nothing to watch: the welcome is up and a pick will connect.
+    if (state.data) connect();
   }
 }
 
@@ -2768,8 +2933,7 @@ if (native) {
   // Which document that is comes from `onTabs`'s first event instead -- see
   // `firstTabShown` above.
   await firstTabShown;
-} else {
-  await load({ keepScroll: false });
+} else if (await load({ keepScroll: false })) {
   connect();
 }
 // There is a document on screen, so the window can be shown. It was built

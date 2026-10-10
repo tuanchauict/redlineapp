@@ -1402,6 +1402,11 @@ button:focus-visible,
   display: inline-flex;
 }
 
+/* An option the host cannot honour is not drawn: `git HEAD` where there is no git. */
+.seg label[hidden] {
+  display: none;
+}
+
 /* The radio itself does the keyboard and the grouping; it is never drawn. */
 .seg input {
   position: absolute;
@@ -1585,7 +1590,9 @@ html:not(.native) [data-shell] {
   }
 }
 
-.native.dropping main::after {
+/* Every shell that can be dropped on: the desktop app's drag is a message from the shell, and
+   the web app's is the page's own `dragenter` (src/hosts/web/welcome.js). */
+.dropping main::after {
   content: "Drop markdown files to open them";
   position: fixed;
   inset: var(--bar-h) 8px 8px;
@@ -1661,6 +1668,30 @@ html:not(.native) [data-shell] {
    near one is the sidebar's. */
 .toc-open .peek.away {
   right: var(--toc-w);
+}
+
+/* ---------- notice ---------- */
+
+/* A sentence owed to the user after a click that had no visible effect. Bottom centre, away
+   from the peek's corner, and it goes by itself: it is not a dialog. */
+.notice {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  max-width: min(80%, 460px);
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  color: var(--fg);
+  box-shadow: var(--control-shadow);
+  font-size: 12.5px;
+  z-index: 30;
+}
+
+.notice[hidden] {
+  display: none;
 }
 
 /* ---------- find ---------- */
@@ -1796,6 +1827,138 @@ main::-webkit-scrollbar-thumb:hover {
   right: var(--toc-w);
 }
 
+/* ---------- welcome ---------- */
+
+/* What the web app shows with nothing open: the ways to open something, and, after a folder is
+   picked, its markdown files. It sits in `main`, which is already the scroll area and already
+   keeps clear of the sidebars, so all it does is centre itself in what is left. It uses only the
+   variables at the top, so dark and sepia need no rules of their own. */
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 520px;
+  margin: 10vh auto 0;
+  text-align: center;
+}
+
+/* The author `display` above beats the browser's own `[hidden]`, and so would any on a child
+   (the reopen box is a grid): the section and everything the page toggles inside it. */
+.welcome[hidden],
+.welcome [hidden] {
+  display: none;
+}
+
+/* `main` leaves 60vh below the document so that its last line can be scrolled to the top, and
+   under a short welcome that is a scrollbar with nothing to scroll. */
+.welcoming main {
+  padding-bottom: 24px;
+}
+
+.welcome-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.welcome-lede {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.welcome-primary,
+.welcome-secondary {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+/* Weight and a darker edge, not a fill: a filled button wants a text colour that clears 4.5:1
+   on the blue in all three schemes, and there is nothing here to check one with. */
+.welcome-primary {
+  border-color: var(--muted);
+  font-weight: 600;
+}
+
+.welcome-reopen {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+}
+
+.welcome-reopen-text,
+.welcome-status {
+  margin: 0;
+}
+
+.welcome-hint {
+  max-width: 44ch;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.welcome-list {
+  width: 100%;
+  text-align: left;
+}
+
+.welcome-folder {
+  margin: 8px 0 6px;
+  font-size: 13px;
+}
+
+.welcome-files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.welcome-files li + li {
+  border-top: 1px solid var(--line);
+}
+
+/* A row, not a button: the bezel is for a control that stands on its own, and thirty of them
+   in a stack would be a wall of them. */
+.welcome-file {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.welcome-file:hover {
+  background: var(--hover);
+}
+
+/* The name is what the eye is looking for; the folders it is in are context. */
+.welcome-file-dir {
+  color: var(--muted);
+}
+
 /* ---------- change ruler ---------- */
 
 /* Where the changes are in the whole file, drawn down the track the scrollbar
@@ -1914,6 +2077,12 @@ main::-webkit-scrollbar-thumb:hover {
   background: transparent;
   font-family: var(--doc-font);
   font-size: var(--doc-size);
+}
+
+/* Not drawn while the welcome is up, and `hidden` has to win over whatever `display` the
+   document's stylesheet gives it. */
+.markdown-body[hidden] {
+  display: none;
 }
 
 /* Code stays code whatever the prose is set to — github-markdown-css puts

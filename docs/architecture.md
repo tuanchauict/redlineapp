@@ -9,7 +9,9 @@ renderer, the diff, the snapshot store, the git import — runs in whichever
 JavaScript engine it finds itself in. In a browser tab that is node behind
 `node:http`; in the desktop app it is the webview, and there is no node and no
 server at all. What differs between the two is one adapter apiece, and nothing
-above them knows which one it has.
+above them knows which one it has. The web app is a third adapter: no server and no
+node, the reader in a SharedWorker, and a page that has to be *given* its files
+([The web app's reader](#the-web-apps-reader)).
 
 ```
 bin/redline.js          CLI: parse flags, start the server, open a browser
@@ -23,7 +25,7 @@ src/core/               pure: no I/O and no platform, so it runs anywhere
   inline-diff.js        word-level diff, over rendered HTML
   hash.js               SHA-1 and SHA-256 in plain JS, because they are names
   paths.js              join, dirname, basename, resolve for a given separator
-  links.js              where a link points: `walkPath`, and `shorten` for `~`
+  links.js              where a link points: `walkPath`, `shorten` for `~`, and `MD_LINK`
   csp.js                the content security policy as data, and the inline-script hashes
 src/page/sanitize.js    DOMPurify, and what a document may put on the page
 src/reader/             the reader and what it needs, written against the platform
@@ -52,8 +54,11 @@ src/hosts/web/          the web app's shell: no server, no node, files in Indexe
   handles.js            the folders the user granted, what a doc id was, what may be read now
   worker.js             the reader, in a SharedWorker: one per origin, a document per tab
   backend.js            the page's end of it: finds the worker, pings it, asks for permission
+  welcome.js            the empty state: a folder, a file, a drop, and a grant to ask for again
+  host.js               the shim that makes a page the web app's; nothing stages it yet
 
 public/host.js          a classic script, first in the head, empty here; a host's own shim
+                        (the web app's is `src/hosts/web/host.js`, put over this one by its build)
 public/index.html       the page: toolbar, two sidebars, document pane, Settings sheet
 public/app.js           the whole client
 public/backend.js       the seam: an http server, or the reader in the page
@@ -424,16 +429,56 @@ reader a tab over the one IndexedDB store.
   (`live` with `needs: 'permission'`) — the page finds the root's name in the stores and tells
   whoever called `onNeedsPermission(fn)`; its button calls `reopen()`, which
   `requestPermission`s on the handle it already holds and then tells the worker (`grant`), which
-  checks for itself before it believes it. The button is the welcome page's work.
+  checks for itself before it believes it. The button is on the welcome (below).
   `NeedsPermission` carries the `rootId` it is about, because a link into another folder
   (`open` on a lapsed root, whose first read is refused) is not the document on screen, and the
   button must ask for the folder the link was into. The page then stays on what it was
-  showing, and opening the link again after the grant is the page's to do.
+  showing, shows the welcome with a way back, and opens the link again after the grant
+  (`pendingLink` in `app.js`), rather than the document it was reading.
 - **Handles go to the worker as they are** (`addRoot`, over `postMessage`), and only the worker
   writes the `roots` store, so two tabs picking one folder at once are one root
   (`isSameEntry`). The page reads the stores, to hold the handle it will ask about.
 - A document from a drop has no handle to keep: `drop:<name>` lives in the worker's memory, and
   does not outlive it.
+- **The welcome is the only door.** A desktop reader is handed a file and a server is told one; a
+  page is handed nothing, so `welcome.js` (mounted by `backend.welcome(el, hooks)` into
+  `<section id="welcome">`) is how anything gets opened. The page owns *whether* it shows
+  (`showWelcome` and `hideWelcome` in `app.js`: they hide `#doc` and set `html.welcoming`) and
+  the module owns what is inside; it builds it with `createElement` and `textContent`, because a
+  file name is the user's. It shows when `doc` is `NoDocument` (and then drops `?id=` from the
+  address) or `NeedsPermission` (and offers **Reopen** *name*: `reopen()`, then the page loads
+  again, or opens the link that was refused). No other backend has a `welcome`, which is the
+  whole of why a shell, VS Code and the CLI's tab never show one.
+  - **Open folder…** (`showDirectoryPicker({ mode: 'read' })`, the primary button) lists the
+    files a link would open — `MD_LINK`, in `core/links.js`, the same pattern the page follows
+    links by — three folders down and at most 500, without entering dot-folders or
+    `node_modules`. A folder below the top that cannot be read is skipped; the top one is the
+    welcome's error. Picking one is `addRoot(folder)` and `open('web:<root>/<rel>')`.
+  - **Open file…** is `showOpenFilePicker` for markdown. The file is a root of its own and can
+    read nothing beside it, so a click on one of its links says *Open the folder that holds this
+    file to follow its links* (`backend.linkNote`, shown by the page as a notice) instead of
+    doing nothing; so does a copy.
+  - **A drop** anywhere on the window — it is on the window, not the welcome, because a file
+    dropped on a page that is not listening is opened *by the browser*, in place of the page.
+    `getAsFileSystemHandle()` is read first and is the same as a pick, folder or file; a `File`
+    with no handle is a copy.
+  - **No File System Access** (no `showDirectoryPicker`): `<input type="file">`, and every file is
+    a copy, `drop:<name>` — no watching, no links, and a name is the whole of its identity, so
+    two files of one name are one history. The welcome says so.
+  - A file that is not markdown is refused with a message before anything is granted.
+  - After the first document opens from a click the welcome asks for
+    `navigator.storage.persist()`, once. It is a request the browser answers from how it has been
+    used, and Firefox asks the user, which it may do only for a click.
+- **What the host cannot do is not offered** (`caps`, on every payload). `state.caps` is read in
+  `adopt`, and `applyCaps` hides the `git HEAD` option of *Compare against* unless `caps.git`; a
+  saved choice of git is shown as *Last read* where there is none. The option is `hidden` in the
+  markup, so that Settings opened on the welcome, where no payload has said, does not offer it.
+  PlantUML is not handled: a diagram that cannot draw says why where it would have been
+  (`showDiagramError`), and there is no Settings row for it to hide yet.
+- **What is not verified from here:** the pickers, a drop, `persist()` and how a `SharedWorker`
+  calls `getFile()` and `queryPermission()` are behaviours of a browser. The tests stand in
+  fakes for them (test-smoke.js, 12d), and the layout and contrast of the welcome have not been
+  looked at.
 
 ## The desktop shell
 

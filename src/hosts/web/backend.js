@@ -11,12 +11,14 @@
 //     forgets the tab when it comes back
 //   - permission. A folder the user granted last week may have to be granted again, and only a
 //     page, from a click, can ask (`reopen`)
-//   - the ways to open something that are not a link: a folder, a file, a drop
+//   - the ways to open something that are not a link: a folder, a file, a drop (`welcome.js`)
 //
 // Bundled to public/vendor/backend-web.js, and loaded only when `host.js` has said this is the
 // web app, so no other build downloads it.
 import { createRpcBackend } from '../../rpc/client.js';
 import { createIdbKv } from './idb.js';
+import { parseWebPath } from './handles.js';
+import { mountWelcome } from './welcome.js';
 
 /** How often to tell the worker this page is still here. It lets go of a document after 30 s. */
 export const PING_MS = 10_000;
@@ -141,7 +143,7 @@ export async function createWebBackend({
   win.addEventListener?.('pagehide', onPageHide);
   win.addEventListener?.('pageshow', onPageShow);
 
-  return {
+  const api = {
     ...inner,
 
     async doc(baseline) {
@@ -217,6 +219,27 @@ export async function createWebBackend({
     /** A `File` that came with no handle. Answers the path to `open`. */
     addDrop: (file) => call('addDrop', file),
 
+    /**
+     * Fill the page's empty state with the ways to open something, and listen for drops. The page
+     * calls this only when it is here -- no other backend has one -- so that the welcome exists
+     * only in the web app, and `sync` on what comes back says whether to offer to ask again.
+     */
+    welcome: (el, hooks) => mountWelcome(el, { backend: api, win, ...hooks }),
+
+    /**
+     * Why a link out of this document will not open, or null if it will. A file given on its own
+     * or dropped has no folder around it to read the link from, and the page would otherwise be
+     * silent: the worker refuses and the click does nothing.
+     */
+    async linkNote(path) {
+      const dropped = path?.startsWith('drop:');
+      const rooted = parseWebPath(path);
+      const rec = rooted ? await kv.roots.get(rooted.rootId) : null;
+      return dropped || rec?.kind === 'file'
+        ? 'Open the folder that holds this file to follow its links.'
+        : null;
+    },
+
     /** Stop pinging and close the port. A page never needs this; a test does. */
     close() {
       clearInterval(pinger);
@@ -225,4 +248,5 @@ export async function createWebBackend({
       port.close?.();
     },
   };
+  return api;
 }
