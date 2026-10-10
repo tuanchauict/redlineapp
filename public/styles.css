@@ -1048,6 +1048,20 @@ button:focus-visible,
   color: inherit;
 }
 
+/* An item there is nothing to do with — "Mark as read" on the version that is
+   already read — dims the way every disabled button does. After the hover
+   rules and at their weight, so that it does not light up as if it could be
+   chosen. */
+.menu button:disabled {
+  background: none;
+}
+
+/* Focused itself when a pointer opens it, only so that its keys work; the ring
+   belongs to the item the keyboard is on. */
+.menu:focus {
+  outline: none;
+}
+
 /* ---------- contents ---------- */
 
 /* One row per heading, set in from the left by how deep it is: the indent is
@@ -1204,9 +1218,9 @@ button:focus-visible,
   white-space: nowrap;
 }
 
-/* Out of the way until the row is pointed at, so a column of these does not
-   shout — the same manners as the × on an open file. */
-.ver-cut {
+/* The row's menu. Out of the way until the row is pointed at, so a column of
+   these does not shout — the same manners as the × on an open file. */
+.ver-more {
   flex: none;
   display: grid;
   place-items: center;
@@ -1217,31 +1231,50 @@ button:focus-visible,
   opacity: 0;
 }
 
-.ver:hover .ver-cut,
-.ver-cut:focus-visible {
+.ver:hover .ver-more,
+.ver-more:focus-visible {
   opacity: 0.6;
 }
 
-/* Qualified by the row it is in only to outrank `.ver:hover .ver-cut` above,
+/* Qualified by the row it is in only to outrank `.ver:hover .ver-more` above,
    which is a class heavier and would otherwise hold this at the hint's 0.6 —
-   the control you are actually pointing at staying half-lit. */
-.ver .ver-cut:hover {
+   the control you are actually pointing at staying half-lit. Lit as well
+   while its menu is up, which is where the pointer has gone. */
+.ver .ver-more:hover,
+.ver .ver-more[aria-expanded="true"] {
   opacity: 1;
-  color: var(--del);
   background: var(--press);
 }
 
-.ver-cut .i {
+/* Dots, which are filled where every other icon here is drawn as a line: a
+   line that short is a smudge. */
+.ver-more .i {
   width: 13px;
   height: 13px;
+  fill: currentColor;
+  stroke: none;
+}
+
+/* Nothing points at a row on a touch screen, so the "…" would never appear.
+   It stays at the hint instead: there, it is the only way to the menu. */
+@media (hover: none) {
+  .ver-more {
+    opacity: 0.6;
+  }
+}
+
+/* The row a menu is open for, right-clicked or not, so it is plain which
+   version the menu is about once the pointer has moved off onto it. */
+.ver.held:not(.on) {
+  background: var(--hover);
 }
 
 /* What would go: the row pointed at and every row under it. The list is in
    one order, newest first, and holds nothing but rows — so the sibling
    combinator *is* the scope, and the preview costs no repaint and no state.
 
-   The dim is on the text rather than the row so that the shears being pointed
-   at stay lit; a control that fades as you reach it reads as a misclick. */
+   The dim is on the text rather than the row, so the row the menu was opened
+   on keeps its highlight and still reads as the one being asked about. */
 .ver.cutting .ver-text,
 .ver.cutting ~ .ver .ver-text {
   opacity: 0.3;

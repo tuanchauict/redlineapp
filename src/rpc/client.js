@@ -63,7 +63,7 @@ export function createRpcBackend({ docId, post, onMessage, onDisconnect, host })
     host,
 
     doc: (baseline) => call('doc', docId(), baseline),
-    markRead: () => call('markRead', docId()),
+    markRead: (at) => call('markRead', docId(), at),
     ack: (opts) => call('ack', docId(), opts).then((r) => r.acked ?? []),
     open: (path) => call('open', docId(), path),
     prune: (upto, baseline) => call('prune', docId(), upto, baseline),

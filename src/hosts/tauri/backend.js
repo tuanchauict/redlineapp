@@ -55,7 +55,7 @@ export async function createTauriBackend({ docId }) {
   // the other implementation of it.
   return {
     doc: (baseline) => reader.doc(docId(), baseline),
-    markRead: () => reader.markRead(docId()),
+    markRead: (at) => reader.markRead(docId(), at),
     ack: (opts) => reader.ack(docId(), opts),
     prune: (upto, baseline) => reader.prune(docId(), upto, baseline),
     plantumlSvg: (code) => reader.plantumlSvg(code),

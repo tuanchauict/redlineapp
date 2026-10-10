@@ -216,7 +216,7 @@ export function createWebHost({
         }
       },
 
-      markRead: async (id) => session.markRead(await owned(conn, id)),
+      markRead: async (id, at) => session.markRead(await owned(conn, id), at),
       ack: async (id, opts) => session.ack(await owned(conn, id), opts),
       prune: async (id, upto, baseline) => session.prune(await owned(conn, id), upto, baseline),
       plantumlSvg: async (code) => (await readerP, session.plantumlSvg(code)),

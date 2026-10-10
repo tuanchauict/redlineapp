@@ -153,9 +153,10 @@ the blocks you checked off.
   it was. The text you read is found again by re-reading that version from the
   [store](history.md#checked-changes-and-the-versions-they-name), so nothing extra is
   copied. If that version cannot be read, the block goes back to plain **added**.
-- **Marking a version read clears every check-off.** "All of this is seen" includes
-  every "that bit is seen". A check-off left behind would name a version and a block
-  that could be matched against edits made long after the read.
+- **Marking the version on disk read clears every check-off.** "All of this is seen"
+  includes every "that bit is seen". A check-off left behind would name a version and
+  a block that could be matched against edits made long after the read. Marking an
+  older version read keeps them, because what came after it is still being read.
 - Only check-offs from the 20 most recent versions they were made in are used this
   way. Older ones still hide their own marks; an edit to one of those comes back as
   if it had never been checked.
@@ -201,7 +202,7 @@ file back on `read`: click the row that carries the `read` mark.
 To read a version as it was rather than the file marked against it, switch History
 to [reading a version by itself](history.md#reading-a-version-by-itself) (`v`).
 
-Forgetting the version you were comparing against — with the **cut icon** on its row,
+Forgetting the version you were comparing against — with **Forget** in its row's menu,
 or **Clear history** — forgets the choice with it, and the file falls back rather
 than pointing at something that is no longer there.
 
@@ -209,12 +210,19 @@ than pointing at something that is no longer there.
 
 `m`, ⇧⌘M, or **View ▸ Mark Read** moves the `read` mark to the version on disk and
 clears the highlights: the "I've seen these changes" key. The `read` chip in the
-history then sits on the newest row, which is where you see it landed.
+history then sits on the newest row, which is where you see it landed. **Mark as
+read** in that row's menu — its **…**, or a right-click — does the same.
 
-There is deliberately **no button for this in the list**. The row it would sit on is
-the row you click to compare against that version, and from an inch apart the two did
-very nearly the same thing — a clean document either way. What the list cannot do is
-say "I have seen this" without being open, so that is all the key is for.
+**Mark as read** in an older row's menu means "I have read up to here". The `read`
+mark moves to that version and the file is compared against it, so what changed
+after it is marked. The check-offs stay, because those changes have not all been
+seen, and the marks are turned on if they were off, because those changes are the
+point of it.
+
+It is in a menu rather than a button on the row because a click on the row already
+compares against that version, and from an inch apart the two did very nearly the same
+thing. The key is for saying "I have seen this" without the history open at all.
 
 It is not undoable and does not need to be: the version the mark came off is still in
-the history, and clicking its row compares against it again.
+the history, and clicking its row compares against it again. Its menu puts the mark
+back, though not the check-offs a read of the newest version cleared.

@@ -507,20 +507,34 @@ export async function createReader({
     doc: (id, baseline = 'last:read') => buildDoc(need(id), baseline),
 
     /**
-     * Count this version as read: everything in it stops being a change.
+     * Count a version as read: everything in it stops being a change. `at` is
+     * the version, by hash, and without it the one on disk.
      *
      * Not undoable, and does not need to be — the version the mark came off is
      * still in the history, and clicking its row compares against it again.
      *
-     * Every check-off goes with it. "All of this is seen" subsumes each "that
-     * bit is seen", and a check-off left behind names a version and a block
-     * that would go on being matched against edits made long after the read.
+     * The version on disk takes every check-off with it. "All of this is seen"
+     * subsumes each "that bit is seen", and a check-off left behind names a
+     * version and a block that would go on being matched against edits made
+     * long after the read.
+     *
+     * An older version keeps them. "I have read up to here" says nothing about
+     * what came after it, and what came after it is exactly what a check-off
+     * is about: clearing them would hand back, marked, changes the reader had
+     * already said they had seen. One the history no longer lists — forgotten
+     * from another window since the page drew its row — moves nothing, and the
+     * list that comes back is what says so.
      */
-    async markRead(id) {
+    async markRead(id, at) {
       const doc = need(id);
       await doc.store.record(doc.current);
-      await doc.store.setBaseline(hashContent(doc.current));
-      await doc.store.clearAcked();
+      const now = hashContent(doc.current);
+      if (!at || at === now) {
+        await doc.store.setBaseline(now);
+        await doc.store.clearAcked();
+      } else if (doc.store.data.history.some((h) => h.hash === at)) {
+        await doc.store.setBaseline(at);
+      }
       return buildDoc(doc, 'read');
     },
 

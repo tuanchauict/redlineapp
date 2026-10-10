@@ -87,8 +87,11 @@ function httpBackend({ docId }) {
     /** The document, built against `baseline`. */
     doc: (baseline) => get('/api/doc', { baseline }),
 
-    /** Move the read mark to what is on disk. Answers with the document. */
-    markRead: () => post('/api/mark-read'),
+    /**
+     * Move the read mark to `at`, a version's hash, or to what is on disk
+     * without one. Answers with the document.
+     */
+    markRead: (at) => post('/api/mark-read', { at }),
 
     /**
      * Check or uncheck one change, or uncheck all of them. Answers with the
