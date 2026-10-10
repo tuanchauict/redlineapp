@@ -218,7 +218,9 @@ pointer, remembered comparison, checked-off keys and imported commits. See
 prune, because only a pass over every document's history can say whether an object
 is still wanted. It never sweeps an object younger than ten minutes: `record` writes
 the object and then the index that names it, and a sweep in another process can run
-between the two.
+between the two. An object that is already there counts only while it is young, so
+`record` and `importGit` write one again once it is five minutes old. Otherwise a
+version that came back to an old, unreferenced object could lose it to that sweep.
 
 **The store may be open in more than one process** — the app and a browser tab, two
 editor windows, the CLI beside the app. So an index is never written from the copy

@@ -43,9 +43,10 @@ export async function createTauriBackend({ docId }) {
   await native.sync(files);
 
   // Sweep snapshots no document refers to any more. Only the window the shell
-  // marked, and only once a launch: two of these running at the same moment
-  // could list the objects between another window writing a snapshot and
-  // recording it, and take the new one away again.
+  // marked, and only once a launch, because a sweep reads every index and every
+  // object, and a second one would find what the first did. Not for safety: gc
+  // leaves an object alone while it is young, so a sweep can run beside another
+  // window, or another program, writing a snapshot and not yet recording it.
   if (host.gc) DocStore.gc(tauriPlatform);
 
   // The same methods public/backend.js builds out of URLs, and in the same

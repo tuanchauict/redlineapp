@@ -2593,7 +2593,7 @@ sixth.server.close();
 // Two DocStores on one file stand in for two processes: each holds the index as it read it,
 // which is what made a write from one undo the other's. (docs/web-and-vscode/008)
 {
-  const { DocStore } = await import('./src/reader/store.js');
+  const { DocStore, hashContent } = await import('./src/reader/store.js');
   const { createReader } = await import('./src/reader/reader.js');
   const shared = path.join(tmp, 'shared.md');
   const text = (n) => `# Shared\n\nVersion ${n}.\n`;
@@ -2697,6 +2697,47 @@ sixth.server.close();
   assert.ok(fs.existsSync(A.objectPath(v4)), 'and what an index names is never touched');
   fs.rmSync(young);
   console.log('✓ gc has a grace period');
+
+  // --- a version that comes back is made young again -----------------------------------
+  // Its object is still on disk, unreferenced and old, so a sweep in another process that
+  // lands between `record` finding it and the index naming it would take it. The sweep is
+  // run at exactly that moment: when the index is read for the update.
+  let sweepNow = false;
+  const sweeping = {
+    ...nodePlatform,
+    async readText(p) {
+      if (sweepNow && p === racing.file) {
+        sweepNow = false;
+        await DocStore.gc(nodePlatform);
+      }
+      return nodePlatform.readText(p);
+    },
+  };
+  const racing = await DocStore.open(path.join(tmp, 'back.md'), sweeping);
+  const returning = '# Back\n\nForgotten once, and written again.\n';
+  const returningObject = racing.objectPath(hashContent(returning));
+  fs.writeFileSync(returningObject, returning);
+  fs.utimesSync(returningObject, hourAgo, hourAgo);
+  sweepNow = true; // armed only now: opening the store reads the index too
+  const { hash: returned } = await racing.record(returning);
+  assert.ok(!sweepNow, 'the sweep ran between the object and the index');
+  assert.strictEqual(
+    await racing.read(returned),
+    returning,
+    'an old object a version comes back to survives a sweep before the index names it',
+  );
+
+  // Git's versions go through the same door.
+  const committed = '# Back\n\nAs it was committed.\n';
+  const committedObject = racing.objectPath(hashContent(committed));
+  fs.writeFileSync(committedObject, committed);
+  fs.utimesSync(committedObject, hourAgo, hourAgo);
+  await racing.importGit([{ text: committed, ts: 1, git: { sha: 'c0ffee', subject: 'x' } }]);
+  assert.ok(
+    Date.now() - fs.statSync(committedObject).mtimeMs < 60 * 1000,
+    'and so is one a commit comes back to',
+  );
+  console.log('✓ a version that comes back is not swept');
 
   // --- noticing, end to end ------------------------------------------------------------
   const both = path.join(tmp, 'both.md');
