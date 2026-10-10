@@ -115,6 +115,10 @@ What follows from that:
   window and another address each start with nothing. `http://127.0.0.1:8081` and
   `http://localhost:8081` are different origins; so are a deployed copy and the one you serve
   yourself.
+- **The deployed app shares an origin with the landing page.** It is served at `/app/` on the
+  landing page's hostname ([Serving it at /app](building.md#serving-it-at-app)), so they have one
+  IndexedDB and one `localStorage` between them. The landing page stores only its colour theme.
+  The project's own `pages.dev` address is a different origin, with a store of its own.
 - **It is not the Mac app's history.** The same file opened in both has two histories, and
   neither knows about the other.
 - **Clearing the site's data clears all of it**: the history, the grants and the settings

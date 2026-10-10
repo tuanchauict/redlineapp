@@ -5028,6 +5028,30 @@ const memoryKv = () => {
   assert.ok(joined.every((j) => j.url.endsWith('/reader-worker.js')), 'at the bundle beside it');
   console.log('✓ the worker is named for the build, by the shim the build stages');
 
+  // --- served under /app: nothing in the staged page reaches for the root -------------------
+  // The web app is published at `/app/` on the landing page's hostname (worker/app-route.js), so
+  // a URL that starts with a slash would leave it for the landing page. The page names its own
+  // files relative to itself, and the worker bundle finds its reader by `import.meta.url`. The
+  // `/api/...` calls in backend.js are the http backend's, which `__REDLINE_WEB` never reaches.
+  {
+    const staged = (f) => fs.readFileSync(path.join(built, f), 'utf8');
+    assert.doesNotMatch(staged('index.html'), /\b(?:src|href|action)="\/[^/]/, 'index.html');
+    assert.doesNotMatch(staged('styles.css'), /url\(\s*['"]?\/[^/]/, 'the stylesheet');
+    for (const f of ['app.js', 'vendor/backend-web.js', 'vendor/reader-worker.js']) {
+      assert.doesNotMatch(
+        staged(f),
+        /(?:\bimport\(|\bfrom\s+|new URL\(|new (?:Shared)?Worker\()\s*['"]\/[^/]/,
+        `${f} imports and loads nothing from the root`,
+      );
+    }
+    assert.match(
+      staged('vendor/backend-web.js'),
+      /new URL\(['"]\.\/reader-worker\.js['"],\s*import\.meta\.url\)/,
+      'and finds its reader beside itself',
+    );
+    console.log('✓ the staged web app names its files relative to itself, so /app/ is enough');
+  }
+
   // --- npm run webapp: the way a static host will serve it ------------------------------
   const server = createWebappServer(built);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -5480,6 +5504,116 @@ console.log('✓ CI tests every change on two OSes, and signs only what a fork c
   assert.doesNotMatch(ciCode, /webapp\.yml/, 'ci.yml does not start it');
   assert.doesNotMatch(webappCode, /workflow_run|needs: .*(test|bundle|release)/, 'or waits on it');
   console.log('✓ webapp.yml deploys dist/web on a tag, to its own project, token in one job');
+}
+
+// The Worker that puts the web app at /app on the landing page's hostname. Run with a `fetch` that
+// answers for Pages, so that what it asks of Pages, and what it hands back, can be read. What this
+// cannot say is how Cloudflare routes a request to it, which only a deploy shows.
+{
+  const worker = (await import('./worker/app-route.js')).default;
+  const env = { APP_ORIGIN: 'https://redline-app-1x.pages.dev' };
+  const realFetch = globalThis.fetch;
+  const asked = [];
+  let answer = () => new Response('from pages');
+  globalThis.fetch = async (input, init) => {
+    const req = input instanceof Request ? input : new Request(input, init);
+    asked.push({ url: req.url, method: req.method, redirect: init?.redirect });
+    return answer(req);
+  };
+  const via = (p, init, e = env) =>
+    worker.fetch(new Request(`https://redline.iamtuna.org${p}`, init), e);
+  try {
+    // Under /app, Pages is asked for the same path without it, and the query comes along.
+    await via('/app/vendor/x.js?v=1', { method: 'HEAD' });
+    assert.deepStrictEqual(asked.pop(), {
+      url: 'https://redline-app-1x.pages.dev/vendor/x.js?v=1',
+      method: 'HEAD',
+      redirect: 'manual',
+    }, 'the path without /app, the query and the method kept, and a redirect not followed');
+    let res = await via('/app/');
+    assert.strictEqual(await res.text(), 'from pages');
+    assert.strictEqual(asked.pop().url, 'https://redline-app-1x.pages.dev/', '/app/ is its index');
+
+    // `/app` is `/app/`, said by this Worker and not asked of Pages: from `/app` the page's
+    // relative URLs would resolve against `/`.
+    res = await via('/app?id=ab12');
+    assert.strictEqual(res.status, 308);
+    assert.strictEqual(res.headers.get('location'), 'https://redline.iamtuna.org/app/?id=ab12');
+    assert.strictEqual(asked.length, 0, 'without asking Pages anything');
+
+    // A path cannot choose another host: `//example.com` resolved against an origin would.
+    await via('/app//example.com/x');
+    assert.strictEqual(new URL(asked.pop().url).host, 'redline-app-1x.pages.dev');
+
+    // What is not the app's goes on to where it always went, under the request it was.
+    for (const p of ['/', '/apple.png', '/application', '/icon.svg', '/images/hero.png']) {
+      await via(p);
+      assert.strictEqual(
+        asked.pop().url,
+        `https://redline.iamtuna.org${p}`,
+        `${p} is not the app's`,
+      );
+    }
+
+    // A redirect from Pages stays under /app, and one to somewhere else is left alone.
+    answer = () => new Response(null, { status: 308, headers: { location: '/vendor/' } });
+    res = await via('/app/vendor');
+    assert.deepStrictEqual([res.status, res.headers.get('location')], [308, '/app/vendor/']);
+    answer = () => new Response(null, {
+      status: 301,
+      headers: { location: 'https://redline-app-1x.pages.dev/a/b?c=1#d' },
+    });
+    res = await via('/app/x');
+    assert.strictEqual(res.headers.get('location'), '/app/a/b?c=1#d', 'an absolute one too');
+    answer = () => new Response(null, {
+      status: 302,
+      headers: { location: 'https://example.com/' },
+    });
+    res = await via('/app/x');
+    assert.strictEqual(res.headers.get('location'), 'https://example.com/');
+    answer = () => new Response('gone', { status: 404, headers: { 'x-from': 'pages' } });
+    res = await via('/app/nope');
+    assert.deepStrictEqual([res.status, res.headers.get('x-from')], [404, 'pages'], 'an error too');
+    asked.length = 0;
+
+    // Without its origin it says so, for the app alone; the landing page is not its to break.
+    res = await via('/app/x', undefined, {});
+    assert.strictEqual(res.status, 500);
+    assert.match(await res.text(), /APP_ORIGIN is not set/);
+    assert.strictEqual(asked.length, 0);
+    await via('/', undefined, {});
+    assert.strictEqual(asked.pop().url, 'https://redline.iamtuna.org/', 'and / is still passed on');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  // The route and the config that carry it. `app*` and not `app/*`: `/app` has to reach it.
+  const routeToml = fs.readFileSync(new URL('./worker/wrangler.toml', import.meta.url), 'utf8');
+  assert.match(routeToml, /^main = "app-route\.js"$/m, 'the Worker is the file next to it');
+  assert.match(
+    routeToml,
+    /pattern = "redline\.iamtuna\.org\/app\*", zone_name = "iamtuna\.org"/,
+    '/app and what is under it on the landing page\'s hostname',
+  );
+  assert.match(routeToml, /^workers_dev = false$/m, 'and on no workers.dev address');
+  assert.match(
+    routeToml,
+    /^name = "redline-app-route"$/m,
+    'under a name that is no Pages project\'s',
+  );
+  assert.doesNotMatch(routeToml, /APP_ORIGIN/, 'which the repository does not guess, but is given');
+  // Not deployed by a workflow: its token would need Workers permissions the Pages one has not,
+  // for a file that changes about never. The doc has the command, and this holds it to the file.
+  for (const code of [ciCode, pagesCode, webappCode]) {
+    assert.doesNotMatch(code, /app-route|wrangler deploy/, 'no workflow deploys the Worker');
+  }
+  const buildingMd = fs.readFileSync(new URL('./docs/building.md', import.meta.url), 'utf8');
+  assert.match(
+    buildingMd,
+    /npx wrangler deploy --config worker\/wrangler\.toml --var APP_ORIGIN:/,
+    'docs/building.md says how, by hand',
+  );
+  console.log('✓ worker/app-route.js serves the web app at /app and passes the rest on');
 }
 
 // The dev loop, which is the one piece of tooling here whose failure mode is
