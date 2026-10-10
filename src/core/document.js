@@ -14,7 +14,7 @@ import { renderDiff, renderRawDiff } from './diff.js';
 
 export { createMarkdown };
 // Link arithmetic reaches the page the same way the renderer does: through vendor/render.js.
-export { walkPath, shorten } from './links.js';
+export { walkPath, shorten, MD_LINK } from './links.js';
 
 const NO_CHANGES = { added: 0, removed: 0, modified: 0 };
 

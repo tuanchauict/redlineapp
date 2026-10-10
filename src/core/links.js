@@ -13,6 +13,13 @@ const ROOTS = [
   /^[a-zA-Z]:(?=[/\\]|$)/, // C:
 ];
 
+/**
+ * What counts as a link to another document. One pattern for the page, which follows such a link
+ * on a click, and for the web app's welcome, which lists a folder's files by it: a file the
+ * welcome offers is one a link to it would have opened.
+ */
+export const MD_LINK = /\.(md|markdown|mdown|mkd|mdx|txt)$/i;
+
 /** `[prefix, rest]` -- the root `..` cannot pop, and everything after it. */
 function splitRoot(dir) {
   for (const re of ROOTS) {
