@@ -100,6 +100,52 @@ count as one without a certificate.
   sets it by extension, so the first deploy is where it is first a fact about Pages. If it is
   wrong, a `Content-Type` rule for `/vendor/mermaid/*` in `_headers` is the fix.
 
+### Publishing the web app
+
+`.github/workflows/webapp.yml` puts `dist/web` on Cloudflare Pages, in a project of its own,
+**`redline-app`**, on a hostname of its own. It is not a folder of the landing page's project
+(`redline`, [Deploying it](#deploying-it)) because IndexedDB and the folders a user has granted
+belong to an origin: the web app's history should not move when the landing page does, and the
+landing page's origin should not hold a store. A deploy to `redline` by mistake would replace
+the landing page with the app, which is why the project name is written on the command line and
+not left to a config file.
+
+**It runs on a `v*` tag, and by hand, never on a push.** What a person opens is what the tag
+names, and the version in it names the reader their browser runs, so it goes out as a release
+does and not with every merge. It is not started from the release job in `ci.yml`, as
+`pages.yml` is: that one waits for the dmg because the landing page links it, and the web app
+names nothing a release makes. Independent, a deploy that fails, with no project yet or a lapsed
+token, cannot hold a release up or turn it red. It does not run the suite again: the tag is cut
+on a merge `ci.yml` has passed, and it checks the half that could differ, that the web app
+builds, and that the tag agrees with `package.json`, since the worker's name carries the version.
+
+It is **two jobs**. `build` runs `npm ci`, `build:web` and `build:webapp` and uploads `dist/web`
+as an artifact, with no secret. `deploy` downloads it and runs `wrangler pages deploy`, and it
+is the only job that holds `CLOUDFLARE_API_TOKEN`. It runs nothing from the repository or from
+`node_modules`, because `npm ci` runs every dependency's install scripts and a job that has done
+that should not also hold the key to the account. It has no checkout either, so the
+`wrangler.toml` at the root, which names the landing page's project, is not there for wrangler
+to find.
+
+Three things are needed once, before the first run, and the first two are `pages.yml`'s:
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, which are the account's and not the
+project's, so they are already there; and the project, which wrangler will not create from CI:
+
+```
+npx wrangler login
+npx wrangler pages project create redline-app --production-branch=main
+```
+
+The third is the hostname, attached to the project in the Pages dashboard. Nothing in the
+repository records it.
+
+Run workflow deploys the ref it was run on as production, `--branch=main` whatever the ref, so
+run it by hand only from `main`.
+
+**What is not checked here.** The workflow has not run, so everything about it is unproved
+until the first deploy: that `redline-app` and its token exist, and that the action's version
+and its `command` behave as written.
+
 ## The dev loop
 
 Three numbers decide which of the three commands above to reach for. On an
@@ -202,7 +248,7 @@ which it did.
 
 ## CI
 
-Two workflows. The repository is public, so GitHub-hosted runners cost nothing,
+Three workflows. The repository is public, so GitHub-hosted runners cost nothing,
 macOS included, and every change is checked rather than only the ones somebody
 remembered to ask about.
 
@@ -210,6 +256,7 @@ remembered to ask about.
 | --- | --- |
 | `.github/workflows/ci.yml` | Three jobs, each behind the one before it. **`test`**: `npm ci` and `npm test` on `ubuntu-latest` and `macos-latest`, and on the Mac `cargo test` in `shell/` too. **`bundle`**: `npm run bundle` on `macos-latest`, uploaded as an artifact — **`Redline-universal-dmg`** or **`Redline-arm64-dmg`**. **`release`**: only for a `vN.N.N` tag or a ticked **Deploy**, and [published](#publishing-a-release) |
 | `.github/workflows/pages.yml` | the landing page, [deployed](#deploying-it) to Cloudflare Pages |
+| `.github/workflows/webapp.yml` | the web app, [published](#publishing-the-web-app) to a Cloudflare Pages project of its own |
 
 What starts `ci.yml`, and what it does:
 

@@ -1,0 +1,125 @@
+# Publish the web app, dist/web, to its own Cloudflare Pages project.
+#
+# A project of its own, not a folder of the landing page's: IndexedDB and the folders a user has
+# granted belong to an origin, and the web app's history should not move when the landing page
+# does, nor the landing page's origin hold a store. So a different hostname, and a different
+# project, `redline-app`. It is not `redline`: that one is the landing page's, and a deploy to
+# it would replace the landing page with this.
+#
+# Before the first run this needs the two repository secrets pages.yml already uses, which are
+# the account's and not the project's --
+#
+#   CLOUDFLARE_API_TOKEN     a token with the "Cloudflare Pages: Edit" permission
+#   CLOUDFLARE_ACCOUNT_ID    Workers & Pages, in the sidebar on the right
+#
+# -- and the project, which wrangler will not create from CI. Once, from a checkout:
+#
+#   npx wrangler login
+#   npx wrangler pages project create redline-app --production-branch=main
+#
+# The hostname is attached to the project in the Pages dashboard; nothing here records it.
+name: Web app
+
+# A release tag, or by hand -- never on a push to main. What is deployed is what a person opens,
+# and the version in it names the reader their browser runs, so it goes out as a release does
+# and not with every merge. Not started from ci.yml's release job either, which pages.yml is:
+# that one waits for the dmg because the landing page links it, and the web app names nothing
+# that a release makes. Independent, a deploy that fails -- no project yet, a token that has
+# lapsed -- cannot hold the release up or turn it red, and the release cannot hold this one up.
+#
+# The suite is not run again here. The tag is cut on a merge that ci.yml has already passed, and
+# this workflow runs beside ci.yml's run on that tag, not behind it. What it does check is that
+# the web app builds, which is the half of the suite that could differ.
+#
+# Run workflow deploys the ref it is run on as production -- `--branch=main` below, whatever the
+# ref -- so run it by hand only from main.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# A second run lands a second deploy on the same hostname, and the first one's answer stops
+# mattering the moment it does. Not cancelled in progress, though: a half-finished upload is a
+# worse thing to leave behind than a wasted minute.
+concurrency:
+  group: webapp
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # Everything that runs this repository's code and its dependencies' code, and no secret.
+  build:
+    name: build the web app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # The reader is named for package.json's version (`redline@<version>+<hash>`), so a tag
+      # that disagrees with it would publish a build that calls itself something else than the
+      # release it came from. ci.yml refuses the same tag for the same reason, before it
+      # publishes the dmg.
+      - name: Refuse a tag that disagrees with package.json
+        if: github.ref_type == 'tag'
+        run: |
+          set -eu
+          version=$(node -p "require('./package.json').version")
+          if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but package.json says $version"
+            exit 1
+          fi
+
+      - run: npm ci
+
+      # The two steps `npm run webapp` runs before it serves, without the serving: the bundles
+      # in public/vendor/, then the page staged around them. build:webapp fails if the page is
+      # missing one, so an empty dist/web never gets as far as the upload.
+      - name: Build the bundles
+        run: npm run build:web
+
+      - name: Stage the page and its headers
+        run: npm run build:webapp
+
+      # What is uploaded is what was built here, to the byte, and the deploy job is not given a
+      # checkout to build it again from.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: redline-app
+          path: dist/web
+          if-no-files-found: error
+
+  # The one job that holds the Cloudflare token. It runs nothing from this repository and nothing
+  # from node_modules, only a directory of static files and wrangler: `npm ci` runs every
+  # dependency's install scripts, and a job that has done that should not also be handed the key
+  # to the account.
+  #
+  # It has no checkout, which settles a second thing. wrangler.toml at the root of the repository
+  # names the landing page's project and its directory, and `wrangler pages deploy` reads the
+  # nearest one it finds. With no repository there is none to find, so the project and the
+  # directory are what is written on the command line below and cannot be anything else.
+  deploy:
+    name: deploy to Cloudflare Pages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: redline-app
+          path: web
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy web --project-name=redline-app --branch=main
