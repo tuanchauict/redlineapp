@@ -28,13 +28,26 @@ export const PING_MS = 10_000;
 const WORKER_URL = new URL('./reader-worker.js', import.meta.url);
 
 /**
+ * What the page calls its SharedWorker. One is found by its URL and its name, and both would
+ * otherwise be the same after a deploy: a tab left open on the old build keeps the old reader
+ * alive, and a tab opened on the new one would join it -- new page code against old reader code,
+ * until every tab closed. The build's version is in the name so that the two builds get a worker
+ * each. Two readers over the one store is the case the fallback already depends on, and the
+ * store closes on a schema upgrade rather than hold one up (`idb.js`).
+ *
+ * The version is on the window because the staged shim puts it there (`stage-page.mjs`, after
+ * `host.js`); a page without one is a page nobody built, which is the only time it says `dev`.
+ */
+export const workerName = (g = globalThis) => `redline@${g.__REDLINE_VERSION ?? 'dev'}`;
+
+/**
  * Join the worker, or be one.
  *
  * @returns {Promise<{ port: MessagePort, onError: (fn: (why: string) => void) => void }>}
  */
 export async function openPort() {
   if (typeof globalThis.SharedWorker === 'function') {
-    const worker = new globalThis.SharedWorker(WORKER_URL, { type: 'module', name: 'redline' });
+    const worker = new globalThis.SharedWorker(WORKER_URL, { type: 'module', name: workerName() });
     return {
       port: worker.port,
       // Fired when the script cannot load or parse. A port that has never connected says nothing

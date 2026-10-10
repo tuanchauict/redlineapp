@@ -53,9 +53,11 @@ src/hosts/web/          the web app's shell: no server, no node, files in Indexe
   platform.js           the platform over `web:` handles, `drop:` files and the store
   handles.js            the folders the user granted, what a doc id was, what may be read now
   worker.js             the reader, in a SharedWorker: one per origin, a document per tab
-  backend.js            the page's end of it: finds the worker, pings it, asks for permission
+  backend.js            the page's end of it: finds the worker, names it for the build, pings it,
+                        asks for permission
   welcome.js            the empty state: a folder, a file, a drop, and a grant to ask for again
-  host.js               the shim that makes a page the web app's; nothing stages it yet
+  host.js               the shim that makes a page the web app's; `stage-page.mjs` puts it over
+                        `public/host.js`, with the build's version after it
 
 public/host.js          a classic script, first in the head, empty here; a host's own shim
                         (the web app's is `src/hosts/web/host.js`, put over this one by its build)
@@ -72,7 +74,11 @@ shell/src/host.rs       what the page may ask of the disk, and what it may not
 shell/src/prefs.rs      window.json: bounds, session, recent, settings
 
 scripts/build-web.mjs   src/ -> public/vendor/, for a page with no node
-scripts/build-dist.mjs  stage shell/dist: the page, as the app embeds it
+scripts/stage-page.mjs  the page for a host with no server: public/, the vendored CSS, Mermaid,
+                        the icon, and that host's own bundles and shim
+scripts/build-dist.mjs  stage shell/dist: `stagePage` for the desktop app
+scripts/build-webapp.mjs  stage dist/web, and write `_headers`: `stagePage` for the web
+scripts/serve-webapp.mjs  serve dist/web as a static host will, headers and all
 scripts/make-icons.mjs  icon.svg -> icon.png, icon.icns
 scripts/bundle.mjs      .app and .dmg
 scripts/build-site.mjs  stage site/: the icon, and the one image it names
@@ -407,8 +413,13 @@ cannot disagree about what changed.
 
 One reader for every tab of the origin, so two tabs on one file share a poll and a snapshot
 store. It is `createWebHost` in `src/hosts/web/worker.js`, run as a SharedWorker named
-`redline`; a browser with none gets the same code in the page behind a `MessageChannel`, one
-reader a tab over the one IndexedDB store.
+`redline@<version>`; a browser with none gets the same code in the page behind a
+`MessageChannel`, one reader a tab over the one IndexedDB store. A SharedWorker is found by its
+URL and its name, so a name that did not change would, after a deploy, hand a new tab the old
+reader that a tab left open on the old build keeps alive. The version is in the name for that:
+two builds get a worker each, over the one store, which is the case the fallback already depends
+on and which `idb.js` allows by closing its connection on `versionchange`. The page learns the
+version from the shim the build stages (below).
 
 - **A tab holds a document from `hello` to `bye` or to silence.** `hello` retains the document
   the page names, `bye` releases it, and a page that has said neither for 30 s is let go of,
@@ -484,6 +495,33 @@ reader a tab over the one IndexedDB store.
   calls `getFile()` and `queryPermission()` are behaviours of a browser. The tests stand in
   fakes for them (test-smoke.js, 12d), and the layout and contrast of the welcome have not been
   looked at.
+
+### Staging the page, and the web app's build
+
+`scripts/stage-page.mjs` is `stagePage(dest, { host })`: `public/`, the vendored CSS, Mermaid's
+minified ESM tree and the icon, laid out the way the CLI's server routes them, so that the page's
+relative `vendor/...` links hold unchanged. Two things are the host's: the bundles it loads (the
+desktop app's `backend-tauri.js`, the web app's `backend-web.js` and `reader-worker.js`) and the
+shim over `public/host.js`. `build:web` writes every host's bundles into `public/vendor/` and
+`public/` is copied whole, so each host leaves out the others'. `build-dist.mjs` and
+`build-webapp.mjs` are one call each.
+
+- **The shim** is `src/hosts/web/host.js` with one line added, `__REDLINE_VERSION`, from
+  `package.json`. Only the staged copy has it: the repository's `public/host.js` stays empty, so a
+  change to the web app's shim cannot reach the desktop app or the CLI.
+- **`_headers`**, for Cloudflare Pages, is the CLI's policy from `core/csp.js` with the *staged*
+  `index.html`'s head-script hash and one directive more, `worker-src 'self'`, plus
+  `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, as one rule for `/*`.
+  The rule covers every path, which is how the worker's own script gets a policy: a worker is held
+  to the one on its response, not its page's. The hash is read from the staged page, after the
+  shim is in, because the head script's hash changes with the script.
+- **`npm run webapp`** serves `dist/web/` on `127.0.0.1` and answers with `_headers`' rule, so the
+  policy has been run before the first deploy. It does not walk to the next port when one is taken
+  (the landing page's server does): another port is another origin, with its own IndexedDB and
+  its own granted folders, and the app would open with no history and look as if it had lost it.
+- **Not verified from here:** that Cloudflare Pages serves Mermaid's `.mjs` chunks as
+  `text/javascript`, which a module script needs and `nosniff` will not forgive. The local
+  server sets it, so the first deploy is the first time it is a fact about Pages.
 
 ## The desktop shell
 
@@ -663,7 +701,7 @@ file.
 - No framework and no transpiler — the cost of reading a file is reading that file.
   The two build steps exist because the app's page has no node to import from and
   no server to fetch from, not because anything here is compiled to something else:
-  `build-web.mjs` bundles `src/` as it is, and `build-dist.mjs` only copies.
+  `build-web.mjs` bundles `src/` as it is, and `stage-page.mjs` only copies.
 - One stylesheet, custom properties at the top, sections in the same order as
   `index.html`.
 - An author `display` beats the browser's own `[hidden] { display: none }` whatever

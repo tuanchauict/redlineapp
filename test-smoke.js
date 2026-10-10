@@ -254,8 +254,8 @@ assert.match(sanitizeJs, /SANITIZE_DOM: false,\n\s*FORBID_ATTR: \['name'\]/,
   'heading ids keep their anchors, and name is what goes instead');
 assert.ok(fs.readFileSync(new URL('./public/vendor/sanitize.js', import.meta.url), 'utf8')
   .includes('DOMPurify'), 'build:web bundles DOMPurify into it');
-assert.match(fs.readFileSync(new URL('./scripts/build-dist.mjs', import.meta.url), 'utf8'),
-  /'vendor\/sanitize\.js'/, 'and the app refuses to build without it');
+assert.match(fs.readFileSync(new URL('./scripts/stage-page.mjs', import.meta.url), 'utf8'),
+  /'vendor\/sanitize\.js'/, 'and no host stages a page without it');
 
 // The shell runs only the command lines the reader builds. Each spawn in src/
 // is one arm of `may_spawn`, and the arguments it is matched against are
@@ -4434,9 +4434,9 @@ const memoryKv = () => {
   assert.match(buildWeb, /hosts\/web\/backend\.js.*backend-web\.js/, 'backend-web.js is built');
   assert.match(buildWeb, /hosts\/web\/worker\.js.*reader-worker\.js/, 'reader-worker.js is built');
   assert.match(
-    read('./scripts/build-dist.mjs'),
-    /OTHER_HOSTS[\s\S]*backend-web\.js[\s\S]*reader-worker\.js/,
-    'and neither is staged into the desktop app',
+    read('./scripts/stage-page.mjs'),
+    /web: \{\s*bundles: \['backend-web\.js', 'reader-worker\.js'\]/,
+    'and they are the web host\'s, which is what keeps them out of the desktop app (12e)',
   );
   const workerSrc = read('./src/hosts/web/worker.js');
   assert.match(
@@ -4447,8 +4447,8 @@ const memoryKv = () => {
   const backendSrc = read('./src/hosts/web/backend.js');
   assert.match(
     backendSrc,
-    /new globalThis\.SharedWorker\(WORKER_URL, \{ type: 'module', name: 'redline' \}\)/,
-    'the page joins the one worker called redline',
+    /new globalThis\.SharedWorker\(WORKER_URL, \{ type: 'module', name: workerName\(\) \}\)/,
+    'the page joins the one worker named for its build (12e)',
   );
   assert.ok(
     /inner\.bye\(\)/.test(backendSrc) &&
@@ -4603,6 +4603,213 @@ const memoryKv = () => {
     );
     console.log('✓ the page shows #welcome with no document or a lapsed grant, and hides git');
   }
+}
+
+// --- 12e. the web app's build: one page staged per host, and the headers a static host needs ---
+// stage-page.mjs is the body of build:dist with the host as a parameter, so the desktop app's page
+// has to be what it always was, and the web app's the same page with the other reader in it.
+// build:webapp adds `_headers`, which is what makes a static host say what the CLI's server says.
+// What no test here can say is whether Cloudflare Pages serves Mermaid's .mjs chunks as
+// text/javascript, which a module script needs, or whether a browser keeps two builds' workers
+// apart by name: those are for the first deploy and a person with a browser to show.
+{
+  const vm = await import('node:vm');
+  const { stagePage } = await import('./scripts/stage-page.mjs');
+  const { buildWebapp, headersFile } = await import('./scripts/build-webapp.mjs');
+  const { createWebappServer } = await import('./scripts/serve-webapp.mjs');
+  const { workerName, openPort } = await import('./src/hosts/web/backend.js');
+  const read = (f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+  const version = JSON.parse(read('./package.json')).version;
+  const out = fs.mkdtempSync(path.join(tmp, 'stage-'));
+  const walk = (dir, rel = '') =>
+    fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(dir, path.join(rel, e.name)) : [path.join(rel, e.name)],
+    );
+  /** What running a staged host.js leaves on the window. */
+  const shimOf = (dir) => {
+    const win = vm.createContext({});
+    vm.runInContext(fs.readFileSync(path.join(dir, 'host.js'), 'utf8'), win);
+    return win;
+  };
+
+  // --- stage-page: a host gets its own reader and nobody else's -------------------------------
+  const tauri = stagePage(path.join(out, 'tauri'), { host: 'tauri' }).dest;
+  const web = stagePage(path.join(out, 'web'), { host: 'web' }).dest;
+  const [inTauri, inWeb] = [walk(tauri), walk(web)];
+  const vendorOf = (list) =>
+    list.filter((f) => /^vendor\/[^/]+$/.test(f)).map((f) => f.slice('vendor/'.length)).sort();
+  const shared = [
+    'github-markdown.css',
+    'hljs-dark.css',
+    'hljs-light.css',
+    'render.js',
+    'sanitize.js',
+  ];
+  assert.deepStrictEqual(vendorOf(inTauri), [...shared, 'backend-tauri.js'].sort(),
+    'the desktop app gets the Tauri backend, and neither of the web app\'s bundles');
+  assert.deepStrictEqual(vendorOf(inWeb), [...shared, 'backend-web.js', 'reader-worker.js'].sort(),
+    'the web app gets its page end and its worker, and not the Tauri backend');
+  const pageFiles = ['app.js', 'backend.js', 'host.js', 'icon.svg', 'index.html', 'styles.css'];
+  for (const list of [inTauri, inWeb]) {
+    assert.deepStrictEqual(list.filter((f) => !f.includes(path.sep)).sort(), pageFiles,
+      'the page and nothing else sits at the top');
+  }
+  const mermaidOf = (list) => list.filter((f) => f.startsWith(`vendor${path.sep}mermaid`)).sort();
+  assert.ok(mermaidOf(inWeb).length > 10, 'Mermaid\'s tree is there for a document that draws');
+  assert.deepStrictEqual(mermaidOf(inWeb), mermaidOf(inTauri), 'and is the same tree in both');
+  assert.ok(mermaidOf(inWeb).every((f) => /\.mjs$/.test(f)), 'of modules, and nothing that is not');
+  const sameInBoth = [
+    ...pageFiles.filter((f) => f !== 'host.js'),
+    ...shared.map((s) => `vendor/${s}`),
+  ];
+  for (const f of sameInBoth) {
+    assert.ok(
+      fs.readFileSync(path.join(web, f)).equals(fs.readFileSync(path.join(tauri, f))),
+      `${f} is the same bytes in both`,
+    );
+  }
+  assert.ok(
+    fs.readFileSync(path.join(tauri, 'host.js')).equals(
+      fs.readFileSync(new URL('./public/host.js', import.meta.url)),
+    ),
+    'the desktop app\'s shim is the repository\'s, which says nothing',
+  );
+  assert.deepStrictEqual(Object.keys(shimOf(tauri)), [], 'and sets nothing on the window');
+  const webWin = shimOf(web);
+  assert.strictEqual(webWin.__REDLINE_WEB, true, 'the web app\'s shim says it is the web app');
+  assert.strictEqual(webWin.__REDLINE_VERSION, version, 'and which build');
+  fs.writeFileSync(path.join(web, 'stale.txt'), 'a file that stopped being part of the page');
+  stagePage(web, { host: 'web' });
+  assert.ok(!fs.existsSync(path.join(web, 'stale.txt')), 'restaging empties the directory first');
+  assert.throws(
+    () => stagePage(path.join(out, 'nowhere'), { host: 'nope' }),
+    /no host called nope/,
+    'and a host that is not one of them is an error, not an empty directory',
+  );
+  assert.match(read('./scripts/build-dist.mjs'), /stagePage\('shell\/dist', \{ host: 'tauri' \}\)/,
+    'build:dist is stagePage for the Tauri host');
+  assert.match(read('./scripts/build-webapp.mjs'), /stagePage\(dest, \{ host: 'web' \}\)/,
+    'and build:webapp is stagePage for the web');
+  console.log('✓ stage-page gives each host its own reader, and the desktop page is as it was');
+
+  // --- _headers: the hash is of what is staged, and the worker may load ----------------------
+  const built = buildWebapp(path.join(out, 'app')).dest;
+  const stagedHtml = fs.readFileSync(path.join(built, 'index.html'), 'utf8');
+  const headerText = fs.readFileSync(path.join(built, '_headers'), 'utf8');
+  const headerLines = headerText.split('\n');
+  assert.strictEqual(headerLines[0], '/*', 'one rule, for every path -- the worker\'s script too');
+  const rule = Object.fromEntries(
+    headerLines.slice(1).filter(Boolean).map((l) => [l.slice(0, l.indexOf(':')).trim(),
+      l.slice(l.indexOf(':') + 1).trim()]),
+  );
+  assert.deepStrictEqual(
+    Object.keys(rule),
+    ['Content-Security-Policy', 'X-Content-Type-Options', 'Referrer-Policy'],
+    'a policy, and the two headers that keep a response from being read as something else',
+  );
+  assert.strictEqual(rule['X-Content-Type-Options'], 'nosniff');
+  assert.strictEqual(rule['Referrer-Policy'], 'no-referrer');
+  const stagedInline = [...stagedHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  assert.strictEqual(stagedInline.length, 1, 'the staged page has the one inline script');
+  const stagedHash = crypto.createHash('sha256').update(stagedInline[0]).digest('base64');
+  const webCsp = policy(rule['Content-Security-Policy']);
+  assert.deepStrictEqual(webCsp['script-src'], ["'self'", `'sha256-${stagedHash}'`],
+    'script from here, and the staged head script by its hash');
+  assert.deepStrictEqual(webCsp['worker-src'], ["'self'"],
+    'and worker-src, which the reader\'s SharedWorker is governed by');
+  const { 'worker-src': _workers, ...theRest } = webCsp;
+  assert.deepStrictEqual(theRest, servedCsp, 'every other directive is the CLI\'s, as served');
+  assert.notStrictEqual(
+    headersFile(stagedHtml.replace('<script>', '<script>/* edited */')),
+    headerText,
+    'the hash follows the page it is given, so an edit to the head script changes it',
+  );
+  assert.ok(headerLines.every((l) => l.length <= 2000), 'no line is longer than Pages reads');
+  assert.match(read('./scripts/build-webapp.mjs'),
+    /readFileSync\(path\.join\(staged\.dest, 'index\.html'\)/,
+    'and it is read from the staged page, after the shim is over host.js, not from public/');
+  assert.ok(/^dist\/$/m.test(read('./.gitignore')), 'dist/web is build output, not source');
+  console.log('✓ _headers: the hash is the staged head script\'s, and worker-src is there');
+
+  // --- the worker is named for the build -------------------------------------------------
+  assert.strictEqual(workerName({}), 'redline@dev', 'a page nobody built says dev');
+  assert.strictEqual(workerName(webWin), `redline@${version}`,
+    'the staged shim is what names it: this build\'s version');
+  const joined = [];
+  globalThis.SharedWorker = class {
+    constructor(url, opts) {
+      joined.push({ url: String(url), opts });
+      this.port = {};
+    }
+  };
+  try {
+    await openPort();
+    globalThis.__REDLINE_VERSION = '9.9.9';
+    await openPort();
+  } finally {
+    delete globalThis.SharedWorker;
+    delete globalThis.__REDLINE_VERSION;
+  }
+  assert.deepStrictEqual(
+    joined.map((j) => j.opts),
+    [{ type: 'module', name: 'redline@dev' }, { type: 'module', name: 'redline@9.9.9' }],
+    'the page joins the worker of its own build, so a deploy does not hand it an old reader',
+  );
+  assert.ok(joined.every((j) => j.url.endsWith('/reader-worker.js')), 'at the bundle beside it');
+  console.log('✓ the worker is named for the build, by the shim the build stages');
+
+  // --- npm run webapp: the way a static host will serve it ------------------------------
+  const server = createWebappServer(built);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const site = `http://127.0.0.1:${server.address().port}`;
+  const rawPath = (p) =>
+    new Promise((resolve, reject) => {
+      http.get({ host: '127.0.0.1', port: server.address().port, path: p }, (res) => {
+        res.resume();
+        resolve(res.statusCode);
+      }).on('error', reject);
+    });
+  try {
+    const chunk = mermaidOf(inWeb).find((f) => f.includes('chunks')).split(path.sep).join('/');
+    for (const [url, type] of [
+      ['/', 'text/html; charset=utf-8'],
+      ['/vendor/reader-worker.js', 'text/javascript; charset=utf-8'],
+      ['/vendor/mermaid/mermaid.esm.min.mjs', 'text/javascript; charset=utf-8'],
+      [`/${chunk}`, 'text/javascript; charset=utf-8'],
+    ]) {
+      const res = await fetch(site + url);
+      assert.strictEqual(res.status, 200, `${url} is there`);
+      assert.strictEqual(res.headers.get('content-type'), type, `${url} is ${type}`);
+      assert.strictEqual(res.headers.get('content-security-policy'),
+        rule['Content-Security-Policy'], `${url} carries the policy, the worker's script too`);
+      assert.strictEqual(res.headers.get('x-content-type-options'), 'nosniff');
+      assert.strictEqual(res.headers.get('cache-control'), 'no-store', 'and nothing is held');
+      await res.arrayBuffer();
+    }
+    assert.strictEqual((await fetch(`${site}/_headers`)).status, 404, 'the rules are not served');
+    assert.strictEqual((await fetch(`${site}/nope.js`)).status, 404);
+    // `%2f` is the one that gets past the URL parser, which resolves `..` and `%2e%2e` itself:
+    // it reaches the path as a slash only once it has been decoded.
+    assert.strictEqual(await rawPath('/..%2fpackage.json'), 403, 'and nothing outside the app');
+    assert.strictEqual(await rawPath('/%2e%2e/package.json'), 404, 'however `..` is spelt');
+  } finally {
+    server.closeAllConnections?.();
+    server.close();
+  }
+  const serveSrc = read('./scripts/serve-webapp.mjs');
+  assert.match(serveSrc, /'127\.0\.0\.1'/, 'on the loopback and nowhere else');
+  assert.match(serveSrc, /relative\(root, file\)\.startsWith\('\.\.'\)/, 'serving only the app');
+  assert.match(serveSrc, /EADDRINUSE[\s\S]*process\.exit\(1\)/,
+    'and a taken port is an error, not another origin with no history in it');
+  const npmScripts = JSON.parse(read('./package.json')).scripts;
+  assert.strictEqual(npmScripts['build:webapp'], 'node scripts/build-webapp.mjs',
+    'npm run build:webapp');
+  assert.strictEqual(npmScripts.webapp, 'node scripts/serve-webapp.mjs', 'npm run webapp');
+  assert.strictEqual(npmScripts.prewebapp, 'npm run build:web && npm run build:webapp',
+    'which builds the bundles and the app first, so there is one command');
+  console.log('✓ npm run webapp serves dist/web with its headers, .mjs as script, and no more');
+
+  fs.rmSync(out, { recursive: true, force: true });
 }
 
 // --- 13. the store followed the app's name --------------------------------

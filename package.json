@@ -17,9 +17,12 @@
   "scripts": {
     "build:web": "node scripts/build-web.mjs",
     "build:dist": "node scripts/build-dist.mjs",
+    "build:webapp": "node scripts/build-webapp.mjs",
     "build:site": "node scripts/build-site.mjs",
     "prestart": "npm run build:web",
     "start": "node bin/redline.js",
+    "prewebapp": "npm run build:web && npm run build:webapp",
+    "webapp": "node scripts/serve-webapp.mjs",
     "presite": "npm run build:site",
     "site": "node scripts/serve-site.mjs",
     "preapp": "npm run build:web && npm run build:dist",
