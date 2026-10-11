@@ -655,11 +655,12 @@ assert.match(pageCss, /\.toc\.on::before/, 'and says which row that is');
 // choosing a file fades once it is chosen; Contents and History share the
 // right column, so a reader following a long document through a review can
 // have the map and the versions up together. All three fold away, each the
-// list its own column stops needing most often.
+// list its own column stops needing most often — and so does the web app's
+// folder, which stands where Open files does in a tab that has no tabs.
 assert.strictEqual(
   (pageHtml.match(/class="side-twist"/g) ?? []).length,
-  3,
-  'Open files, Contents and History are all disclosures',
+  4,
+  'Open files, the folder, Contents and History are all disclosures',
 );
 assert.match(pageHtml, /redline:shut/, 'and remember themselves before first paint');
 assert.match(pageJs, /prefs\.setItem\(SHUT_KEY/, 'and write that back');
@@ -668,6 +669,11 @@ assert.ok(pageCss.includes('.shut-toc #tocSec'), 'and Contents too');
 assert.ok(pageCss.includes('.shut-hist #histSec'), 'and History too');
 assert.match(pageHtml, /data-shut="hist"/, 'History shuts under its own key');
 assert.match(pageHtml, /k === "hist"/, 'restored before first paint, like the other two');
+// Its own key, not `files`: every twist on the page is read back into the one
+// list, the hidden one included, and two under one name would undo each other.
+assert.match(pageHtml, /data-shut="folder"/, 'the folder shuts under its own key');
+assert.match(pageHtml, /k === "folder"/, 'restored before first paint as well');
+assert.ok(pageCss.includes('.shut-folder #folderSec'), 'and folded away by the stylesheet');
 assert.match(pageHtml, /id="tocSide"[^>]*class="side side-r"/, 'the contents are their own column');
 assert.ok(pageCss.includes('.toc-open #tocSide'), 'laid out down the right');
 assert.ok(pageCss.includes('.toc-open main'), 'with the document keeping clear of it');
@@ -4580,6 +4586,56 @@ const memoryKv = () => {
       assert.deepStrictEqual(unhandled, [], 'and none of it left a rejection nobody handled');
       console.log('✓ a drop on a document: the welcome for a folder, a notice for a refusal');
     }
+
+    // --- the folder in the left column: what the web app has instead of tabs ---
+    {
+      const page = await openPage(hostW);
+      assert.strictEqual(await page.backend.folder(), null, 'with nothing open, no folder');
+      const shelf = tree('shelf', {
+        'index.md': '# Index\n',
+        notes: { 'a.md': '# A\n\nAy.\n', 'b.txt': 'bee\n' },
+        'pic.png': '',
+        '.hidden': { 'x.md': '' },
+      });
+      const { rootId } = await page.backend.addRoot(shelf);
+      page.id = (await page.backend.open(webPath(rootId, 'notes/a.md'))).id;
+      const listed = await page.backend.folder();
+      assert.deepStrictEqual(
+        listed,
+        {
+          name: 'shelf',
+          current: 'notes/a.md',
+          capped: false,
+          files: ['index.md', 'notes/a.md', 'notes/b.txt'].map((rel) => ({
+            rel,
+            path: webPath(rootId, rel),
+          })),
+        },
+        'a document from a folder lists the folder it came from, as the welcome does, itself named',
+      );
+      page.id = (await page.backend.open(listed.files[0].path)).id;
+      assert.match((await page.backend.doc()).text, /# Index/, 'a path from the list opens');
+      assert.strictEqual((await page.backend.folder()).current, 'index.md', 'and is then current');
+
+      const lone = await page.backend.addRoot(fileOf('lone.md', '# Lone\n'));
+      page.id = (await page.backend.open(webPath(lone.rootId, 'lone.md'))).id;
+      assert.strictEqual(await page.backend.folder(), null, 'a file picked by itself has none');
+      const dropped = await page.backend.addDrop({
+        name: 'dropped.md',
+        text: async () => '# Dropped\n',
+        lastModified: 5,
+      });
+      page.id = (await page.backend.open(dropped)).id;
+      assert.strictEqual(await page.backend.folder(), null, 'and nor has a drop');
+      page.id = 'never-opened';
+      assert.strictEqual(await page.backend.folder(), null, 'nor an id this browser never made');
+
+      page.id = (await page.backend.open(webPath(rootId, 'index.md'))).id;
+      shelf.entries = unreadable;
+      await rejection(page.backend.folder(), 'NotAllowedError');
+      assert.deepStrictEqual(unhandled, [], 'and a folder that cannot be read is a rejection only');
+      console.log('✓ the web app lists the folder a document came from, and none for a lone file');
+    }
   }
 
   for (const p of pages) p.backend.close();
@@ -4804,6 +4860,80 @@ const memoryKv = () => {
       'host.js is the first script in the page, where the shim has to be',
     );
     console.log('✓ the page shows #welcome with no document or a lapsed grant, and hides git');
+
+    // The left column: the web app's folder where the desktop app has its tabs, and none at all
+    // in a CLI tab, which has neither. Whether there is a column is known before first paint, so
+    // the head script asks it as app.js does; a CLI tab that saved `side` open in a desktop
+    // window's origin -- `npm run dev` is one -- would otherwise open on an empty strip.
+    const webAt = pageHtml.indexOf('if (globalThis.__REDLINE_WEB) document.documentElement');
+    assert.ok(
+      webAt > 0 && webAt < pageHtml.indexOf('const sideOn ='),
+      'the head script marks the web app before it decides on the left column',
+    );
+    assert.match(
+      pageHtml,
+      /const sideOn =\s+document\.documentElement\.matches\("\.native, \.web"\) &&/,
+      'and opens it only where there is one',
+    );
+    assert.match(
+      appJs,
+      /const leftColumn = document\.documentElement\.matches\('\.native, \.web'\);/,
+      'which app.js asks the same way',
+    );
+    assert.match(
+      appJs,
+      /if \(e\.altKey\) setTocSide\(!state\.tocSide\);\s+else if \(leftColumn\) setSide/,
+      'so that ⌘B in a CLI tab does nothing',
+    );
+    assert.match(
+      pageCss,
+      /html:not\(\.native\):not\(\.web\) #side \{\s+display: none;/,
+      'and its button is not there',
+    );
+    const leftAside = pageHtml.slice(
+      pageHtml.indexOf('<aside id="files"'),
+      pageHtml.indexOf('</aside>', pageHtml.indexOf('<aside id="files"')),
+    );
+    assert.match(
+      leftAside,
+      new RegExp(
+        '<section id="folderSec" class="side-sec side-grow" data-web>' +
+          '[\\s\\S]*id="folderName"[\\s\\S]*<nav id="folderList"',
+      ),
+      'the folder is a section of the left column, named for the folder',
+    );
+    assert.match(
+      pageCss,
+      /html:not\(\.web\) \[data-web\] \{\s+display: none;/,
+      'and the web app\'s alone',
+    );
+    const setSideFn = appJs.match(/function setSide\([\s\S]*?\n\}/)?.[0] ?? '';
+    const loadFn = appJs.match(/async function load\([\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /paintTabs\(\);\s+paintFolder\(\{ again: true \}\);/.test(setSideFn) &&
+        /clearSidebars\(\);\s+paintFolder\(\);/.test(loadFn) &&
+        /paint\(\);\s+paintFolder\(\);/.test(loadFn),
+      'listed as the column opens, as a document loads, and emptied when there is none',
+    );
+    const folderFn = appJs.match(/async function paintFolder\([\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /if \(!backend\.folder \|\| !state\.side\) return;/.test(folderFn) &&
+        /row\.addEventListener\('click', \(\) => openFile\(path\)\)/.test(folderFn) &&
+        /if \(run !== folderRun\) return;/.test(folderFn),
+      'only where a backend has a folder, a row opening its file, the later of two lists kept',
+    );
+    assert.strictEqual(
+      (appJs.match(/backend\.folder\b/g) ?? []).length,
+      2,
+      'and the backend is asked for one nowhere else',
+    );
+    assert.ok(
+      /async folder\(\) \{/.test(backendSrc) &&
+        /rec\?\.kind !== 'directory'\) return null;/.test(backendSrc) &&
+        /await listMarkdown\(rec\.handle\)/.test(backendSrc),
+      'which is the web backend, listing a folder the way the welcome does',
+    );
+    console.log('✓ the left column lists the folder in the web app, and is not in a CLI tab');
   }
 }
 

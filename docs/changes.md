@@ -175,8 +175,8 @@ still moved, and the rest of what moved is still worth marking.
 
 ## Comparing against something else
 
-The **history** in the left sidebar (**⌘B**) is where the baseline is chosen; there
-is no dropdown on the bar. Click a version to compare the file against it, and that row
+The **history** in the right sidebar (**⌥⌘B**) is where the baseline is chosen;
+there is no dropdown on the bar. Click a version to compare the file against it, and that row
 fills in to say so. Two rows answer the questions that are not about one particular
 version:
 

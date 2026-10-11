@@ -12,13 +12,14 @@
 //   - permission. A folder the user granted last week may have to be granted again, and only a
 //     page, from a click, can ask (`reopen`)
 //   - the ways to open something that are not a link: a folder, a file, a drop (`welcome.js`)
+//   - the folder a document came from, listed for the left column (`folder`)
 //
 // Bundled to public/vendor/backend-web.js, and loaded only when `host.js` has said this is the
 // web app, so no other build downloads it.
 import { createRpcBackend } from '../../rpc/client.js';
 import { createIdbKv } from './idb.js';
-import { parseWebPath } from './handles.js';
-import { mountWelcome } from './welcome.js';
+import { parseWebPath, webPath } from './handles.js';
+import { listMarkdown, mountWelcome } from './welcome.js';
 
 /** How often to tell the worker this page is still here. It lets go of a document after 30 s. */
 export const PING_MS = 10_000;
@@ -255,6 +256,31 @@ export async function createWebBackend({
       return dropped || rec?.kind === 'file'
         ? 'Open the folder that holds this file to follow its links.'
         : null;
+    },
+
+    /**
+     * The markdown in the folder the document on screen was opened from, for the left column:
+     * `{ name, current, capped, files: [{ rel, path }] }`, `path` being what `open` takes and
+     * `current` the `rel` of the document. Null when there is no such folder -- nothing open, a
+     * file picked on its own, a drop -- which the page says in words of its own.
+     *
+     * Read here and not by the worker. The page holds the same handle from the same store, the
+     * grant is the origin's and not the reader's, and the welcome lists a folder the same way;
+     * a round trip would add nothing but a second copy of the walk. It rejects when the folder
+     * cannot be read, a lapsed grant among them, and the page says that too.
+     */
+    async folder() {
+      const id = docId();
+      const was = id ? await kv.opened.get(id) : null;
+      const rec = was?.rootId ? await kv.roots.get(was.rootId) : null;
+      if (rec?.kind !== 'directory') return null;
+      const { files, capped } = await listMarkdown(rec.handle);
+      return {
+        name: rec.name,
+        current: was.rel,
+        capped,
+        files: files.map((rel) => ({ rel, path: webPath(was.rootId, rel) })),
+      };
     },
 
     /** Stop pinging and close the port. A page never needs this; a test does. */
