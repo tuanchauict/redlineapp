@@ -38,8 +38,19 @@
   --warn: #d97706;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+/* Dark is the page's to say, not the system's: `data-scheme` on <html>, set by
+   the head script in index.html before first paint and by `applyScheme` in
+   app.js after, which is where System is read off the media query. A browser
+   tab cannot be told it is dark the way the shell tells a window, so a query
+   here would leave a tab set to Dark light on a light system. `color-scheme`
+   with it, so that what the browser draws itself — scrollbars, the controls in
+   Settings, a dialog's backdrop — is dark too.
+
+   `screen` only, for the reason the sepia block below is: `:root[data-scheme]`
+   outranks the bare `:root` the print block resets, and paper is white. */
+@media screen {
+  :root[data-scheme="dark"] {
+    color-scheme: dark;
     --bg: #0d1117;
     --fg: #e6edf3;
     --muted: #9198a1;
@@ -62,11 +73,12 @@
 }
 
 /* Sepia: paper rather than a screen, for reading at length. It is a tint over
-   the light scheme, not a third scheme — the shell pins the window light when
-   it is chosen (`appearance` in shell/src/prefs.rs), so the chrome, the
-   scrollbars and highlight.js's light stylesheet are already right and only
-   the colours here have to change. Set as `data-tint` on <html>, by the head
-   script in index.html before first paint and by `applySettings` after.
+   the light scheme, not a third scheme — the page is drawn light for it
+   (`data-scheme`, above) and the shell pins the window light as well
+   (`appearance` in shell/src/prefs.rs), so the chrome, the scrollbars and
+   highlight.js's light stylesheet are already right and only the colours here
+   have to change. Set as `data-tint` on <html>, by the head script in
+   index.html before first paint and by `applySettings` after.
 
    The change marks are re-picked rather than kept: GitHub's green, red and
    blue were chosen against white, and their washes go muddy on cream. These
@@ -2718,12 +2730,12 @@ pre .w-del + .w-add {
    its sidebars happened to leave it.
 
    Printing is also the one time this app overrides your own appearance choice
-   rather than following it: a dark window should not cost dark paper (and a
-   sepia one is simply not tinted here — its block is `screen` only), so the
-   variables a printed page reads are reset to their light values regardless
-   of the system's and regardless of which `prefers-color-scheme` block below
-   would otherwise win on specificity — `@media print` does not outrank it, so
-   this block repeats the light values rather than only asserting the scheme. */
+   rather than following it: a dark window should not cost dark paper. The dark
+   palette and the sepia one are both `screen` only, and so are
+   github-markdown-css's dark palette (scripts/markdown-css.mjs) and
+   highlight.js's dark sheet (`applyScheme` in app.js), so none of them reaches
+   paper; the variables a printed page reads are reset to their light values
+   here as well, rather than left to that alone. */
 @media print {
   /* No `@page` margin here on purpose. The margin comes from the native
      print pipeline instead — see `print_window` in shell/src/menu.rs and

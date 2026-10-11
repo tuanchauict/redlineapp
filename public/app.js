@@ -19,10 +19,12 @@ const darkMode = matchMedia('(prefers-color-scheme: dark)');
 // index.html does the same, so the two have to read the same store.
 const prefs = globalThis.__REDLINE_PREFS ?? localStorage;
 
-// Sepia is drawn by the page, not reported by the window, so no media query
-// knows about it — the dataset that the head script and `applySettings` set
-// is the one place to ask.
+// The scheme and the tint are both the page's to say, as `data-scheme` and
+// `data-tint` on <html>, set by the head script and then by `applySettings`.
+// No media query knows about either: sepia is not a scheme a window can
+// report, and a browser tab set to Dark on a light system is still told light.
 const sepia = () => document.documentElement.dataset.tint === 'sepia';
+const dark = () => document.documentElement.dataset.scheme === 'dark';
 
 const mermaidConfig = () => ({
   startOnLoad: false,
@@ -41,7 +43,7 @@ const mermaidConfig = () => ({
           lineColor: '#76664f',
         },
       }
-    : { theme: darkMode.matches ? 'dark' : 'default' }),
+    : { theme: dark() ? 'dark' : 'default' }),
 });
 
 // Loaded on first use only: it is a multi-megabyte bundle, and a document
@@ -1100,7 +1102,11 @@ const drawDiagrams = (root = doc) => Promise.all([drawMermaid(root), drawPlantum
 // `toggle` does not bubble, so listen in the capture phase.
 doc.addEventListener('toggle', (e) => drawDiagrams(e.target), true);
 
+// Heard on System, which follows it, and also when the shell pins or unpins the
+// window, which moves what it reports: a scheme picked by name does not move
+// with it, so only a scheme that did gets the repaint.
 darkMode.addEventListener('change', () => {
+  if (!applyScheme()) return;
   mermaid?.initialize(mermaidConfig());
   paint(); // re-paints from source, so diagrams redraw in the new theme
 });
@@ -2874,8 +2880,10 @@ if (native) {
 // it is one click away and belongs to the moment rather than to you.
 //
 // The desktop app keeps them beside the window state, so every window agrees
-// and the shell can act on the ones that are its own (theme, launch, Finder);
-// a browser tab keeps its own copy and simply never shows those rows.
+// and the shell can act on the ones that are its own (launch, Finder, and the
+// window's theme, which is the chrome's and is what System is read from);
+// a browser tab keeps its own copy and never shows the rows for launch and
+// Finder. Appearance it does show: the page draws the scheme (`applyScheme`).
 
 const DEFAULT_SETTINGS = {
   appearance: 'system', // 'system' | 'light' | 'sepia' | 'dark'
@@ -3019,6 +3027,24 @@ const defaultBaseline = () => (settings.baseline === 'git' ? 'git:HEAD' : 'read'
  */
 const keptBaseline = () => `last:${defaultBaseline()}`;
 
+/**
+ * Light or dark, from the setting, onto <html> and the two highlight.js
+ * stylesheets — what the head script in index.html does before first paint,
+ * and the two must agree. Dark is on screen only, as every dark palette is, so
+ * that print stays light. Sepia is drawn on light. Answers whether the scheme
+ * moved, for the callers that have diagrams to redraw if it did.
+ */
+function applyScheme() {
+  const root = document.documentElement;
+  const was = root.dataset.scheme;
+  const look = settings.appearance;
+  const scheme = look === 'dark' || (look === 'system' && darkMode.matches) ? 'dark' : 'light';
+  root.dataset.scheme = scheme;
+  $('hljsLight').media = scheme === 'dark' ? 'print' : 'all';
+  $('hljsDark').media = scheme === 'dark' ? 'screen' : 'not all';
+  return scheme !== was;
+}
+
 /** Everything a setting changes in this page. Safe to run again at any time. */
 function applySettings() {
   const root = document.documentElement;
@@ -3030,14 +3056,16 @@ function applySettings() {
   else root.style.removeProperty('--doc-font');
   root.style.setProperty('--doc-size', `${settings.textSize}px`);
   root.dataset.width = settings.width;
-  // The window is pinned light by the shell for sepia; the cream over it is
-  // the stylesheet's, keyed off this. Diagrams are drawn with their colours
-  // baked in, so a change of tint has to redraw them, as a change of scheme
-  // does — but only a change: this runs on every setting, and at boot.
+  // The cream is the stylesheet's, keyed off the tint, over the light scheme.
+  // Diagrams are drawn with their colours baked in, so a change of tint or of
+  // scheme has to redraw them — but only a change: this runs on every setting,
+  // and at boot. On System, the scheme read here is the one the window had: the
+  // shell unpins it after this, and the listener on `darkMode` catches that.
   const wasSepia = sepia();
   if (settings.appearance === 'sepia') root.dataset.tint = 'sepia';
   else delete root.dataset.tint;
-  if (sepia() !== wasSepia && mermaid) {
+  const schemeMoved = applyScheme();
+  if ((sepia() !== wasSepia || schemeMoved) && mermaid) {
     mermaid.initialize(mermaidConfig());
     paint();
   }

@@ -82,10 +82,11 @@ pub fn set_settings(app: AppHandle, patch: Value) -> Value {
 
 /// The part the shell owns -- the page reads the rest for itself.
 ///
-/// A window's appearance is what its webview reports to the page as
-/// prefers-color-scheme, so setting it here sets it for the stylesheets too,
-/// with nothing to keep in step: the window, the document and the highlighting
-/// all follow the one switch.
+/// The page draws its own scheme from the same setting (`applyScheme` in
+/// public/app.js), as it has to in a browser tab, which has no window to pin.
+/// What is the shell's is the chrome around it, and what the webview reports as
+/// prefers-color-scheme, which is where the page reads System from. Unpinned
+/// for System, so that it follows the Mac.
 pub fn apply_settings(app: &AppHandle) {
     let theme = win::prefs(app).appearance();
     for (_, w) in app.webview_windows() {

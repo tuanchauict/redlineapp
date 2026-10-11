@@ -24,8 +24,9 @@ const PUBLIC = path.join(ROOT, 'public');
 // icon sources rather than being copied into public/.
 const ICON = path.join(ROOT, 'assets', 'icon.svg');
 
+// Served as they ship. github-markdown.css is not among them: build:web keys its palette to the
+// page's scheme (scripts/markdown-css.mjs), and it is served from public/vendor/ with the bundles.
 const VENDOR = {
-  '/vendor/github-markdown.css': require.resolve('github-markdown-css/github-markdown.css'),
   '/vendor/hljs-light.css': require.resolve('highlight.js/styles/github.css'),
   '/vendor/hljs-dark.css': require.resolve('highlight.js/styles/github-dark.css'),
 };
