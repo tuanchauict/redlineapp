@@ -8,7 +8,7 @@
 // write the store. So everything that came out of a document is passed through
 // here on its way into the DOM, and nothing that runs does.
 //
-// At insertion, in the page, rather than in render.js: the renderer also runs
+// At insertion, in the page, rather than in render.ts: the renderer also runs
 // on the server, where there is no DOM to sanitize against, and doing it last
 // means the diff, the inline word marks and the raw view are all covered by the
 // one call that cannot be forgotten on the way in. The diff's own markup -- the
@@ -37,12 +37,12 @@ const DOCUMENT = {
 };
 
 /** A rendered document, or its raw view, made safe to assign to innerHTML. */
-export const sanitizeDocument = (html) => DOMPurify.sanitize(html, DOCUMENT);
+export const sanitizeDocument = (html: string): string => DOMPurify.sanitize(html, DOCUMENT);
 
 /**
  * A PlantUML diagram. The jar draws from source the document supplied, so its
  * SVG is no more trusted than the document is; the SVG profile keeps what a
  * drawing needs and drops what a page would run.
  */
-export const sanitizeSvg = (svg) =>
+export const sanitizeSvg = (svg: string): string =>
   DOMPurify.sanitize(svg, { USE_PROFILES: { svg: true, svgFilters: true } });

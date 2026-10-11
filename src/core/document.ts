@@ -10,7 +10,7 @@
 // is the product, and two implementations of it would be two products. What a host does supply
 // is the two versions of the text, from the reader.
 import { createMarkdown, documentTitle, renderPlain, outline } from './render.js';
-import { renderDiff, renderRawDiff } from './diff.js';
+import { renderDiff, renderRawDiff, type Checked } from './diff.js';
 
 export { createMarkdown };
 // Link arithmetic reaches the page the same way the renderer does: through vendor/render.js.
@@ -37,7 +37,7 @@ const NO_CHANGES = { added: 0, removed: 0, modified: 0 };
  * since is marked against what was read rather than against `base`. See
  * `renderDiff`.
  */
-export function renderDocument(md, current, base, checked = {}) {
+export function renderDocument(md, current: string, base: string | null, checked: Checked = {}) {
   const changed = base != null && base !== current;
 
   // The headings, worked out once: they are the contents list down the side,
@@ -68,6 +68,6 @@ export function renderDocument(md, current, base, checked = {}) {
  * is now, so a window does not change its title under you as you step back
  * through its history.
  */
-export function titleOf(md, src) {
+export function titleOf(md, src: string): string {
   return documentTitle(md, src, outline(md, src));
 }

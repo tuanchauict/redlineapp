@@ -23,18 +23,21 @@ one it has.
 bin/redline.js          CLI: parse flags, start the server, open a browser
 out/                    tsc's output: what every npm script runs. Gitignored
 
+src/contract/           types only: the payload, the events, the two surfaces; imports only itself
+  payload.ts            what the reader produces and every page consumes
+  seam.ts               `Session`, the reader as a transport serves it; `Backend`, what a page holds
 src/core/               pure: no I/O and no platform, so it runs anywhere
-  document.js           two versions of a text -> HTML, marks, contents
-  render.js             markdown-it and its plugins, block splitting, the outline
-  front-matter.js       the `---` header block's lines, as fields to show
-  hljs.js               the highlighter, with a chosen set of languages
-  diff.js               block-level diff, and the markup the marks are made of
-  inline-diff.js        word-level diff, over rendered HTML
-  hash.js               SHA-1 and SHA-256 in plain JS, because they are names
-  paths.js              join, dirname, basename, resolve for a given separator
-  links.js              where a link points: `walkPath`, `shorten` for `~`, and `MD_LINK`
-  csp.js                the content security policy as data, and the inline-script hashes
-src/page/sanitize.js    DOMPurify, and what a document may put on the page
+  document.ts           two versions of a text -> HTML, marks, contents
+  render.ts             markdown-it and its plugins, block splitting, the outline
+  front-matter.ts       the `---` header block's lines, as fields to show
+  hljs.ts               the highlighter, with a chosen set of languages
+  diff.ts               block-level diff, and the markup the marks are made of
+  inline-diff.ts        word-level diff, over rendered HTML
+  hash.ts               SHA-1 and SHA-256 in plain JS, because they are names
+  paths.ts              join, dirname, basename, resolve for a given separator
+  links.ts              where a link points: `walkPath`, `shorten` for `~`, and `MD_LINK`
+  csp.ts                the content security policy as data, and the inline-script hashes
+src/page/sanitize.ts    DOMPurify, and what a document may put on the page
 src/reader/             the reader and what it needs, written against the platform
   reader.js             the open-document registry, the watcher, the payload
   store.js              the snapshot store: history, baselines, checked changes
@@ -43,16 +46,16 @@ src/reader/             the reader and what it needs, written against the platfo
   git.js                git detection, `git log --follow`, `git show`
   plantuml.js           local PlantUML renderer, with a per-diagram cache
   fonts.js              the installed font families, where the OS can list them
-src/rpc/                the page and the reader over messages; imports only rpc/
-  protocol.js           the message shapes, the method list, errors across the wire
-  serve.js              the reader's end: answer a page's calls from a session
-  client.js             the page's end: the seam's shape, over `post` and `onMessage`
+src/rpc/                the page and the reader over messages; imports only rpc/ and contract/
+  protocol.ts           the message shapes, the method list, errors across the wire
+  serve.ts              the reader's end: answer a page's calls from a session
+  client.ts             the page's end: the seam's shape, over `post` and `onMessage`
 src/hosts/node/         the CLI's shell
   server.js             HTTP + SSE over the reader
   platform.js           the platform over node
   root.js               where the repository is, from any file, in source or compiled
 src/hosts/tauri/        the app's shell, in the page
-  platform.js           the platform over the shell's IPC, on core/paths.js
+  platform.js           the platform over the shell's IPC, on core/paths.ts
   native.js             `window.mdNative` over the shell's IPC
   backend.js            the entry point the app's page imports
 src/hosts/web/          the web app's shell: no server, no node, files in IndexedDB
@@ -97,11 +100,14 @@ test-smoke.js           the whole test suite
 site/                   the landing page. Nothing above it knows it exists
 ```
 
-Which of the `src/` directories a file may import is a test, not a habit: `core/` imports
-`core/` and packages, `page/` adds `page/`, `reader/` imports `core/` and `reader/`, and a
-host imports anything above it and itself, never another host. `node:` stays in `hosts/node/`,
-and `@tauri-apps/api` in `hosts/tauri/`. The page bundles depend on it: nothing under `core/`,
-`page/` or `reader/` may reach for a node built-in.
+Which of the `src/` directories a file may import is a test, not a habit. `contract/`
+imports only `contract/`; `core/` imports `core/`, `contract/` and packages; `page/` adds
+`page/`; `reader/` imports `core/`, `reader/` and `contract/`, and no packages; `rpc/`
+imports `rpc/` and `contract/`, and no packages; and a host imports anything above it and
+itself, never another host. Every import of `contract/` is an `import type`, which is what
+lets a layer that may import almost nothing import it, and keeps it out of every bundle.
+`node:` stays in `hosts/node/`, and `@tauri-apps/api` in `hosts/tauri/`. The page bundles
+depend on it: nothing under `core/`, `page/` or `reader/` may reach for a node built-in.
 
 ## What happens when a file changes
 
@@ -190,10 +196,16 @@ check-off must name a change or say `clear`, a link must name a file, a diagram 
 at 256 KB, a document that closed is `Closed` — is decided once in `src/reader/session.js`,
 which throws `Closed` and `BadRequest`; the server turns those into a 410 and a 400 and
 nothing else. `src/rpc/` is the same session behind messages (`hello`, `call`, `bye` one
-way; `ret`, `err`, `ev`, `live`, `command` the other, all structured-cloneable), and
-`createRpcBackend` is the third implementation of the seam below. A test serves one reader
-over http and over a `MessageChannel` and holds the answers equal, so a transport cannot
-quietly decide something on its own.
+way, and the web host's `ping`, which its worker answers itself; `ret`, `err`, `ev`, `live`,
+`command` the other, all structured-cloneable), and `createRpcBackend` is the third
+implementation of the seam below. A test serves one reader over http and over a
+`MessageChannel` and holds the answers equal, so a transport cannot quietly decide something
+on its own.
+
+Both directions are typed — `PageMessage` and `ReaderMessage` in `src/rpc/protocol.ts` — and
+so is the list of methods a page may call: `SESSION_METHODS` is checked against `Session` in
+both directions, so a method added to one and not the other stops `tsc` instead of failing
+the first page that asks for it.
 
 `bye` stops the connection's watch and then calls the host's `onBye`, for a host that holds a
 document on a page's behalf and has to let go of it (the web worker retains on `hello`). A
@@ -243,7 +255,7 @@ sequence of round trips:
 
 **The document itself is not in here** — no `html`, no `rawHtml`, no stats, changes
 or contents list. Those come from `renderDocument(root, text, base)` in
-`src/core/document.js`, called by the page, and that is the whole reason the payload is
+`src/core/document.ts`, called by the page, and that is the whole reason the payload is
 shaped like this: the diff is the product, and a browser tab and the app disagreeing
 about what changed is the one bug this rules out rather than tests for. There is one
 implementation and it runs wherever the page is.
@@ -328,12 +340,12 @@ list is a check-off from before records, and is read as `{ key }`.
 
 ## The diff
 
-`src/core/diff.js` splits both versions into top-level blocks with markdown-it's own
+`src/core/diff.ts` splits both versions into top-level blocks with markdown-it's own
 parser (`splitBlocks`), diffs the block *sources* with `diffArrays`, and pairs a run
 of removals against the run of additions after it: an aligned pair that is at least
 35% similar is one edit rather than a delete and an insert.
 
-A paired block goes to `src/core/inline-diff.js`, which diffs the two blocks' **rendered
+A paired block goes to `src/core/inline-diff.ts`, which diffs the two blocks' **rendered
 HTML** word by word. Marking up markdown source would cut through emphasis runs,
 link destinations and fences; working on HTML means the marks have to respect tag
 boundaries instead, which is the bulk of that module — plus the bail-outs that send
@@ -456,7 +468,7 @@ The label is there so the page can say which window's events it wants; see the t
 of the [three Rust things](#the-desktop-shell) below for why that is not the default.
 
 `public/backend.js` reads the first of those and becomes one of three things (the
-`createRpcBackend` in `src/rpc/client.js` is the same surface over messages, for a host that
+`createRpcBackend` in `src/rpc/client.ts` is the same surface over messages, for a host that
 has neither a server nor the reader in the page, and the third is built on it):
 
 | | |
@@ -546,7 +558,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
     dropped is refused, *The web app opens files, not folders*, and pointed at the Mac app.
     The worker still reads a folder root it was given before, and follows that folder's links.
   - **Open file…** (the primary button) is `showOpenFilePicker` for markdown: `MD_LINK`, in
-    `core/links.js`, the same pattern the page follows links by. Picking one is
+    `core/links.ts`, the same pattern the page follows links by. Picking one is
     `addRoot(file)` and `open('web:<root>/<name>')`. The file is a root of its own and can read
     nothing beside it, so a click on one of its links says that the web app opens one file at a
     time and that the Mac app follows them (`backend.linkNote`, `LINK_NOTE`, shown by the page
@@ -626,7 +638,7 @@ shim over `public/host.js`. `build:web` writes every host's bundles into `public
 - **`stagePage` empties its destination**, so it will not be given the repository or anything
   that holds it (`assertSafeDest`): `''` and `'.'` are the repository, `.git` and all. It does not
   stop a destination inside the repository, `src/` say, which is for whoever picks it.
-- **`_headers`**, for Cloudflare Pages, is the CLI's policy from `core/csp.js` with the *staged*
+- **`_headers`**, for Cloudflare Pages, is the CLI's policy from `core/csp.ts` with the *staged*
   `index.html`'s head-script hash and one directive more, `worker-src 'self'`, plus
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, as one rule for `/*`.
   The rule covers every path, which is how the worker's own script gets a policy: a worker is held
@@ -759,7 +771,7 @@ app, the page that draws the document is also the page that can ask the shell to
 run git and write the store. So there are three layers, and each one assumes the
 one before it has failed.
 
-**Sanitized at insertion.** `src/page/sanitize.js` runs DOMPurify over the document —
+**Sanitized at insertion.** `src/page/sanitize.ts` runs DOMPurify over the document —
 rendered or raw — as `app.js` assigns it to the pane, and over each PlantUML SVG
 as it replaces its fence. That happens in the page, after the diff, not in
 `render.js`: the renderer also runs in Node, where DOMPurify has no DOM and gives
@@ -786,7 +798,7 @@ server, or in the app the shell's IPC. `object-src`, `base-uri`, `form-action`
 and `frame-ancestors` are all `'none'`. The policy lives in two places:
 
 - `src/hosts/node/server.js` computes it, hash included, and sends it as a header on
-  `index.html`. The directive list and the hashing are `src/core/csp.js`, which a
+  `index.html`. The directive list and the hashing are `src/core/csp.ts`, which a
   host that builds its own page (a `<meta>`, a `_headers` file) takes the same list from.
   It may tighten a directive and may not loosen one.
 - `shell/tauri.conf.json` carries it for the app. The bundler hashes the inline

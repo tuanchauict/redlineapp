@@ -39,7 +39,7 @@ function splitRoot(dir) {
  * Windows path comes back as one. A backslash in `rel` only counts as a separator there: on a
  * POSIX path it is a character in a file name.
  */
-export function walkPath(dir, rel) {
+export function walkPath(dir: string, rel: string): string {
   const [prefix, rest] = splitRoot(dir);
   const backslash = rest.includes('\\') || /^[a-zA-Z]:$/.test(prefix);
   const sep = backslash && !rest.includes('/') ? '\\' : '/';
@@ -68,7 +68,7 @@ export function walkPath(dir, rel) {
  * short form directly would clamp a link that climbs above home to `~`; this way it comes out
  * as the path it actually points at.
  */
-export function shorten(abs, d) {
+export function shorten(abs: string, d: { dir?: string; dirLabel?: string }): string {
   const { dir, dirLabel: label } = d;
   if (!dir || !label) return abs;
 

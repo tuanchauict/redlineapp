@@ -7,17 +7,15 @@
 // file existed, lifted out unchanged; the test suite holds it against `node:path`'s posix and
 // win32 for the cases it claims.
 
-/**
- * @param {'/' | '\\'} sep
- * @returns {{
- *   sep: string,
- *   join: (...parts: string[]) => string,
- *   dirname: (p: string) => string,
- *   basename: (p: string) => string,
- *   resolve: (p: string) => string,
- * }}
- */
-export function makePaths(sep) {
+export interface Paths {
+  sep: string;
+  join: (...parts: string[]) => string;
+  dirname: (p: string) => string;
+  basename: (p: string) => string;
+  resolve: (p: string) => string;
+}
+
+export function makePaths(sep: '/' | '\\'): Paths {
   /**
    * Join, the way the host would.
    *

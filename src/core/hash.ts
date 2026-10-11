@@ -6,7 +6,7 @@
 // the hash of its own words. Every one of those is already written down in
 // ~/.redline on somebody's disk, so the digests cannot move by a byte.
 //
-// They are here rather than in store.js because the diff needs one of them and
+// They are here rather than in store.ts because the diff needs one of them and
 // nothing else node:crypto offers. Reaching for it dragged node:fs in behind
 // it, and the diff has to run in a webview where there is no such thing. The
 // WebCrypto that a browser does have is async, and `keyFor` hashes in the
@@ -19,7 +19,11 @@
 const rotl = (x, n) => ((x << n) | (x >>> (32 - n))) >>> 0;
 const rotr = (x, n) => ((x >>> n) | (x << (32 - n))) >>> 0;
 
-const utf8 = (text) =>
+// Node's Buffer, reached by name so that this file needs no node types: it is only used where
+// there is no TextEncoder, and the `src` project deliberately has none (tsconfig.src.json).
+declare const Buffer: { from(text: string, encoding: 'utf8'): Uint8Array };
+
+const utf8 = (text: string): Uint8Array =>
   typeof TextEncoder === 'undefined'
     ? new Uint8Array(Buffer.from(text, 'utf8'))
     : new TextEncoder().encode(text);
@@ -57,7 +61,7 @@ const K256 = [
 ];
 
 /** SHA-256 of a string, lowercase hex — `crypto.createHash('sha256')`. */
-export function sha256Hex(text) {
+export function sha256Hex(text: string): string {
   const { blocks, view } = padded(utf8(text));
   const H = [
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
@@ -97,7 +101,7 @@ export function sha256Hex(text) {
 }
 
 /** SHA-1 of a string, lowercase hex — `crypto.createHash('sha1')`. */
-export function sha1Hex(text) {
+export function sha1Hex(text: string): string {
   const { blocks, view } = padded(utf8(text));
   const H = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0];
   const w = new Uint32Array(80);
@@ -145,16 +149,16 @@ export function sha1Hex(text) {
  * enough to read in a filename, long enough that two versions of one file
  * colliding is not a thing that happens.
  */
-export function hashContent(text) {
+export function hashContent(text: string): string {
   return sha256Hex(text).slice(0, 16);
 }
 
 /** What names a document's index file: the full SHA-1 of its absolute path. */
-export function docKey(abs) {
+export function docKey(abs: string): string {
   return sha1Hex(abs);
 }
 
 /** Bytes in a string once encoded, which is what a snapshot's `size` means. */
-export function byteLength(text) {
+export function byteLength(text: string): number {
   return utf8(text).length;
 }

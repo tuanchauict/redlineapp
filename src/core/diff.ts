@@ -3,15 +3,28 @@
 // The unit of comparison is a top-level markdown block (paragraph, heading,
 // list, fence, table, ...). A block is either unchanged, added, removed, or —
 // when a removal and an addition line up and look alike — modified. A modified
-// block is then diffed word by word (see ./inline-diff.js), so only the words
+// block is then diffed word by word (see ./inline-diff.ts), so only the words
 // that actually changed are marked; blocks that resist a readable word diff
 // fall back to showing the two versions.
 import { diffArrays, diffWordsWithSpace, diffLines } from 'diff';
-import { splitBlocks, highlightSource, splitHighlightedLines } from './render.js';
+import type { AckedVersion } from '../contract/payload.js';
+import {
+  splitBlocks,
+  highlightSource,
+  splitHighlightedLines,
+  type Block,
+  type RenderEnv,
+} from './render.js';
 import { inlineDiff } from './inline-diff.js';
 import { hashContent } from './hash.js';
 
 const SIMILARITY_THRESHOLD = 0.35;
+
+/** What `renderDiff` knows about check-offs: the change keys and the versions they were made in. */
+export interface Checked {
+  keys?: Iterable<string>;
+  from?: AckedVersion[];
+}
 
 /**
  * A block's own name: what a check-off records about the block it was made on,
@@ -19,10 +32,10 @@ const SIMILARITY_THRESHOLD = 0.35;
  * `mod` key is a hash of both sides, and recovering the side you actually read
  * needs the name of that side alone.
  */
-export const blockId = (text) => hashContent(text).slice(0, 10);
+export const blockId = (text: string): string => hashContent(text).slice(0, 10);
 
 /** 0..1 overlap between two block sources, used to pair a removal with an addition. */
-function similarity(a, b) {
+function similarity(a: string, b: string): number {
   if (a === b) return 1;
   const max = Math.max(a.length, b.length);
   if (!max) return 1;
@@ -69,7 +82,7 @@ function wrap(kind, key, html, label) {
  * that resolved when you read it has to resolve again, or the two renders
  * differ at a tag and the block falls back to the two-panel form.
  */
-function seenBlocks(md, from) {
+function seenBlocks(md, from: AckedVersion[]): { text: string; env: RenderEnv }[] {
   const out = [];
   for (const v of from) {
     const want = new Set(v.blocks);
@@ -92,7 +105,13 @@ function seenBlocks(md, from) {
  * that has since been edited is diffed against the text you checked rather
  * than against the baseline, so what comes back is what moved since you saw it.
  */
-export function renderDiff(md, oldSrc, newSrc, slugs = [], checked = {}) {
+export function renderDiff(
+  md,
+  oldSrc: string,
+  newSrc: string,
+  slugs: string[] = [],
+  checked: Checked = {},
+) {
   const oldDoc = splitBlocks(md, oldSrc);
   const newDoc = splitBlocks(md, newSrc);
 
@@ -100,8 +119,8 @@ export function renderDiff(md, oldSrc, newSrc, slugs = [], checked = {}) {
   // heading ids are a queue drawn from in document order (see `headingAnchors`),
   // and only the new side gets it — a block that exists only in the baseline
   // must not take an id belonging to one in the file.
-  const oldEnv = { references: oldDoc.env.references };
-  const newEnv = { references: newDoc.env.references, slugs };
+  const oldEnv: RenderEnv = { references: oldDoc.env.references };
+  const newEnv: RenderEnv = { references: newDoc.env.references, slugs };
   // A block parsed on its own starts at line 0, so where it really starts is
   // passed in (see `sourceLines`). The baseline's blocks are given a line only
   // when they are the "before" of an edit, and then it is the file's line and
@@ -114,11 +133,11 @@ export function renderDiff(md, oldSrc, newSrc, slugs = [], checked = {}) {
   //
   // A block checked off in some other version is an old side too, but with
   // that version's own env (see `seenBlocks`), so it is passed in.
-  const renderOld = (text, line, env = oldEnv) => {
+  const renderOld = (text: string, line?: number, env: RenderEnv = oldEnv) => {
     env.lineOffset = line;
     return md.render(text, env);
   };
-  const renderNew = (block) => {
+  const renderNew = (block: Block) => {
     newEnv.lineOffset = block.line;
     return md.render(block.text, newEnv);
   };
@@ -295,7 +314,7 @@ export function renderDiff(md, oldSrc, newSrc, slugs = [], checked = {}) {
  * when there is a baseline to compare against. Removed lines are pulled from
  * the highlighted *old* source so they keep their colours too.
  */
-export function renderRawDiff(oldSrc, newSrc) {
+export function renderRawDiff(oldSrc: string | null, newSrc: string): string {
   const newLines = splitHighlightedLines(highlightSource(newSrc));
   // `data-line` is where the line sits in the file, and it is how the contents
   // list finds a heading in this view: there are no ids here to jump to. Only
@@ -307,7 +326,7 @@ export function renderRawDiff(oldSrc, newSrc) {
     `>${html}</span>`;
 
   /** A run of the file's own lines, each knowing which line it is. */
-  const fromNew = (start, n, opts) =>
+  const fromNew = (start: number, n: number | null, opts?: { cls?: string; chg?: string }) =>
     newLines
       .slice(start, n == null ? undefined : start + n)
       .map((l, k) => line(l, { ...opts, at: start + k }))

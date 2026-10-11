@@ -6,6 +6,33 @@ import { headerTitle, parseFrontMatter, looksLikeFrontMatter } from './front-mat
 
 const ALERTS = new Set(['note', 'tip', 'important', 'warning', 'caution']);
 
+/**
+ * What markdown-it threads through one `render` call, and what the diff has to carry by hand
+ * because it renders each block on its own: the link reference definitions (per side), the
+ * heading ids (a queue, given only to the new side) and where the block starts in the file,
+ * which is the line `sourceLines` shifts a block's own line 0 by.
+ */
+export interface RenderEnv {
+  references?: unknown;
+  slugs?: string[];
+  lineOffset?: number;
+}
+
+/** A top-level block of the source: its text, and the line it starts on. */
+export interface Block {
+  text: string;
+  line: number;
+}
+
+/** A heading of the document, as the contents list shows it. */
+export interface Heading {
+  level: number;
+  text: string;
+  id: string;
+  /** Where it is in the file, which is how the raw view finds it. */
+  line: number;
+}
+
 /** GitHub alert blockquotes: `> [!NOTE]` and friends. */
 function alertPlugin(md) {
   md.core.ruler.after('block', 'gh_alerts', (state) => {
@@ -44,7 +71,7 @@ function lineText(state, line) {
  * A block rule rather than a preprocessing step, so the header is a token like
  * any other and everything downstream gets it for free — it is one block to the
  * diff, it takes a `data-line` from `sourceLines`, and it contributes no heading
- * to the contents list. See `src/core/front-matter.js` for what is read out of it.
+ * to the contents list. See `src/core/front-matter.ts` for what is read out of it.
  *
  * Only at line 0, which is also true inside the diff: a block is re-parsed on
  * its own there and the header block's own first line is line 0, while a `---`
@@ -260,7 +287,7 @@ export function createMarkdown() {
  * A heading's anchor, made the way GitHub makes one — so `[see below](#notes)`,
  * written against how the file reads on GitHub, lands in the same place here.
  */
-export function slugify(text) {
+export function slugify(text: string): string {
   return text
     .trim()
     .toLowerCase()
@@ -288,10 +315,10 @@ function headingText(inline) {
  * renderer as a queue, so a heading passed over here would quietly take the
  * next heading's id; the list is filtered for display instead.
  */
-export function outline(md, src) {
+export function outline(md, src: string): Heading[] {
   const tokens = md.parse(src, {});
   const taken = new Map();
-  const heads = [];
+  const heads: Heading[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     if (t.type !== 'heading_open') continue;
@@ -340,7 +367,7 @@ export function outline(md, src) {
  * ever fires on line 0, so a file that does not open with the fence cannot
  * have a header, and the parse is spared for every document that has none.
  */
-export function documentTitle(md, src, toc) {
+export function documentTitle(md, src: string, toc: Heading[]): string {
   if (src.startsWith('---')) {
     const header = md.parse(src, {}).find((t) => t.type === 'front_matter');
     const declared = header ? headerTitle(header.meta.rows) : '';
@@ -357,11 +384,11 @@ export function documentTitle(md, src, toc) {
  * Returns the source slices plus the parse `env`, which carries link reference
  * definitions so individual blocks still resolve `[x][ref]` when rendered alone.
  */
-export function splitBlocks(md, src) {
-  const env = {};
+export function splitBlocks(md, src: string): { blocks: Block[]; env: RenderEnv } {
+  const env: RenderEnv = {};
   const tokens = md.parse(src, env);
   const lines = src.split('\n');
-  const blocks = [];
+  const blocks: Block[] = [];
   for (const t of tokens) {
     if (t.level !== 0 || t.nesting === -1 || !t.map) continue;
     const text = lines.slice(t.map[0], t.map[1]).join('\n').replace(/\s+$/, '');
@@ -371,16 +398,16 @@ export function splitBlocks(md, src) {
 }
 
 /** The whole document at once, so every block is where the parse says it is. */
-export function renderPlain(md, src, env = {}) {
+export function renderPlain(md, src: string, env: RenderEnv = {}): string {
   return md.render(src, { ...env, lineOffset: 0 });
 }
 
-export function escapeHtml(s) {
+export function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
 /** Syntax-highlighted markdown source, for the raw view. */
-export function highlightSource(src) {
+export function highlightSource(src: string): string {
   try {
     return hljs.highlight(src, { language: 'markdown', ignoreIllegals: true }).value;
   } catch {
@@ -393,9 +420,9 @@ export function highlightSource(src) {
  * a highlight that spans several lines (a fenced block, say) stays valid when
  * each line is wrapped individually.
  */
-export function splitHighlightedLines(html) {
-  const lines = [];
-  const open = [];
+export function splitHighlightedLines(html: string): string[] {
+  const lines: string[] = [];
+  const open: string[] = [];
   let cur = '';
   for (const m of html.matchAll(/<[^>]+>|[^<]+/g)) {
     const chunk = m[0];

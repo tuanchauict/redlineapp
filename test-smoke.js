@@ -299,7 +299,7 @@ assert.deepStrictEqual(
   ['ack', 'closest', 'count', 'doc', 'more', 'x'],
   'no innerHTML the page does not know is safe',
 );
-const sanitizeJs = fs.readFileSync(rootUrl('src/page/sanitize.js'), 'utf8');
+const sanitizeJs = fs.readFileSync(rootUrl('src/page/sanitize.ts'), 'utf8');
 assert.match(sanitizeJs, /FORBID_TAGS: \['style', 'form'\]/,
   'a document cannot restyle the window or hide its own marks');
 assert.match(sanitizeJs, /SANITIZE_DOM: false,\n\s*FORBID_ATTR: \['name'\]/,
@@ -376,8 +376,12 @@ const SRC = fileURLToPath(rootUrl('src/'));
 const srcFiles = (dir = '') =>
   fs.readdirSync(path.join(SRC, dir), { withFileTypes: true }).flatMap((e) => {
     const rel = path.posix.join(dir, e.name);
-    return e.isDirectory() ? srcFiles(rel) : rel.endsWith('.js') ? [rel] : [];
+    return e.isDirectory() ? srcFiles(rel) : /\.(js|ts)$/.test(rel) ? [rel] : [];
   });
+// A specifier says `.js` for a file that is `.ts` on disk (NodeNext; esbuild resolves it the
+// same way), so "is it there" has to try the twin.
+const there = (rel) =>
+  [rel, rel.replace(/\.js$/, '.ts')].some((f) => fs.existsSync(path.join(SRC, f)));
 // `ObjC.import("AppKit")` is a string for osascript, not a module: a real one is not preceded
 // by a dot.
 const importsOf = (js) =>
@@ -402,32 +406,38 @@ const forbidden = (file, spec) => {
     return from === 'hosts/tauri' ? null : '@tauri-apps/api is for hosts/tauri only';
   }
   if (!spec.startsWith('.')) {
-    return from === 'reader' || from === 'rpc' ? 'reader/ and rpc/ import no packages' : null;
+    return ['reader', 'rpc', 'contract'].includes(from)
+      ? 'reader/, rpc/ and contract/ import no packages'
+      : null;
   }
   const to = path.posix.normalize(path.posix.join(path.posix.dirname(file), spec));
   const target = layerOf(to);
   if (to.startsWith('..')) return 'leaves src/';
+  // contract/ is in every list: it is types only, so an `import type` of it costs a bundle
+  // nothing, and it imports only itself, so the layers that may import almost nothing can still
+  // reach it.
   const allowed = {
-    core: ['core'],
-    page: ['core', 'page'],
-    reader: ['core', 'reader'],
-    rpc: ['rpc'],
-  }[from] ?? ['core', 'page', 'reader', 'rpc', from];
+    contract: ['contract'],
+    core: ['core', 'contract'],
+    page: ['core', 'page', 'contract'],
+    reader: ['core', 'reader', 'contract'],
+    rpc: ['rpc', 'contract'],
+  }[from] ?? ['core', 'page', 'reader', 'rpc', 'contract', from];
   return allowed.includes(target) ? null : `${from}/ may not import ${target}/`;
 };
 const layerBreaks = [];
 const layered = srcFiles();
 for (const file of layered) {
   assert.ok(
-    /^(core|page|reader|rpc)\/|^hosts\/[a-z]+\//.test(file),
-    `src/${file} is in a layer: core, page, reader, rpc or hosts/<host>`,
+    /^(core|page|reader|rpc|contract)\/|^hosts\/[a-z]+\//.test(file),
+    `src/${file} is in a layer: core, page, reader, rpc, contract or hosts/<host>`,
   );
   for (const spec of importsOf(fs.readFileSync(path.join(SRC, file), 'utf8'))) {
     const why = forbidden(file, spec);
     if (why) layerBreaks.push(`src/${file} imports '${spec}': ${why}`);
     else if (spec.startsWith('.')) {
       const to = path.posix.normalize(path.posix.join(path.posix.dirname(file), spec));
-      if (!fs.existsSync(path.join(SRC, to))) layerBreaks.push(`src/${file}: '${spec}' is not there`);
+      if (!there(to)) layerBreaks.push(`src/${file}: '${spec}' is not there`);
     }
   }
 }
@@ -443,6 +453,8 @@ for (const [file, spec] of [
   ['hosts/vscode/backend.js', 'vscode'],
   ['hosts/node/platform.js', '@tauri-apps/api/core'],
   ['rpc/client.js', '../reader/session.js'],
+  ['contract/payload.ts', '../core/diff.js'],
+  ['contract/payload.ts', 'markdown-it'],
 ]) {
   assert.ok(forbidden(file, spec), `${file} may not import ${spec}`);
 }
@@ -452,10 +464,50 @@ for (const [file, spec] of [
   ['hosts/vscode/platform.js', 'vscode'],
   ['hosts/tauri/backend.js', '../../reader/reader.js'],
   ['core/render.js', 'markdown-it'],
+  ['rpc/client.ts', '../contract/seam.js'],
+  ['core/diff.ts', '../contract/payload.js'],
+  ['hosts/tauri/backend.ts', '../../contract/seam.js'],
+  ['contract/seam.ts', './payload.js'],
 ]) {
   assert.strictEqual(forbidden(file, spec), null, `${file} may import ${spec}`);
 }
 console.log('✓ the import graph obeys the layers');
+
+// contract/ is types and nothing else, so importing it adds nothing to a bundle: it exports no
+// value, it imports with `import type`, and everything that reaches it says `import type` too,
+// which tsc and esbuild both erase. Without this a "type-only" layer is a promise in a comment.
+const VALUE_EXPORT = /^export\s+(?!type\b|interface\b|declare\b)(\w+)/gm;
+const VALUE_IMPORT = /^import\s+(?!type\b)/gm;
+const CONTRACT_VALUE_IMPORT =
+  /^\s*import\s+(?!type\b)[^'"`;]*?\bfrom\s*['"]([^'"]*\/contract\/[^'"]+)['"]/gm;
+const contractFiles = layered.filter((f) => f.startsWith('contract/'));
+assert.ok(contractFiles.length >= 2, 'the contract layer exists (payload.ts, seam.ts)');
+const notTypes = [];
+for (const f of layered) {
+  const text = fs.readFileSync(path.join(SRC, f), 'utf8');
+  if (f.startsWith('contract/')) {
+    for (const m of text.matchAll(VALUE_EXPORT)) notTypes.push(`src/${f} exports a value: ${m[1]}`);
+    for (const m of text.matchAll(VALUE_IMPORT)) {
+      notTypes.push(`src/${f} has an import that is not \`import type\``);
+    }
+  }
+  for (const m of text.matchAll(CONTRACT_VALUE_IMPORT)) {
+    notTypes.push(`src/${f} imports ${m[1]} without \`type\``);
+  }
+}
+assert.deepStrictEqual(notTypes, [], 'contract/ is types only, and imported as such');
+// And the patterns have to be able to fail, or a typo in one would pass everything.
+for (const [re, bad, good] of [
+  [VALUE_EXPORT, 'export const x = 1;',
+    'export type X = 1;\nexport interface Y {}\nexport declare const z: 1;'],
+  [VALUE_IMPORT, "import { X } from './payload.js';", "import type { X } from './payload.js';"],
+  [CONTRACT_VALUE_IMPORT, "import { X } from '../contract/payload.js';",
+    "import type { X } from '../contract/payload.js';\nimport { Y } from '../core/diff.js';"],
+]) {
+  assert.ok([...bad.matchAll(re)].length > 0, `${re} catches ${bad}`);
+  assert.strictEqual([...good.matchAll(re)].length, 0, `${re} lets ${good} through`);
+}
+console.log('✓ contract/ is types only, and imported as such');
 
 // core/paths.js agrees with node:path on the cases it claims. Not claimed: a trailing
 // separator on dirname, and the root of a drive (`C:\a` has dirname `C:`, node says `C:\`).
@@ -3099,7 +3151,7 @@ sixth.server.close();
   await assert.rejects(rpc.markRead(42), { name: 'BadRequest' }, 'and a version that is not one is refused');
   // Every backend the page can be handed takes the version along.
   for (const [f, through] of [
-    ['./src/rpc/client.js', /markRead: \(at\) => call\('markRead', docId\(\), at\),/],
+    ['./src/rpc/client.ts', /markRead: \(at\) => call(?:<\w+>)?\('markRead', docId\(\), at\),/],
     ['./src/hosts/tauri/backend.js', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
     ['./public/backend.js', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
     ['./src/hosts/web/worker.js', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
@@ -5245,7 +5297,7 @@ const memoryKv = () => {
     assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");
     assert.ok(
       /welcome: \(el, hooks\)/.test(backendSrc) &&
-        ['./src/hosts/tauri/backend.js', './public/backend.js', './src/rpc/client.js'].every(
+        ['./src/hosts/tauri/backend.js', './public/backend.js', './src/rpc/client.ts'].every(
           (f) => !/welcome|linkNote/.test(read(f)),
         ),
       'only the web backend has a welcome, so the page never shows one in a shell or a server',
