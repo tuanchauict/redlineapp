@@ -3151,7 +3151,7 @@ sixth.server.close();
   await assert.rejects(rpc.markRead(42), { name: 'BadRequest' }, 'and a version that is not one is refused');
   // Every backend the page can be handed takes the version along.
   for (const [f, through] of [
-    ['./src/rpc/client.js', /markRead: \(at\) => call\('markRead', docId\(\), at\),/],
+    ['./src/rpc/client.ts', /markRead: \(at\) => call(?:<\w+>)?\('markRead', docId\(\), at\),/],
     ['./src/hosts/tauri/backend.js', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
     ['./public/backend.js', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
     ['./src/hosts/web/worker.js', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
@@ -5297,7 +5297,7 @@ const memoryKv = () => {
     assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");
     assert.ok(
       /welcome: \(el, hooks\)/.test(backendSrc) &&
-        ['./src/hosts/tauri/backend.js', './public/backend.js', './src/rpc/client.js'].every(
+        ['./src/hosts/tauri/backend.js', './public/backend.js', './src/rpc/client.ts'].every(
           (f) => !/welcome|linkNote/.test(read(f)),
         ),
       'only the web backend has a welcome, so the page never shows one in a shell or a server',

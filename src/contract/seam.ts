@@ -4,7 +4,7 @@
 // document by id. `Backend` is what the page holds: the same calls with the id taken out, because
 // a page is on one document and the backend remembers which. There are three implementations of
 // `Backend` -- public/backend.js over http, src/hosts/tauri/backend.js over direct calls and
-// src/rpc/client.js over messages -- and what is declared here is what they have to agree on.
+// src/rpc/client.ts over messages -- and what is declared here is what they have to agree on.
 import type { DocPayload, PlantumlResult, PrunedPayload, ReaderEvent } from './payload.js';
 
 /** What `ack` takes. `key` names the change; `clear` brings every one back instead. */
