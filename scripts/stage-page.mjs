@@ -15,8 +15,9 @@
 //   index.html, app.js, backend.js, styles.css,  public/
 //   host.js                                      the host's own shim (see below)
 //   vendor/render.js, vendor/sanitize.js         built by build-web.mjs, for every host
+//   vendor/github-markdown.css                   the same (its palette keyed by markdown-css.mjs)
 //   vendor/backend-*.js, vendor/reader-worker.js built by build-web.mjs, *this host's only*
-//   vendor/github-markdown.css, vendor/hljs-*    node_modules
+//   vendor/hljs-*                                node_modules
 //   vendor/mermaid/                              node_modules (the minified ESM tree)
 //   icon.svg                                     assets/
 //
@@ -55,7 +56,6 @@ export const HOSTS = {
 
 /** Where each thing comes from, keyed by where the page looks for it. */
 const FILES = {
-  'vendor/github-markdown.css': require.resolve('github-markdown-css/github-markdown.css'),
   'vendor/hljs-light.css': require.resolve('highlight.js/styles/github.css'),
   'vendor/hljs-dark.css': require.resolve('highlight.js/styles/github-dark.css'),
   'icon.svg': path.join(ROOT, 'assets', 'icon.svg'),
@@ -163,6 +163,7 @@ export function stagePage(dest, { host }) {
     'host.js',
     'vendor/render.js',
     'vendor/sanitize.js',
+    'vendor/github-markdown.css',
     ...spec.bundles.map((b) => `vendor/${b}`),
   ];
   for (const file of needed) {

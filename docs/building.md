@@ -25,7 +25,7 @@ working.
 
 | | |
 | --- | --- |
-| `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from |
+| `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mjs`, which stops the build if a release moves the palettes) |
 | `npm run build:dist` | Stages `shell/dist`: `public/`, the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
 | `npm run build:webapp` | Stages `dist/web`, the web app: the same page, with the web bundles in and the Tauri backend left out, the web app's `host.js` over the empty one, and a `_headers` file. See [The web app](#the-web-app) |
 

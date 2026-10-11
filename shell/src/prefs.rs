@@ -93,11 +93,13 @@ impl Prefs {
     }
 
     /// 'system' | 'light' | 'sepia' | 'dark' -- the only one the shell applies
-    /// itself, because on macOS the window's appearance is what the webview
-    /// reports to the page as prefers-color-scheme, and there is nothing to keep
-    /// in step. Sepia is a light window: the cream is the page's own tint over
-    /// the light palette, and pinning the chrome light is what stops a system
-    /// set to dark from drawing a dark bar and dark scrollbars around it.
+    /// itself, to the window. The page draws the document's scheme from the
+    /// setting on its own (`applyScheme` in public/app.js); the window's theme
+    /// is the chrome around it, and what the webview reports as
+    /// prefers-color-scheme, which the page reads only on System. Sepia is a
+    /// light window: the cream is the page's own tint over the light palette,
+    /// and pinning the chrome light is what stops a system set to dark from
+    /// drawing a dark bar and dark scrollbars around it.
     pub fn appearance(&self) -> Option<tauri::Theme> {
         match self.setting("appearance", "system").as_str() {
             "light" | "sepia" => Some(tauri::Theme::Light),

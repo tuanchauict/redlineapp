@@ -111,7 +111,7 @@ says.
 | PlantUML | Not drawn. A PlantUML fence stays as highlighted source, with a note saying why. [Mermaid](diagrams.md) draws as it does everywhere |
 | Fonts | Settings offers the usual choices, not a list of the fonts installed on your machine, which a browser only gives after a permission prompt |
 | Updates | There is no **Check for Updates…**. A reload is the latest version |
-| Shell settings | The ones that belong to the Mac app's window are not shown |
+| Shell settings | **On launch** and **Files from Finder** belong to the Mac app's windows and are not shown. **Appearance** is: the page draws light, sepia and dark itself |
 
 ## Where your data lives
 

@@ -33,11 +33,21 @@
 // Mermaid is not in here. It is bigger than everything else put together, it
 // only matters to documents that actually draw a diagram, and it is already
 // mounted as its own lazily-imported asset tree.
+//
+// And one stylesheet, which is not a bundle but is written here for the same
+// reason the bundles are -- every host's page loads it from vendor/, and this
+// is the step every host runs first:
+//
+//   github-markdown.css  github-markdown-css, with its palette keyed to the
+//                        page's scheme and not the system's (markdown-css.mjs)
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import * as esbuild from 'esbuild';
+import { keyToScheme } from './markdown-css.mjs';
 
+const require = createRequire(import.meta.url);
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VENDOR = path.join(ROOT, 'public', 'vendor');
 
@@ -102,4 +112,9 @@ for (const { entry, out } of BUNDLES) {
     console.log(`    ${kb(n).padStart(7)}  ${pkg}`);
   }
 }
+
+const markdownCss = require.resolve('github-markdown-css/github-markdown.css');
+const markdownOut = path.join(VENDOR, 'github-markdown.css');
+fs.writeFileSync(markdownOut, keyToScheme(fs.readFileSync(markdownCss, 'utf8')));
+console.log(`\n  ${path.relative(ROOT, markdownOut)}  ${kb(fs.statSync(markdownOut).size)}`);
 console.log();

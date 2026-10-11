@@ -3,12 +3,14 @@
 Redline renders with `github-markdown-css` and `highlight.js`: tables, task lists,
 `> [!NOTE]`-style alerts, and syntax highlighting in fenced code. Light and dark
 follow the system theme unless you pin one in [Settings](native-window.md#settings),
-which also offers **Sepia** in the desktop app — cream paper and dark-brown ink,
-with code blocks, table stripes and Mermaid diagrams tinted to match rather than
-left as white cards. The change marks get their own green, blue and red for it:
-GitHub's were picked against white and go muddy on cream, so each is darkened until
-it reads at 4.5:1 on the page and on its own wash, as the light ones do. A browser
-tab has no appearance setting; it follows the system.
+which also offers **Sepia** — cream paper and dark-brown ink, with code blocks,
+table stripes and Mermaid diagrams tinted to match rather than left as white cards.
+The change marks get their own green, blue and red for it: GitHub's were picked
+against white and go muddy on cream, so each is darkened until it reads at 4.5:1 on
+the page and on its own wash, as the light ones do. A browser tab has the same four
+— the CLI's and the [web app](web-app.md)'s — and draws them itself: dark in a tab
+set to Dark is dark on a light system too. Only the browser's own toolbar around the
+page is left to the system.
 
 There is no edit mode. Redline reads the file and never writes to it.
 

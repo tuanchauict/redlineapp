@@ -2,7 +2,9 @@
 
 Node ESM and hand-written CSS, no framework. Nothing is transpiled, so what you read
 in `src/` and `public/` is what runs; the only dependencies that reach the page are
-vendored as they ship (`github-markdown-css`, `highlight.js` themes, `mermaid`).
+vendored as they ship (`highlight.js` themes, `mermaid`), and `github-markdown-css` with
+its two palettes re-keyed from the system's scheme to the page's by `build:web`
+(`scripts/markdown-css.mjs`) and nothing else changed.
 
 **One reader, three shells.** Everything that decides what a document is — the
 renderer, the diff, the snapshot store, the git import — runs in whichever
@@ -75,6 +77,7 @@ shell/src/host.rs       what the page may ask of the disk, and what it may not
 shell/src/prefs.rs      window.json: bounds, session, recent, settings
 
 scripts/build-web.mjs   src/ -> public/vendor/, for a page with no node
+scripts/markdown-css.mjs  github-markdown-css, its palette keyed to the page's scheme
 scripts/stage-page.mjs  the page for a host with no server: public/, the vendored CSS, Mermaid,
                         the icon, and that host's own bundles and shim
 scripts/build-dist.mjs  stage shell/dist: `stagePage` for the desktop app
@@ -353,6 +356,13 @@ is no component model — the document pane is `innerHTML` from the payload, thr
   were dragged to, and that clamp is therefore in two places: `fitWidths` in
   `app.js` and the same arithmetic in the inline script. Either alone is a visible
   correction on the first frame.
+- **Light or dark is the page's to draw**, as `data-scheme` on `<html>`, and sepia is
+  `data-tint` over light. A browser tab cannot be told it is dark the way the shell
+  tells a window, so nothing reads `prefers-color-scheme` but the code that resolves
+  **System**: the head script before first paint and `applyScheme` in `app.js` after,
+  which also switch highlight.js's two stylesheets by their `media`. Every dark palette
+  is `screen` only, so print stays light. In the app the shell still pins the window's
+  theme from the same setting, for the chrome and for what System reads.
 - **Scroll position is preserved** across re-renders, view switches and tab
   switches; `keepAnchored` is the helper, and anything that adds or removes text
   above the reader's place goes through it.
@@ -765,7 +775,8 @@ file.
 - No framework and no transpiler — the cost of reading a file is reading that file.
   The two build steps exist because the app's page has no node to import from and
   no server to fetch from, not because anything here is compiled to something else:
-  `build-web.mjs` bundles `src/` as it is, and `stage-page.mjs` only copies.
+  `build-web.mjs` bundles `src/` as it is, and `stage-page.mjs` only copies. The one
+  rewrite is github-markdown-css's palette, keyed to the page's scheme (`markdown-css.mjs`).
 - One stylesheet, custom properties at the top, sections in the same order as
   `index.html`.
 - An author `display` beats the browser's own `[hidden] { display: none }` whatever
