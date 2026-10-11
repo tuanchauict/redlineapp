@@ -6,7 +6,7 @@
 //
 // The desktop app and the web app both serve the page as a plain directory, and what is in
 // that directory is the same except for two things: which backend bundle the page loads, and
-// the shim that says which host it is. In the CLI, src/hosts/node/server.js answers the page's
+// the shim that says which host it is. In the CLI, src/hosts/node/server.ts answers the page's
 // requests by reading out of node_modules and assets/ wherever they happen to be; here the same
 // files are copied next to the page.
 //

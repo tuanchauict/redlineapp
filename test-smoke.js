@@ -159,7 +159,7 @@ assert.ok(out.error && !out.svg, `a failing jar yields an error, not a crash: ${
 // stdin stream ends the process -- no rejection to catch, the whole run gone.
 // A bogus jar finds it only on a machine where java loses the race, so it is
 // provoked here directly: more than a pipe buffer of input, into a command that
-// is already finished. Without the handler in platform-node.js this line does
+// is already finished. Without the handler in src/hosts/node/platform.ts this line does
 // not fail the suite, it kills it.
 const unread = await nodePlatform.spawn('true', [], { input: 'x'.repeat(1024 * 1024) });
 assert.strictEqual(unread.code, 0, 'a child that never reads its input is not a crash');
@@ -2232,7 +2232,7 @@ console.log('✓ check a change off');
     'old ones survive a new check-off, and a version that is not one of ours is not kept',
   );
 }
-const serverJsSrc = fs.readFileSync(rootUrl('src/hosts/node/server.js'), 'utf8');
+const serverJsSrc = fs.readFileSync(rootUrl('src/hosts/node/server.ts'), 'utf8');
 assert.match(serverJsSrc, /at: param\('at'\)/, 'the server passes the version a change was checked in');
 assert.match(pageJs, /backend\.ack\(\{ key, on, at: state\.data\?\.hash, block \}\)/, 'and the page sends it');
 assert.match(pageJs, /from: data\.ackedFrom/, 'and renders against what came back');
@@ -3192,7 +3192,7 @@ sixth.server.close();
 
   // And the layer between is wired: the server answers through the session, not around it.
   assert.match(
-    fs.readFileSync(rootUrl('src/hosts/node/server.js'), 'utf8'),
+    fs.readFileSync(rootUrl('src/hosts/node/server.ts'), 'utf8'),
     /createSession\(reader\)/,
     'the http routes are the session',
   );
@@ -3291,7 +3291,7 @@ sixth.server.close();
   );
   await assert.rejects(nodePlatform.writeText(path.join(tmp, 'no', 'such', 'dir.json'), 'x'));
   assert.match(
-    fs.readFileSync(rootUrl('src/hosts/node/platform.js'), 'utf8'),
+    fs.readFileSync(rootUrl('src/hosts/node/platform.ts'), 'utf8'),
     /\.writing/,
     'the node platform writes through a temporary file',
   );

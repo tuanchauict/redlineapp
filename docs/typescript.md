@@ -71,7 +71,7 @@ JavaScript, and it is the one `.js` file that will be left in `src/` when step 2
 
 Do not count `..` from `import.meta.url`. Compiled code sits one directory deeper than its
 source, so a count that is right in `src/` is wrong in `out/`. Import `ROOT`, `repoRoot`
-and `rootUrl` from `src/hosts/node/root.js`, which walks up to the first `package.json` —
+and `rootUrl` from `src/hosts/node/root.ts`, which walks up to the first `package.json` —
 `out/` has none, because `tsc` does not emit one — and so answers the same from both.
 `rootUrl('public/app.js')` is the replacement for `new URL('./public/app.js',
 import.meta.url)` in a file that sat at the root.

@@ -26,8 +26,12 @@ export interface SpawnOptions {
 }
 
 export interface SpawnResult {
-  /** Exit status; null if it was killed. */
-  code: number | null;
+  /**
+   * Exit status; null if it was killed. A string -- the system's error code, `'ENOENT'` -- when
+   * the program could not be run at all, which node reports and a callback cannot tell from an
+   * exit. Callers compare it to 0 and read the failure out of `stderr`; none of them needs more.
+   */
+  code: number | string | null;
   stdout: string;
   stderr: string;
 }

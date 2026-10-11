@@ -293,7 +293,7 @@ would have given one file two memories.
 The fallback travels inside the token because it comes from **Compare against** in
 the settings sheet, which the page holds and the reader does not. A `last:` request
 is not itself a choice, so it is not stored; nor is `none`, which names no version.
-`src/hosts/node/server.js` answers a request with no `baseline` param as `last:read`, and
+`src/hosts/node/server.ts` answers a request with no `baseline` param as `last:read`, and
 `public/app.js` sends `keptBaseline()` wherever it shows a document and
 `defaultBaseline()` only when the setting changes.
 
@@ -800,7 +800,7 @@ origin, plus the head script by its SHA-256. `connect-src` is the page's own
 server, or in the app the shell's IPC. `object-src`, `base-uri`, `form-action`
 and `frame-ancestors` are all `'none'`. The policy lives in two places:
 
-- `src/hosts/node/server.js` computes it, hash included, and sends it as a header on
+- `src/hosts/node/server.ts` computes it, hash included, and sends it as a header on
   `index.html`. The directive list and the hashing are `src/core/csp.ts`, which a
   host that builds its own page (a `<meta>`, a `_headers` file) takes the same list from.
   It may tighten a directive and may not loosen one.
