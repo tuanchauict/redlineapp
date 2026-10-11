@@ -9,9 +9,9 @@
 //   - the page's lifecycle. A tab that goes into the back/forward cache is not closed and not
 //     alive, and the worker has to be told, so that it neither holds the document for ever nor
 //     forgets the tab when it comes back
-//   - permission. A folder the user granted last week may have to be granted again, and only a
+//   - permission. A file the user granted last week may have to be granted again, and only a
 //     page, from a click, can ask (`reopen`)
-//   - the ways to open something that are not a link: a folder, a file, a drop (`welcome.js`)
+//   - the ways to open something that are not a link: a file, a drop (`welcome.js`)
 //   - the files the tab has open, for the left column, which a window has a shell to keep
 //     (`openFiles`)
 //
@@ -25,6 +25,11 @@ import { mountWelcome } from './welcome.js';
 
 /** How often to tell the worker this page is still here. It lets go of a document after 30 s. */
 export const PING_MS = 10_000;
+
+/** What a click on a link to another file says, in a web app that opens one file at a time. */
+export const LINK_NOTE =
+  'The web app opens one file at a time, so links to other files do not open here. ' +
+  'The Mac app follows them.';
 
 // Resolved against this file, which is `vendor/backend-web.js` once bundled, so the worker is the
 // bundle beside it. Not an import: the page must not download the reader unless it has to.
@@ -233,8 +238,8 @@ export async function createWebBackend({
 
     // What the welcome offers. The handles go to the worker as they are -- a `FileSystemHandle`
     // survives `postMessage` -- and it is the worker that keeps them, so two tabs picking the same
-    // folder at once cannot each write a root.
-    /** A folder or file handle from a picker or a drop. Answers `{ rootId, name, kind }`. */
+    // file at once cannot each write a root.
+    /** A file handle from a picker or a drop. Answers `{ rootId, name, kind }`. */
     addRoot: (handle) => call('addRoot', handle),
     /** A `File` that came with no handle. Answers the path to `open`. */
     addDrop: (file) => call('addDrop', file),
@@ -247,17 +252,17 @@ export async function createWebBackend({
     welcome: (el, hooks) => mountWelcome(el, { backend: api, win, ...hooks }),
 
     /**
-     * Why a link out of this document will not open, or null if it will. A file given on its own
-     * or dropped has no folder around it to read the link from, and the page would otherwise be
-     * silent: the worker refuses and the click does nothing.
+     * Why a link out of this document will not open, or null if it will. A file granted or
+     * dropped has no folder around it to read the link from, and the page would otherwise be
+     * silent: the worker refuses and the click does nothing. The web app opens nothing else, so
+     * the note says where links are followed rather than how to make them work here. A folder
+     * granted before the web app took only files still follows its own.
      */
     async linkNote(path) {
       const dropped = path?.startsWith('drop:');
       const rooted = parseWebPath(path);
       const rec = rooted ? await kv.roots.get(rooted.rootId) : null;
-      return dropped || rec?.kind === 'file'
-        ? 'Open the folder that holds this file to follow its links.'
-        : null;
+      return dropped || rec?.kind === 'file' ? LINK_NOTE : null;
     },
 
     /**

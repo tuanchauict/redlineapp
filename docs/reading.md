@@ -182,8 +182,8 @@ open". The icon says the second thing.
   they are this window's tabs; see [Tabs](native-window.md#tabs).
 
   The web app is one browser tab, so it keeps a list of its own, drawn the same way.
-  Whatever you open joins it at the end — a file from a folder, a file picked by
-  itself, a drop, a link followed out of a document — so the file you came from is
+  Whatever you open joins it at the end — a file picked, a file dropped, the
+  document a visit reopens — so the file you came from is
   still a click away. Click a row to read it, back where you left it; × or a middle
   click closes one, and closing the file on screen goes to its neighbour, or to the
   welcome if it was the last. **Open file…** at the foot is the browser's file

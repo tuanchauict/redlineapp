@@ -151,27 +151,20 @@ const welcome = backend.welcome?.(welcomeEl, {
   open: (path) => openFile(path),
   granted: () => reopened(),
   back: () => backToDocument(),
-  // A drop lands on the window whatever is showing. A folder is answered with a list, which is
-  // drawn in the welcome, so the welcome has to be up first -- but only if it is not already:
-  // showing it again would tell it there is nothing to ask for again, and a "Reopen" button the
-  // user is looking at would go.
-  show: () => {
-    if (welcomeEl.hidden) showWelcome();
-  },
-  // What it has to say while it is hidden (a file that is not markdown, one that would not open)
-  // goes where the user is looking instead of onto a screen they have not been taken to.
+  // What it has to say while it is hidden (a folder, a file that is not markdown, one that would
+  // not open) goes where the user is looking instead of onto a screen they have not been taken to.
   notify: (text) => notify(text),
 });
 
-// The link the user clicked when the folder it is in turned out to need asking for again: asked
-// for, it is the thing they wanted, and the document they were reading is not.
+// The file the user went to when it turned out to need asking for again: asked for, it is the
+// thing they wanted, and the document they were reading is not.
 let pendingLink = null;
 // What the welcome is showing now, as `showWelcome` was last told, so that being told the same
-// again -- a load, the watch and the backend's listener each report one lapsed folder -- does not
-// wipe a message or a list the user is looking at.
+// again -- a load, the watch and the backend's listener each report one lapsed grant -- does not
+// wipe a message the user is looking at.
 let welcomeSeen = null;
-// The folder it is offering to ask for again, if it is. A load that is refused after the
-// backend's listener has already said which folder says only *that* it was, and must not
+// The file it is offering to ask for again, if it is. A load that is refused after the
+// backend's listener has already said which file says only *that* it was, and must not
 // replace the name with a guess.
 let welcomeAsks = null;
 
@@ -235,11 +228,11 @@ if (welcome) {
   });
 }
 
-// The backend says which folder; the load that hit the lapse says only that it did.
+// The backend says which file; the load that hit the lapse says only that it did.
 backend.onNeedsPermission?.(({ name }) => showWelcome({ reopen: name }));
 
 /**
- * The user said yes to the folder. What they were doing when it was refused is what to do now:
+ * The user said yes to the file. What they were doing when it was refused is what to do now:
  * the link they clicked if it was a link, otherwise the document the page was loading or
  * watching.
  */
@@ -304,7 +297,7 @@ async function load({ keepScroll = true } = {}) {
       // be told so again. (A lapsed permission keeps it: asking again is what brings it back.)
       closeDocument();
     } else {
-      showWelcome({ reopen: welcomeAsks ?? 'this folder' });
+      showWelcome({ reopen: welcomeAsks ?? 'this file' });
     }
     return false;
   }
@@ -313,9 +306,8 @@ async function load({ keepScroll = true } = {}) {
   if (want && want !== state.docId) return false;
   adopt(data);
   // A document opened takes the welcome down. The one on screen read again -- an edit, a version
-  // arriving, a baseline chosen, all `keepScroll` -- does not, or a welcome up over it (a folder
-  // dropped, its list being read) would be gone a moment later; unless it was asking for a grant,
-  // which a read that worked says is no longer needed.
+  // arriving, a baseline chosen, all `keepScroll` -- takes it down only if it was asking for a
+  // grant, which a read that worked says is no longer needed.
   if (!keepScroll || welcomeAsks) hideWelcome();
   paint();
   noteOpen();
@@ -325,7 +317,7 @@ async function load({ keepScroll = true } = {}) {
 
 /**
  * Nothing on screen, and the welcome over the space where it was. The web app's alone.
- * `reopen` is the folder it is to go on asking for, if it is asking.
+ * `reopen` is the file it is to go on asking for, if it is asking.
  */
 function closeDocument({ reopen = null } = {}) {
   clearDocId();
@@ -561,8 +553,8 @@ async function closeOpen(id) {
   if (next && (await switchTo(next.id))) return;
   // A neighbour that would not open leaves the welcome too, not the file just
   // closed on screen with no row of its own -- still asking for the
-  // neighbour's folder if that is why (the link `openFile` keeps for it), so
-  // that granting it opens the file.
+  // neighbour if that is why (the path `openFile` keeps for it), so that
+  // granting it opens the file.
   closeDocument({ reopen: pendingLink ? welcomeAsks : null });
 }
 
@@ -3251,8 +3243,8 @@ async function openFile(path, { unopened = null } = {}) {
     return await load({ keepScroll: false });
   } catch (err) {
     if (err?.name === 'NeedsPermission') {
-      // The backend has told the welcome, which is asking for that folder. Opening the link
-      // once it is granted is ours to remember.
+      // The backend has told the welcome, which is asking for that file. Opening it once it is
+      // granted is ours to remember.
       pendingLink = path;
     } else {
       // A link to a file that is not there is the document being out of date,
@@ -3276,7 +3268,7 @@ if (native) {
   // `firstTabShown` above.
   await firstTabShown;
 } else {
-  // The web app's list is there before its document: a folder that has to be
+  // The web app's list is there before its document: a file that has to be
   // asked for again holds the load up, and the other files need not wait on it.
   paintTabs();
   if (!state.docId && openFiles?.closedAll()) {

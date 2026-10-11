@@ -72,7 +72,7 @@ be served: the page is a module and the reader is a SharedWorker, and a browser 
 from `file://`. File System Access needs a secure context, and `localhost` and `127.0.0.1`
 count as one without a certificate.
 
-- **One port, one origin.** The web app's history and the folders a user has granted live in
+- **One port, one origin.** The web app's history and the files a user has granted live in
   IndexedDB, which belongs to an origin, and `127.0.0.1:8082` is another one. So a taken port
   is an error rather than a step to the next, unlike `npm run site`: a server that moved
   quietly would open an app with no history in it, which looks like data lost. Pick another
@@ -105,7 +105,7 @@ count as one without a certificate.
 `.github/workflows/webapp.yml` puts `dist/web` on Cloudflare Pages, in a project of its own,
 **`redline-app`**, on a hostname of its own, **`app.redline.iamtuna.org`**. It is not a folder of
 the landing page's project
-(`redline`, [Deploying it](#deploying-it)) because IndexedDB and the folders a user has granted
+(`redline`, [Deploying it](#deploying-it)) because IndexedDB and the files a user has granted
 belong to an origin: the web app's history should not move when the landing page does, and the
 landing page's origin should not hold a store. A deploy to `redline` by mistake would replace
 the landing page with the app, which is why the project name is written on the command line and

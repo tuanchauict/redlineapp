@@ -28,9 +28,9 @@ the edge, so on the right-hand one it is ← that makes the column wider.
 
 `⌘O` (Ctrl+O off a Mac) is the browser's file picker, and the file you pick joins the open
 files. **Open file…** at the foot of the open files does the same. A CLI tab has neither:
-it is handed its file, and `⌘O` there is the browser's. A folder dropped on the window lists
-its files in the welcome, over the document; Escape, or **Back to the document**, goes back
-to it.
+it is handed its file, and `⌘O` there is the browser's. Where the welcome comes up over a
+document, to ask again for a file whose grant lapsed, Escape or **Back to the document** goes
+back to it.
 
 What you open joins the [open files](reading.md#the-sidebars) in the left column, and that
 is where you switch between them and close them: `⌃⇥` and `⌘W` are the browser's own, for

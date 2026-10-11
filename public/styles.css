@@ -1889,8 +1889,8 @@ main::-webkit-scrollbar-thumb:hover {
 
 /* ---------- welcome ---------- */
 
-/* What the web app shows with nothing open: the ways to open something, and, after a folder is
-   picked, its markdown files. It sits in `main`, which is already the scroll area and already
+/* What the web app shows with nothing open: the ways to open a file, and what the web app cannot
+   do that the Mac app does. It sits in `main`, which is already the scroll area and already
    keeps clear of the sidebars, so all it does is centre itself in what is left. It uses only the
    variables at the top, so dark and sepia need no rules of their own. */
 .welcome {
@@ -1972,55 +1972,10 @@ main::-webkit-scrollbar-thumb:hover {
   font-size: 12px;
 }
 
-.welcome-list {
-  width: 100%;
-  text-align: left;
-}
-
-.welcome-folder {
-  margin: 8px 0 6px;
-  font-size: 13px;
-}
-
-.welcome-files {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.welcome-files li + li {
-  border-top: 1px solid var(--line);
-}
-
-/* A row, not a button: the bezel is for a control that stands on its own, and thirty of them
-   in a stack would be a wall of them. */
-.welcome-file {
-  display: block;
-  width: 100%;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  text-align: left;
-  /* `text-overflow` cuts a line short only where the line cannot wrap; without this a long path
-     wrapped onto a second row instead, and the ellipsis never had anything to do. The two spans
-     inside are inline with nothing between them, so they stay on the one row. */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.welcome-file:hover {
-  background: var(--hover);
-}
-
-/* The name is what the eye is looking for; the folders it is in are context. */
-.welcome-file-dir {
-  color: var(--muted);
+/* The way to the Mac app is in a muted line and has to look like a link inside it: the scheme's
+   own blue, the colour a change mark is drawn in. */
+.welcome-limits a {
+  color: var(--mod);
 }
 
 /* ---------- change ruler ---------- */
