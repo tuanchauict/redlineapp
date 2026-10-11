@@ -1,13 +1,10 @@
 # Publish the web app, dist/web, to its own Cloudflare Pages project.
 #
-# A project of its own, not a folder of the landing page's: the two are released apart, the
-# landing page linking a dmg that exists only once the release job has uploaded it, and they want
-# different `_headers`. So a different project, `redline-app`. It is not `redline`: that one is
-# the landing page's, and a deploy to it would replace the landing page with this.
-#
-# It is served at /app on the landing page's hostname, not on one of its own, by the Worker in
-# worker/ -- deployed by hand, not here, since its token needs permissions this one has not. The
-# project therefore has no custom domain, and its pages.dev address is what the Worker asks.
+# A project of its own, not a folder of the landing page's: IndexedDB and the folders a user has
+# granted belong to an origin, and the web app's history should not move when the landing page
+# does, nor the landing page's origin hold a store. So a different hostname, and a different
+# project, `redline-app`. It is not `redline`: that one is the landing page's, and a deploy to
+# it would replace the landing page with this.
 #
 # Before the first run this needs the two repository secrets pages.yml already uses, which are
 # the account's and not the project's --
@@ -19,6 +16,9 @@
 #
 #   npx wrangler login
 #   npx wrangler pages project create redline-app --production-branch=main
+#
+# The hostname, app.redline.iamtuna.org, is attached to the project in the Pages dashboard;
+# nothing here records it. docs/building.md has the steps, and a certificate to check.
 name: Web app
 
 # A release tag, or by hand -- never on a push to main. What is deployed is what a person opens,
@@ -39,7 +39,7 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
-# A second run lands a second deploy on the same project, and the first one's answer stops
+# A second run lands a second deploy on the same hostname, and the first one's answer stops
 # mattering the moment it does. Not cancelled in progress, though: a half-finished upload is a
 # worse thing to leave behind than a wasted minute.
 concurrency:

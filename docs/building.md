@@ -103,12 +103,18 @@ count as one without a certificate.
 ### Publishing the web app
 
 `.github/workflows/webapp.yml` puts `dist/web` on Cloudflare Pages, in a project of its own,
-**`redline-app`**. It is not a folder of the landing page's project (`redline`,
-[Deploying it](#deploying-it)) because the two are built and released apart: the landing page
-links a dmg that exists only once the release job has uploaded it, and the two want different
-`_headers`, the app's being a strict `Content-Security-Policy` and `no-referrer`. A deploy to
-`redline` by mistake would replace the landing page with the app, which is why the project name
-is written on the command line and not left to a config file.
+**`redline-app`**, on a hostname of its own, **`app.redline.iamtuna.org`**. It is not a folder of
+the landing page's project
+(`redline`, [Deploying it](#deploying-it)) because IndexedDB and the folders a user has granted
+belong to an origin: the web app's history should not move when the landing page does, and the
+landing page's origin should not hold a store. A deploy to `redline` by mistake would replace
+the landing page with the app, which is why the project name is written on the command line and
+not left to a config file.
+
+A hostname of its own, and not a path of the landing page's (`/app`), because a Pages custom
+domain attaches a whole hostname to one project. Splitting one by path takes a Cloudflare Worker
+in front of both, which is a second thing to deploy and to keep inside the free plan's request
+limit for a gain this does not need.
 
 **It runs on a `v*` tag, and by hand, never on a push.** What a person opens is what the tag
 names, and the version in it names the reader their browser runs, so it goes out as a release
@@ -127,7 +133,7 @@ that should not also hold the key to the account. It has no checkout either, so 
 `wrangler.toml` at the root, which names the landing page's project, is not there for wrangler
 to find.
 
-Two things are needed once, before the first run, and the first is `pages.yml`'s:
+Three things are needed once, before the first run, and the first two are `pages.yml`'s:
 `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, which are the account's and not the
 project's, so they are already there; and the project, which wrangler will not create from CI:
 
@@ -136,54 +142,25 @@ npx wrangler login
 npx wrangler pages project create redline-app --production-branch=main
 ```
 
+The third is the hostname, attached to the project in the Pages dashboard (Workers & Pages ▸
+`redline-app` ▸ Custom domains ▸ `app.redline.iamtuna.org`). Cloudflare adds the DNS record,
+since `iamtuna.org` is a zone on the account. Nothing in the repository records it but this
+page.
+
+**Check the certificate when you attach it.** `app.redline.iamtuna.org` is two levels under the
+zone, and Cloudflare's free Universal certificate covers `iamtuna.org` and `*.iamtuna.org`, not
+`*.redline.iamtuna.org`. A Pages custom domain is issued a certificate of its own, which should
+cover it, but that has not been tried. If it does not go to *Active*, or a browser shows an SSL
+error, use a name one level down, such as `redline-app.iamtuna.org`, which Universal SSL does
+cover. Nothing in the repository changes with it, and it must be chosen before anyone uses the
+app: what the browser stores belongs to the hostname and does not follow a move.
+
 Run workflow deploys the ref it was run on as production, `--branch=main` whatever the ref, so
 run it by hand only from `main`.
 
-### Serving it at `/app`
-
-The web app is meant to be at **`/app/` on the landing page's hostname**,
-`https://redline.iamtuna.org/app/`, and not on a hostname of its own. A Pages custom domain
-attaches a whole hostname to one project, so two projects cannot split one by path. A small
-Cloudflare Worker, [`worker/app-route.js`](../worker/app-route.js), does: it runs on the route
-`redline.iamtuna.org/app*`, asks the `redline-app` project for the same path without `/app`,
-and hands the answer back. Everything else on that hostname goes to the landing page as before.
-**Do not attach a custom domain to `redline-app`.** Its own `redline-app.pages.dev` address
-keeps working, as a second origin with a store of its own.
-
-- **`/app` is sent on to `/app/`.** The page names its files relative to itself, so from `/app`
-  they would resolve against `/`. The Worker says this itself and does not ask Pages.
-- **A redirect from Pages stays under `/app`.** Pages answers `/vendor` with a `Location` of
-  `/vendor/`, which the Worker rewrites to `/app/vendor/`; one that leaves the project's address
-  is left alone.
-- **The path is assigned to the project's address, never resolved against it**, so that
-  `/app//example.com` cannot name another host.
-- **It is the same origin as the landing page**, and shares its IndexedDB, grants and
-  `localStorage`. The landing page keeps one key there, its colour theme, so nothing collides,
-  but that is a fact about today's landing page and not a boundary.
-
-The Worker is **deployed by hand, once**, not by a workflow. Its token would need the Workers
-Scripts and Routes permissions that a Pages one has not, for a file that changes about never.
-It is not told where the project is: Pages may add a suffix to a project's `pages.dev` name, so
-the address is given when it is deployed, from the project's page in the dashboard:
-
-```
-npx wrangler deploy --config worker/wrangler.toml --var APP_ORIGIN:https://<project>.pages.dev
-```
-
-`iamtuna.org` has to be a zone on that Cloudflare account. Without `APP_ORIGIN` the Worker
-answers `/app/…` with a 500 that says so, and still passes everything else on.
-
-On the free plan a Worker is called for every request to the route, which is every file the page
-loads, about fifteen for a visit. Cloudflare's free allowance is of the order of 100,000
-requests a day, which is thousands of visits and not millions; past it the app, and only the
-app, stops answering until the day turns over. That allowance is from Cloudflare's published
-plans and has not been checked against this account.
-
-**What is not checked here.** Neither workflow nor Worker has run. Everything about them is
-unproved until a deploy: that `redline-app` and its token exist, that the action's version and
-its `command` behave as written, how Cloudflare routes a request to the Worker, and the page
-itself under `/app/` in a browser. The Worker's own logic is tested in the suite against a
-stand-in for Pages, and the staged page is checked for names that would break under a prefix.
+**What is not checked here.** The workflow has not run, so everything about it is unproved
+until the first deploy: that `redline-app` and its token exist, that the action's version and
+its `command` behave as written, and that the hostname gets its certificate.
 
 ## The dev loop
 
