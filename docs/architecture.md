@@ -42,10 +42,10 @@ src/reader/             the reader and what it needs, written against the platfo
   reader.js             the open-document registry, the watcher, the payload
   store.js              the snapshot store: history, baselines, checked changes
   session.js            the reader's surface as a page asks for it: what each call means
-  platform.js           the disk, as the reader asks for it
-  git.js                git detection, `git log --follow`, `git show`
-  plantuml.js           local PlantUML renderer, with a per-diagram cache
-  fonts.js              the installed font families, where the OS can list them
+  platform.ts           the `Platform` interface: the disk, as the reader asks for it
+  git.ts                git detection, `git log --follow`, `git show`
+  plantuml.ts           local PlantUML renderer, with a per-diagram cache
+  fonts.ts              the installed font families, where the OS can list them
 src/rpc/                the page and the reader over messages; imports only rpc/ and contract/
   protocol.ts           the message shapes, the method list, errors across the wire
   serve.ts              the reader's end: answer a page's calls from a session
@@ -174,7 +174,7 @@ program: `git`, `plantuml` (`false` turns it off), `fonts`, and `label` for how 
 shown, plus `pollMs`. With none given, a platform that has `spawn` gets git, PlantUML
 discovery and the font list as it always did; a platform without it gets `NO_GIT`, no
 PlantUML and no fonts, and its reader still opens, diffs and prunes. `spawn` is optional in
-the contract (`src/reader/platform.js`) for that reason — a host that has none leaves it
+the contract (`src/reader/platform.ts`) for that reason — a host that has none leaves it
 out rather than providing a function that throws.
 
 Entries are **reference counted**. Two windows on the same file share one watcher
@@ -821,9 +821,9 @@ are `REDLINE_HOME` from the shell's own environment, not from the page,
 `~/.redline` and `~/.md-reader`. `spawn` runs only the command lines `src/`
 builds:
 
-- the four git invocations in `src/reader/git.js`, with anything the page chose kept
+- the four git invocations in `src/reader/git.ts`, with anything the page chose kept
   where git reads it as a name and never as an option;
-- the one JXA script in `src/reader/fonts.js`, compared byte for byte;
+- the one JXA script in `src/reader/fonts.ts`, compared byte for byte;
 - `java -jar` with a jar named `plantuml.jar` or the one `PLANTUML_JAR` names;
 - a `plantuml` launcher by absolute path.
 

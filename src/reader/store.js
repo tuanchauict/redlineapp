@@ -4,7 +4,7 @@
 // checked off, and what the document was last compared against. Lives outside
 // the project so it never pollutes the repo.
 //
-// Reaches the disk through a platform (see ./platform.js) rather than node, so
+// Reaches the disk through a platform (see ./platform.ts) rather than node, so
 // that the same store runs in the CLI's server process and inside the desktop
 // app's webview, where there is no node. That is also why every method here is
 // async: a webview cannot read a file synchronously, and writing the store

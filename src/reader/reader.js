@@ -9,7 +9,7 @@
 // changed in this file" is the one bug this design rules out rather than tests
 // for.
 //
-// Everything reaches the disk through a platform (src/reader/platform.js).
+// Everything reaches the disk through a platform (src/reader/platform.ts).
 import { DocStore } from './store.js';
 import { hashContent } from '../core/hash.js';
 import { createGit, NO_GIT } from './git.js';

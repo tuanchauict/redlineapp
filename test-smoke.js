@@ -313,42 +313,46 @@ assert.match(fs.readFileSync(rootUrl('scripts/stage-page.mjs'), 'utf8'),
 // is one arm of `may_spawn`, and the arguments it is matched against are
 // copied from these files -- so the two are compared here, not trusted.
 const hostRsCheck = fs.readFileSync(rootUrl('shell/src/host.rs'), 'utf8');
-/** Every .js file under `dir` (relative to src/), so a new host that spawns is scanned too. */
-const jsUnder = (dir) =>
+/**
+ * Every .js and .ts file under `dir` (relative to src/), so a new host that spawns is scanned
+ * too -- and so is a file that has been converted, which a .js-only walk would quietly drop.
+ */
+const sourcesUnder = (dir) =>
   fs.readdirSync(rootUrl(`src/${dir}/`), { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? jsUnder(`${dir}/${e.name}`) : e.name.endsWith('.js') ? [`${dir}/${e.name}`] : [],
+    e.isDirectory() ? sourcesUnder(`${dir}/${e.name}`)
+      : /\.(js|ts)$/.test(e.name) ? [`${dir}/${e.name}`] : [],
   );
 const srcSpawns = ['reader', 'hosts']
-  .flatMap(jsUnder)
-  .filter((f) => path.basename(f) !== 'platform.js')
+  .flatMap(sourcesUnder)
+  .filter((f) => !/^platform\.[jt]s$/.test(path.basename(f)))
   .flatMap((f) => {
     const js = fs.readFileSync(rootUrl(`src/${f}`), 'utf8');
     return [...js.matchAll(/platform\.spawn\(([^,]+),/g)].map((m) => `${f}: ${m[1]}`);
   })
   .sort();
 assert.deepStrictEqual(srcSpawns,
-  ["reader/fonts.js: 'osascript'", "reader/git.js: 'git'", 'reader/plantuml.js: found.cmd'],
+  ["reader/fonts.ts: 'osascript'", "reader/git.ts: 'git'", 'reader/plantuml.ts: found.cmd'],
   'every program the reader runs is one host.rs allows -- a new one needs an arm there');
 const rustFamilies = hostRsCheck.match(/const LIST_FAMILIES: &str = r#"(.*)"#;/)?.[1];
 assert.strictEqual(rustFamilies, LIST_FAMILIES,
-  'the one osascript the shell runs is the one src/reader/fonts.js asks for');
-const gitJs = fs.readFileSync(rootUrl('src/reader/git.js'), 'utf8');
+  'the one osascript the shell runs is the one src/reader/fonts.ts asks for');
+const gitSrc = fs.readFileSync(rootUrl('src/reader/git.ts'), 'utf8');
 const rustList = (js) => js.replaceAll("'", '"');
 for (const call of [
   "'ls-files', '--full-name', '--error-unmatch', '--'",
   "'rev-parse', '--show-toplevel'",
   "'--follow',\n          '--name-only',",
 ]) {
-  assert.ok(gitJs.includes(call), `src/reader/git.js still runs ${call}`);
+  assert.ok(gitSrc.includes(call), `src/reader/git.ts still runs ${call}`);
   assert.ok(hostRsCheck.includes(rustList(call.replace(/,\n\s*/g, ', '))),
     `and host.rs allows ${call}`);
 }
-assert.ok(gitJs.includes('`--format=%x00%H${SEP}%at${SEP}%s`') && gitJs.includes("SEP = '\\x1f'")
+assert.ok(gitSrc.includes('`--format=%x00%H${SEP}%at${SEP}%s`') && gitSrc.includes("SEP = '\\x1f'")
   && hostRsCheck.includes('"--format=%x00%H\\x1f%at\\x1f%s"'), 'the log format, separator and all');
-const pumlJs = fs.readFileSync(rootUrl('src/reader/plantuml.js'), 'utf8');
-assert.ok(pumlJs.includes("'-tsvg', '-pipe', '-charset', 'UTF-8'")
+const pumlSrc = fs.readFileSync(rootUrl('src/reader/plantuml.ts'), 'utf8');
+assert.ok(pumlSrc.includes("'-tsvg', '-pipe', '-charset', 'UTF-8'")
   && hostRsCheck.includes('["-tsvg", "-pipe", "-charset", "UTF-8"]'), 'the PlantUML arguments');
-assert.ok(pumlJs.includes("platform.join(root, 'plantuml.jar')")
+assert.ok(pumlSrc.includes("platform.join(root, 'plantuml.jar')")
   && hostRsCheck.includes('f == "plantuml.jar"'), 'and the jar the store can hold');
 
 // Writing is held to the store's own layout -- the four calls in src/reader/store.js.
