@@ -5011,6 +5011,14 @@ const memoryKv = () => {
         /\s+closeDocument\(\{ reopen: pendingLink \? welcomeAsks : null \}\);\n\}/.test(closeFn),
       'closing the one on screen goes to its neighbour, and closing the last to the welcome',
     );
+    // What the bar draws from the document is drawn by `paint`, not by the sidebars, so a close
+    // that empties the sidebars and not the bar leaves a count over the welcome for no file.
+    const closeDocFn = appJs.match(/function closeDocument\([\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /paintSolo\(null\);\s+paintCount\(\);\s+paintRuler\(\);/.test(closeDocFn) &&
+        /setLive\(true\);/.test(closeDocFn),
+      'and the welcome has no count, arrows, ruler or dropped watch left on the bar from it',
+    );
     assert.ok(
       /if \(!t\) return false;/.test(switchFn) &&
         /\.name\}\.` \}\)\)\) return false;/.test(switchFn) &&

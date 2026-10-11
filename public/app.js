@@ -322,9 +322,18 @@ function closeDocument({ reopen = null } = {}) {
   state.data = null;
   doc.replaceChildren();
   clearSidebars();
+  // The bar's half of the document, as `paint` draws it: the count, the arrows, the
+  // version being read and the ruler would otherwise stay over the welcome, telling of
+  // a file no longer open. Each reads `state.data`, so with none they put themselves away.
+  paintSolo(null);
+  paintCount();
+  paintRuler();
+  state.changeIndex = -1;
   paintTabs();
   unwatch?.();
   unwatch = null;
+  // A watch that had dropped is not one to complain of with nothing being watched.
+  setLive(true);
   showWelcome({ reopen });
 }
 

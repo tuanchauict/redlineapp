@@ -526,7 +526,8 @@ connection on `versionchange`. The page learns the build from the shim the build
   `switchTo` is `openFile(path)` with the scroll kept in `scrollMemory` per id, and a file that
   will not open stays listed and says *Could not open …*. `closeOpen` on the file on screen
   goes to its neighbour (`close` answers which), and to `closeDocument()` — the welcome, with
-  nothing behind it — when there is none or it will not open; a neighbour refused for a lapsed
+  nothing behind it and nothing of it left on the bar: no count, arrows, version tag, ruler or
+  dropped-watch dot — when there is none or it will not open; a neighbour refused for a lapsed
   grant keeps the welcome asking for that folder, so granting it opens the file. `paintTabs`
   remembers which document it drew around (`tabsFor`), so the change and history events that
   load the same one again do not redraw the rows under the pointer.
