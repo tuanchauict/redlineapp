@@ -5175,18 +5175,24 @@ const memoryKv = () => {
   // The plan this was built to was kept out of the repository, so anything here that cites it
   // cites a document a reader of the repository cannot open. What it decided is in docs/. The
   // needle is built in two so that this file is not the match.
+  //
+  // `skills/` and CLAUDE.md are the author's own and are gitignored, so a checkout -- CI's --
+  // has neither: they are read where they are and passed over where they are not.
   const plan = new RegExp(['web-and', 'vscode'].join('-'));
   const skip = new Set(['node_modules', 'vendor', 'dist', 'target', '.git']);
+  const here = (f) => new URL(`./${f}`, import.meta.url);
   const files = (dir) =>
-    fs.readdirSync(new URL(`./${dir}/`, import.meta.url), { withFileTypes: true }).flatMap((e) =>
-      skip.has(e.name) ? [] : e.isDirectory() ? files(`${dir}/${e.name}`) : [`${dir}/${e.name}`]);
+    !fs.existsSync(here(dir))
+      ? []
+      : fs.readdirSync(here(`${dir}/`), { withFileTypes: true }).flatMap((e) =>
+        skip.has(e.name) ? [] : e.isDirectory() ? files(`${dir}/${e.name}`) : [`${dir}/${e.name}`]);
   const dirs = ['src', 'public', 'scripts', 'shell/src', 'docs', 'site', '.github', 'skills'];
   const cited = [
     ...dirs.flatMap(files),
     'README.md',
     'CLAUDE.md',
     'test-smoke.js',
-  ].filter((f) => plan.test(read(`./${f}`)));
+  ].filter((f) => fs.existsSync(here(f)) && plan.test(read(`./${f}`)));
   assert.deepStrictEqual(cited, [], 'nothing cites the plan, which only the author can read');
   console.log('✓ docs/web-app.md agrees with the code it describes, is linked, cites no plan');
 }
