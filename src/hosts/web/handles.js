@@ -57,8 +57,9 @@ export class NeedsPermission extends Error {
 /**
  * A page that was told to show a document and has none to show: it came with no `?id=`, or the
  * id is one this browser never opened, or the folder behind it was denied or forgotten. The page
- * answers with the welcome and drops the id from its address (010 §8). Not `Closed`, which is a
- * document that *was* there -- the reader's word, and the page's cue to say it is gone.
+ * answers with the welcome and drops the id from its address (docs/architecture.md, The web
+ * app's reader). Not `Closed`, which is a document that *was* there -- the reader's word, and the
+ * page's cue to say it is gone.
  */
 export class NoDocument extends Error {
   constructor(message = 'No document is open') {

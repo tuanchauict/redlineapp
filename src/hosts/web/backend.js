@@ -66,7 +66,7 @@ export async function openPort() {
   }
   // The worker's module is a bundle of its own, and it is loaded here by the URL in a variable
   // so that nothing bundles it into this one: a browser that has a SharedWorker never needs it.
-  // Each tab then has its own reader over the one IndexedDB store (008).
+  // Each tab then has its own reader over the one IndexedDB store (docs/architecture.md).
   const { createWebHost } = await import(WORKER_URL.href);
   const { port1, port2 } = new MessageChannel();
   createWebHost().connect(port2);

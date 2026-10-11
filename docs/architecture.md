@@ -4,14 +4,15 @@ Node ESM and hand-written CSS, no framework. Nothing is transpiled, so what you 
 in `src/` and `public/` is what runs; the only dependencies that reach the page are
 vendored as they ship (`github-markdown-css`, `highlight.js` themes, `mermaid`).
 
-**One reader, two shells.** Everything that decides what a document is — the
+**One reader, three shells.** Everything that decides what a document is — the
 renderer, the diff, the snapshot store, the git import — runs in whichever
 JavaScript engine it finds itself in. In a browser tab that is node behind
 `node:http`; in the desktop app it is the webview, and there is no node and no
-server at all. What differs between the two is one adapter apiece, and nothing
-above them knows which one it has. The web app is a third adapter: no server and no
-node, the reader in a SharedWorker, and a page that has to be *given* its files
-([The web app's reader](#the-web-apps-reader)).
+server at all. The web app is the third: no server and no node, the reader in a
+SharedWorker, and a page that has to be *given* its files ([The web app's
+reader](#the-web-apps-reader), and [the web app](web-app.md) as a user meets it).
+What differs between them is one adapter apiece, and nothing above them knows which
+one it has.
 
 ```
 bin/redline.js          CLI: parse flags, start the server, open a browser

@@ -319,7 +319,7 @@ console.log('✓ a document cannot run, and the shell does only what the reader 
 // page bundles (build:web) depend on nothing under core/, page/ or reader/ touching node:.
 // It is a grep with rules, the same kind of check as the wiring above: collect every
 // `import … from`, `export … from` and `import()`, resolve the relative ones, and check each
-// against the table in docs/web-and-vscode/005-restructure.md §4.
+// against the rule in docs/architecture.md, under the directory map.
 const SRC = fileURLToPath(new URL('./src/', import.meta.url));
 const srcFiles = (dir = '') =>
   fs.readdirSync(path.join(SRC, dir), { withFileTypes: true }).flatMap((e) => {
@@ -2694,7 +2694,7 @@ sixth.server.close();
 
 // --- 12b. one store, two processes -------------------------------------------------------
 // Two DocStores on one file stand in for two processes: each holds the index as it read it,
-// which is what made a write from one undo the other's. (docs/web-and-vscode/008)
+// which is what made a write from one undo the other's. (docs/architecture.md, The store)
 {
   const { DocStore, hashContent } = await import('./src/reader/store.js');
   const { createReader } = await import('./src/reader/reader.js');
@@ -2903,7 +2903,7 @@ const memoryKv = () => {
 // What the web app runs on, with a Map where IndexedDB will be. `idb.js` is the one file here
 // that is only imported and never run: node has no IndexedDB and this repository has no browser,
 // so how it handles a transaction is held by how it is written, and checked by reading it.
-// (docs/web-and-vscode/010)
+// (docs/architecture.md, The web app's reader)
 {
   const { DocStore, hashContent, storeRoot } = await import('./src/reader/store.js');
   const { createKvFiles } = await import('./src/hosts/web/kv-files.js');
@@ -3371,8 +3371,7 @@ const memoryKv = () => {
 // System Access API hands out and a Map where IndexedDB will be. What no test here can say is
 // whether a browser behaves as the fakes do: whether a `SharedWorker` can call `getFile()` and
 // `queryPermission()`, and what a handle throws once the grant is revoked, are the two checks
-// docs/web-and-vscode/017 leaves to a person with a browser (#5 and #27).
-// (docs/web-and-vscode/010 §6 to §8)
+// left to a person with a browser. (docs/architecture.md, The web app's reader)
 {
   const { createWebHost } = await import('./src/hosts/web/worker.js');
   const { createWebBackend } = await import('./src/hosts/web/backend.js');
@@ -4054,8 +4053,8 @@ const memoryKv = () => {
   // The page's empty state, driven through the real backend and the real worker. What stands in
   // for the browser is a DOM of only what the welcome touches, folders with folders in them, and
   // the pickers. Whether a real `showDirectoryPicker`, a real drop or a real
-  // `navigator.storage.persist()` behaves as these do is for a person with a browser (017 #5).
-  // (docs/web-and-vscode/010 §2 and §8)
+  // `navigator.storage.persist()` behaves as these do is for a person with a browser.
+  // (docs/web-app.md, Opening something)
   {
     const { listMarkdown, MAX_DEPTH, MAX_FILES } = await import('./src/hosts/web/welcome.js');
     const { MD_LINK } = await import('./src/core/links.js');
@@ -5267,6 +5266,31 @@ const memoryKv = () => {
   assert.ok(joined.every((j) => j.url.endsWith('/reader-worker.js')), 'at the bundle beside it');
   console.log('✓ the worker is named for the build, by the shim the build stages');
 
+  // --- served from anywhere: nothing in the staged page reaches for the root ----------------
+  // The page names its own files relative to itself, and the worker bundle finds its reader by
+  // `import.meta.url`, so dist/web works from any directory of any static host and not only from
+  // the root of the hostname it is published at. A URL that starts with a slash would break that
+  // quietly, on the one host that serves it from a path. The `/api/...` calls in backend.js are
+  // the http backend's, which `__REDLINE_WEB` never reaches.
+  {
+    const staged = (f) => fs.readFileSync(path.join(built, f), 'utf8');
+    assert.doesNotMatch(staged('index.html'), /\b(?:src|href|action)="\/[^/]/, 'index.html');
+    assert.doesNotMatch(staged('styles.css'), /url\(\s*['"]?\/[^/]/, 'the stylesheet');
+    for (const f of ['app.js', 'vendor/backend-web.js', 'vendor/reader-worker.js']) {
+      assert.doesNotMatch(
+        staged(f),
+        /(?:\bimport\(|\bfrom\s+|new URL\(|new (?:Shared)?Worker\()\s*['"]\/[^/]/,
+        `${f} imports and loads nothing from the root`,
+      );
+    }
+    assert.match(
+      staged('vendor/backend-web.js'),
+      /new URL\(['"]\.\/reader-worker\.js['"],\s*import\.meta\.url\)/,
+      'and finds its reader beside itself',
+    );
+    console.log('✓ the staged web app names its files relative to itself, so any path serves it');
+  }
+
   // --- npm run webapp: the way a static host will serve it ------------------------------
   const server = createWebappServer(built);
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -5352,6 +5376,63 @@ const memoryKv = () => {
   console.log('✓ a request that does not parse is a 400, and both static servers stay up');
 
   fs.rmSync(out, { recursive: true, force: true });
+}
+
+// --- 12f. docs/web-app.md says what the code does -------------------------------------------
+// It is what a person reads before they trust a folder to a browser, so a number or a name in it
+// that the code has since changed is worse than no page: the next reader believes it. These are
+// the things in it that a person would act on, held to the code they describe, and that it is
+// reachable from the two indexes, since a page nobody links to is one nobody reads.
+{
+  const read = (f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+  const doc = read('./docs/web-app.md');
+  assert.match(read('./docs/README.md'), /\]\(web-app\.md\)/, 'docs/README.md links it');
+  assert.match(read('./README.md'), /\]\(docs\/web-app\.md\)/, 'and so does the README');
+
+  // Where the data lives: the database, and every store in it, by the name the code gives it.
+  const { STORES } = await import('./src/hosts/web/idb.js');
+  assert.match(read('./src/hosts/web/idb.js'), /^const DB_NAME = 'redline';$/m);
+  assert.match(doc, /database called `redline`/, 'the database is named as the code names it');
+  assert.deepStrictEqual(
+    [...doc.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1]),
+    STORES,
+    'every store, in the order the code makes them, and none that it does not',
+  );
+
+  // What a person would count on: how far down a folder is listed, and how long an edit takes to
+  // show. Read from the code that holds the number, the one place it is written.
+  const { MAX_DEPTH, MAX_FILES } = await import('./src/hosts/web/welcome.js');
+  const depth = ['no', 'one', 'two', 'three', 'four', 'five'][MAX_DEPTH];
+  assert.ok(doc.includes(`${depth} folders down and at most ${MAX_FILES}`),
+    'the welcome lists what the doc says it lists');
+  assert.match(read('./src/reader/reader.js'), /^const POLL_MS = 1500;$/m);
+  assert.ok(doc.includes('within about a second and a half'), 'a poll of 1500 ms');
+  assert.match(read('./scripts/serve-webapp.mjs'), /^const DEFAULT_PORT = 8081;$/m);
+  assert.ok(doc.includes('http://127.0.0.1:8081'), 'and the address the server answers on');
+
+  // The plan this was built to was kept out of the repository, so anything here that cites it
+  // cites a document a reader of the repository cannot open. What it decided is in docs/. The
+  // needle is built in two so that this file is not the match.
+  //
+  // `skills/` and CLAUDE.md are the author's own and are gitignored, so a checkout -- CI's --
+  // has neither: they are read where they are and passed over where they are not.
+  const plan = new RegExp(['web-and', 'vscode'].join('-'));
+  const skip = new Set(['node_modules', 'vendor', 'dist', 'target', '.git']);
+  const here = (f) => new URL(`./${f}`, import.meta.url);
+  const files = (dir) =>
+    !fs.existsSync(here(dir))
+      ? []
+      : fs.readdirSync(here(`${dir}/`), { withFileTypes: true }).flatMap((e) =>
+        skip.has(e.name) ? [] : e.isDirectory() ? files(`${dir}/${e.name}`) : [`${dir}/${e.name}`]);
+  const dirs = ['src', 'public', 'scripts', 'shell/src', 'docs', 'site', '.github', 'skills'];
+  const cited = [
+    ...dirs.flatMap(files),
+    'README.md',
+    'CLAUDE.md',
+    'test-smoke.js',
+  ].filter((f) => fs.existsSync(here(f)) && plan.test(read(`./${f}`)));
+  assert.deepStrictEqual(cited, [], 'nothing cites the plan, which only the author can read');
+  console.log('✓ docs/web-app.md agrees with the code it describes, is linked, cites no plan');
 }
 
 // --- 13. the store followed the app's name --------------------------------
@@ -5448,7 +5529,11 @@ assert.match(ci, /path: dist\/\*\.dmg/, 'the dmg is kept where bundle.mjs leaves
 assert.match(ci, /if-no-files-found: error/, 'loudly, rather than uploading nothing');
 
 const workflows = fs.readdirSync(new URL('./.github/workflows/', import.meta.url));
-assert.deepStrictEqual(workflows.sort(), ['ci.yml', 'pages.yml'], 'two workflows, no more');
+assert.deepStrictEqual(
+  workflows.sort(),
+  ['ci.yml', 'pages.yml', 'webapp.yml'],
+  'three workflows, no more',
+);
 const triggers = (yml) => yml.match(/^on:\n([\s\S]*?)\n(?=\S)/m)?.[1] ?? '';
 const onEvents = (yml) => triggers(yml).match(/^ {2}[a-z_]+:/gm);
 // Every change is tested, because a check that runs only when somebody thinks
@@ -5464,7 +5549,16 @@ assert.match(triggers(ci), /tags: \['v\*'\]/, 'or of a version tag');
 // code with the repository's secrets and a write token. Comments may name it.
 const ciCode = ci.replace(/^\s*#.*$/gm, '');
 const pagesCode = pagesYml.replace(/^\s*#.*$/gm, '');
-for (const [name, code] of [['ci.yml', ciCode], ['pages.yml', pagesCode]]) {
+const webappYml = fs.readFileSync(
+  new URL('./.github/workflows/webapp.yml', import.meta.url),
+  'utf8',
+);
+const webappCode = webappYml.replace(/^\s*#.*$/gm, '');
+for (const [name, code] of [
+  ['ci.yml', ciCode],
+  ['pages.yml', pagesCode],
+  ['webapp.yml', webappCode],
+]) {
   assert.doesNotMatch(code, /pull_request_target/, `${name} never hands a fork the secrets`);
 }
 
@@ -5588,6 +5682,74 @@ for (const secret of ['APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_
   assert.ok(ci.includes(`secrets.${secret}`), `CI hands the build ${secret}`);
 }
 console.log('✓ CI tests every change on two OSes, and signs only what a fork cannot reach');
+
+// The web app is published by a workflow of its own, and the things that go wrong with it go
+// wrong quietly: a deploy to the landing page's project replaces the landing page with the app and
+// reports success, a token in a job that has run `npm ci` is in reach of every dependency's
+// install script, and a trigger on a push puts out every merge. None of it fails a build, so each
+// is a line here. That the workflow runs at all, and that Pages takes what it sends, is for the
+// first deploy to say (docs/building.md, Publishing the web app).
+{
+  assert.deepStrictEqual(
+    onEvents(webappYml),
+    ['  push:', '  workflow_dispatch:'],
+    'webapp.yml runs on a push and by hand, and on no pull request',
+  );
+  assert.match(triggers(webappYml), /tags: \['v\*'\]/, 'the push is of a version tag');
+  assert.doesNotMatch(triggers(webappYml), /branches:/, 'and never of a branch, main included');
+  assert.doesNotMatch(webappCode, /\bwrite\b/, 'it can write nothing to the repository');
+  assert.match(webappCode, /^permissions:\n {2}contents: read$/m, 'only read it');
+  assert.match(webappCode, /cancel-in-progress: false/, 'and a deploy is never cut off halfway');
+
+  assert.deepStrictEqual(
+    webappCode.slice(webappCode.indexOf('\njobs:')).match(/^ {2}[a-z]+:$/gm),
+    ['  build:', '  deploy:'],
+    'a job that builds, and a job that deploys what it built',
+  );
+  const buildJob = webappCode.slice(
+    webappCode.indexOf('\n  build:'),
+    webappCode.indexOf('\n  deploy:'),
+  );
+  const deployJob = webappCode.slice(webappCode.indexOf('\n  deploy:'));
+  assert.match(deployJob, /needs: build/, 'the deploy waits for the build');
+
+  // The token is in one job, and it is the one that runs nothing of the repository's.
+  assert.doesNotMatch(buildJob, /secrets\./, 'the job that runs npm ci holds no secret');
+  assert.match(deployJob, /apiToken: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/, 'the token');
+  assert.match(deployJob, /accountId: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/, 'the account');
+  assert.doesNotMatch(deployJob, /actions\/checkout/, 'with no checkout, so no wrangler.toml');
+  assert.doesNotMatch(deployJob, /\bnpm\b|\bnpx\b/, 'and no npm to run a dependency with');
+  assert.strictEqual(deployJob.match(/^ {6}- /gm).length, 3, 'a node, the artifact, the deploy');
+
+  // The project is named on the command line, and is not the landing page's.
+  const project = deployJob.match(/--project-name=(\S+)/)?.[1];
+  const landingPage = fs.readFileSync(new URL('./wrangler.toml', import.meta.url), 'utf8');
+  assert.strictEqual(project, 'redline-app', 'into the web app\'s project');
+  assert.notStrictEqual(
+    project,
+    landingPage.match(/^name = "(.+)"$/m)[1],
+    'which is not the one wrangler.toml names, whose page it would replace',
+  );
+  assert.match(deployJob, /command: pages deploy web --project-name=redline-app --branch=main/);
+
+  // What is built is what is uploaded: the one directory, by the one name, and an empty one is
+  // an error.
+  assert.match(buildJob, /run: npm run build:web\b[\s\S]*run: npm run build:webapp\b/,
+    'the bundles, then the page staged around them');
+  assert.match(buildJob, /path: dist\/web\n\s+if-no-files-found: error/, 'dist/web, or nothing');
+  assert.match(buildJob, /name: redline-app/, 'under a name');
+  assert.match(deployJob, /name: redline-app\n\s+path: web/, 'which the deploy downloads to web/');
+  assert.match(
+    buildJob,
+    /if: github\.ref_type == 'tag'[\s\S]*?GITHUB_REF_NAME#v[\s\S]*?package\.json/,
+    'and a tag that disagrees with package.json is refused, as ci.yml refuses it',
+  );
+
+  // Independent of the release, so that neither can hold the other up.
+  assert.doesNotMatch(ciCode, /webapp\.yml/, 'ci.yml does not start it');
+  assert.doesNotMatch(webappCode, /workflow_run|needs: .*(test|bundle|release)/, 'or waits on it');
+  console.log('✓ webapp.yml deploys dist/web on a tag, to its own project, token in one job');
+}
 
 // The dev loop, which is the one piece of tooling here whose failure mode is
 // that it quietly stops saving you anything. `npm run dev` is worth having only

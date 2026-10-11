@@ -11,6 +11,7 @@ pages are the detail behind it.
 | [Change marks](changes.md) | What the marks mean, how the diff is made, choosing what to compare against, checking a change off |
 | [History](history.md) | Every version of a file, the git import, cleaning up, where it all lives |
 | [The native window](native-window.md) | The Mac app: windows, tabs, Settings |
+| [The web app](web-app.md) | Redline in a browser: opening a folder or a file, which browsers do what, what is off, where the history is kept |
 | [Keyboard](keyboard.md) | Every key and menu shortcut, in one table |
 | [Diagrams](diagrams.md) | Mermaid and PlantUML fences |
 | [Command line](cli.md) | Flags, ports, environment variables |
