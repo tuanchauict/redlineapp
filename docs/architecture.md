@@ -39,13 +39,13 @@ src/core/               pure: no I/O and no platform, so it runs anywhere
   csp.ts                the content security policy as data, and the inline-script hashes
 src/page/sanitize.ts    DOMPurify, and what a document may put on the page
 src/reader/             the reader and what it needs, written against the platform
-  reader.js             the open-document registry, the watcher, the payload
-  store.js              the snapshot store: history, baselines, checked changes
-  session.js            the reader's surface as a page asks for it: what each call means
-  platform.js           the disk, as the reader asks for it
-  git.js                git detection, `git log --follow`, `git show`
-  plantuml.js           local PlantUML renderer, with a per-diagram cache
-  fonts.js              the installed font families, where the OS can list them
+  reader.ts             the open-document registry, the watcher, the payload
+  store.ts              the snapshot store: history, baselines, checked changes
+  session.ts            the reader's surface as a page asks for it: what each call means
+  platform.ts           the `Platform` interface: the disk, as the reader asks for it
+  git.ts                git detection, `git log --follow`, `git show`
+  plantuml.ts           local PlantUML renderer, with a per-diagram cache
+  fonts.ts              the installed font families, where the OS can list them
 src/rpc/                the page and the reader over messages; imports only rpc/ and contract/
   protocol.ts           the message shapes, the method list, errors across the wire
   serve.ts              the reader's end: answer a page's calls from a session
@@ -165,7 +165,7 @@ the page is looking at that text.
 
 ## Open documents
 
-`createReader` (`src/reader/reader.js`) keeps a `Map` of open documents keyed by
+`createReader` (`src/reader/reader.ts`) keeps a `Map` of open documents keyed by
 `hashContent(abs).slice(0, 12)`, and hands back `retain` / `release` / `setFile` /
 `pathOf` plus a method per action for whoever is embedding it.
 
@@ -174,8 +174,9 @@ program: `git`, `plantuml` (`false` turns it off), `fonts`, and `label` for how 
 shown, plus `pollMs`. With none given, a platform that has `spawn` gets git, PlantUML
 discovery and the font list as it always did; a platform without it gets `NO_GIT`, no
 PlantUML and no fonts, and its reader still opens, diffs and prunes. `spawn` is optional in
-the contract (`src/reader/platform.js`) for that reason — a host that has none leaves it
-out rather than providing a function that throws.
+the contract (`src/reader/platform.ts`) for that reason — a host that has none leaves it
+out rather than providing a function that throws. The options are `ReaderOptions` in
+`src/reader/reader.ts`, and the contract is the `Platform` interface there.
 
 Entries are **reference counted**. Two windows on the same file share one watcher
 and one store; the last one to let go is the one that stops watching. This is what
@@ -193,9 +194,11 @@ arguments and the same answers, which is why there is no second table here.
 
 The routes are thin on purpose. What a call *means* — a blank baseline is `last:read`, a
 check-off must name a change or say `clear`, a link must name a file, a diagram is capped
-at 256 KB, a document that closed is `Closed` — is decided once in `src/reader/session.js`,
+at 256 KB, a document that closed is `Closed` — is decided once in `src/reader/session.ts`,
 which throws `Closed` and `BadRequest`; the server turns those into a 410 and a 400 and
-nothing else. `src/rpc/` is the same session behind messages (`hello`, `call`, `bye` one
+nothing else. `createSession` returns `Session` (`src/contract/seam.ts`), so a method renamed
+here, or one that answers a different shape, stops compiling rather than surfacing when a page
+asks. `src/rpc/` is the same session behind messages (`hello`, `call`, `bye` one
 way, and the web host's `ping`, which its worker answers itself; `ret`, `err`, `ev`, `live`,
 `command` the other, all structured-cloneable), and `createRpcBackend` is the third
 implementation of the seam below. A test serves one reader over http and over a
@@ -821,9 +824,9 @@ are `REDLINE_HOME` from the shell's own environment, not from the page,
 `~/.redline` and `~/.md-reader`. `spawn` runs only the command lines `src/`
 builds:
 
-- the four git invocations in `src/reader/git.js`, with anything the page chose kept
+- the four git invocations in `src/reader/git.ts`, with anything the page chose kept
   where git reads it as a name and never as an option;
-- the one JXA script in `src/reader/fonts.js`, compared byte for byte;
+- the one JXA script in `src/reader/fonts.ts`, compared byte for byte;
 - `java -jar` with a jar named `plantuml.jar` or the one `PLANTUML_JAR` names;
 - a `plantuml` launcher by absolute path.
 

@@ -6,8 +6,8 @@ the session surface that Node, Tauri and the web app each implement or consume. 
 extension is not the goal; a compile that fails when two hosts disagree is.
 
 Step 1 landed the build. Step 2 is converting `src/` from the bottom up, and is under way:
-`src/contract/`, `src/core/`, `src/page/sanitize.ts` and `src/rpc/` are TypeScript; the
-reader and the three hosts are not yet. A `.js` file is not type-checked (`allowJs` on,
+`src/contract/`, `src/core/`, `src/page/sanitize.ts`, `src/rpc/` and `src/reader/` are
+TypeScript; the three hosts are not yet. A `.js` file is not type-checked (`allowJs` on,
 `checkJs` off), and a `.ts` file is checked leniently (`strict: false`): for what it
 declares and what the compiler can infer, with an untyped parameter left as `any` until the
 `noImplicitAny` ratchet.
@@ -97,7 +97,8 @@ Each step is its own PR, with `npm test` and `npm run bundle` green.
 1. **Scaffolding** (done): the projects, `out/`, `root.js`, the scripts and the suite running
    from `out/`, the `pages.yml` split.
 2. `src/`, with the shared payload and rpc types, bottom up: `contract/`, `core/`, `page/`
-   and `rpc/` (done); then `reader/` (`Platform`, `Session`); then the three hosts.
+   `rpc/` and `reader/` (done: `Platform` is an interface in `reader/platform.ts`, and
+   `createSession` is checked against `Session`); then the three hosts.
 3. `scripts/` and `bin/`.
 4. The `page` project: `app.ts`, `backend.ts`, `landing.ts`, each a single rename, plus
    `tsc -b --watch` in `scripts/dev.mjs` and the vendor shims in `types/vendor/`.

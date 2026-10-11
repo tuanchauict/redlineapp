@@ -313,55 +313,59 @@ assert.match(fs.readFileSync(rootUrl('scripts/stage-page.mjs'), 'utf8'),
 // is one arm of `may_spawn`, and the arguments it is matched against are
 // copied from these files -- so the two are compared here, not trusted.
 const hostRsCheck = fs.readFileSync(rootUrl('shell/src/host.rs'), 'utf8');
-/** Every .js file under `dir` (relative to src/), so a new host that spawns is scanned too. */
-const jsUnder = (dir) =>
+/**
+ * Every .js and .ts file under `dir` (relative to src/), so a new host that spawns is scanned
+ * too -- and so is a file that has been converted, which a .js-only walk would quietly drop.
+ */
+const sourcesUnder = (dir) =>
   fs.readdirSync(rootUrl(`src/${dir}/`), { withFileTypes: true }).flatMap((e) =>
-    e.isDirectory() ? jsUnder(`${dir}/${e.name}`) : e.name.endsWith('.js') ? [`${dir}/${e.name}`] : [],
+    e.isDirectory() ? sourcesUnder(`${dir}/${e.name}`)
+      : /\.(js|ts)$/.test(e.name) ? [`${dir}/${e.name}`] : [],
   );
 const srcSpawns = ['reader', 'hosts']
-  .flatMap(jsUnder)
-  .filter((f) => path.basename(f) !== 'platform.js')
+  .flatMap(sourcesUnder)
+  .filter((f) => !/^platform\.[jt]s$/.test(path.basename(f)))
   .flatMap((f) => {
     const js = fs.readFileSync(rootUrl(`src/${f}`), 'utf8');
     return [...js.matchAll(/platform\.spawn\(([^,]+),/g)].map((m) => `${f}: ${m[1]}`);
   })
   .sort();
 assert.deepStrictEqual(srcSpawns,
-  ["reader/fonts.js: 'osascript'", "reader/git.js: 'git'", 'reader/plantuml.js: found.cmd'],
+  ["reader/fonts.ts: 'osascript'", "reader/git.ts: 'git'", 'reader/plantuml.ts: found.cmd'],
   'every program the reader runs is one host.rs allows -- a new one needs an arm there');
 const rustFamilies = hostRsCheck.match(/const LIST_FAMILIES: &str = r#"(.*)"#;/)?.[1];
 assert.strictEqual(rustFamilies, LIST_FAMILIES,
-  'the one osascript the shell runs is the one src/reader/fonts.js asks for');
-const gitJs = fs.readFileSync(rootUrl('src/reader/git.js'), 'utf8');
+  'the one osascript the shell runs is the one src/reader/fonts.ts asks for');
+const gitSrc = fs.readFileSync(rootUrl('src/reader/git.ts'), 'utf8');
 const rustList = (js) => js.replaceAll("'", '"');
 for (const call of [
   "'ls-files', '--full-name', '--error-unmatch', '--'",
   "'rev-parse', '--show-toplevel'",
   "'--follow',\n          '--name-only',",
 ]) {
-  assert.ok(gitJs.includes(call), `src/reader/git.js still runs ${call}`);
+  assert.ok(gitSrc.includes(call), `src/reader/git.ts still runs ${call}`);
   assert.ok(hostRsCheck.includes(rustList(call.replace(/,\n\s*/g, ', '))),
     `and host.rs allows ${call}`);
 }
-assert.ok(gitJs.includes('`--format=%x00%H${SEP}%at${SEP}%s`') && gitJs.includes("SEP = '\\x1f'")
+assert.ok(gitSrc.includes('`--format=%x00%H${SEP}%at${SEP}%s`') && gitSrc.includes("SEP = '\\x1f'")
   && hostRsCheck.includes('"--format=%x00%H\\x1f%at\\x1f%s"'), 'the log format, separator and all');
-const pumlJs = fs.readFileSync(rootUrl('src/reader/plantuml.js'), 'utf8');
-assert.ok(pumlJs.includes("'-tsvg', '-pipe', '-charset', 'UTF-8'")
+const pumlSrc = fs.readFileSync(rootUrl('src/reader/plantuml.ts'), 'utf8');
+assert.ok(pumlSrc.includes("'-tsvg', '-pipe', '-charset', 'UTF-8'")
   && hostRsCheck.includes('["-tsvg", "-pipe", "-charset", "UTF-8"]'), 'the PlantUML arguments');
-assert.ok(pumlJs.includes("platform.join(root, 'plantuml.jar')")
+assert.ok(pumlSrc.includes("platform.join(root, 'plantuml.jar')")
   && hostRsCheck.includes('f == "plantuml.jar"'), 'and the jar the store can hold');
 
-// Writing is held to the store's own layout -- the four calls in src/reader/store.js.
+// Writing is held to the store's own layout -- the four calls in src/reader/store.ts.
 for (const cmd of ['write_text', 'mkdirp', 'remove', 'rename']) {
   assert.match(hostRsCheck, new RegExp(`pub fn ${cmd}\\(app: AppHandle,`),
     `${cmd} knows where home is, to know where the store is`);
 }
-const storeJs = fs.readFileSync(rootUrl('src/reader/store.js'), 'utf8');
-assert.ok(storeJs.includes("join(root, 'objects')") && storeJs.includes("hash + '.md'")
+const storeSrc = fs.readFileSync(rootUrl('src/reader/store.ts'), 'utf8');
+assert.ok(storeSrc.includes("join(root, 'objects')") && storeSrc.includes("hash + '.md'")
   && hostRsCheck.includes('*dir == "objects" && name.ends_with(".md")'), 'snapshots');
-assert.ok(storeJs.includes("join(root, 'docs')") && storeJs.includes("docKey(absPath) + '.json'")
+assert.ok(storeSrc.includes("join(root, 'docs')") && storeSrc.includes("docKey(absPath) + '.json'")
   && hostRsCheck.includes('*dir == "docs" && name.ends_with(".json")'), 'and the index per file');
-assert.ok(storeJs.includes("join(home, '.md-reader')")
+assert.ok(storeSrc.includes("join(home, '.md-reader')")
   && hostRsCheck.includes('home.join(".md-reader") || Path::new(&to) != home.join(".redline")'),
   'and the one move the store ever makes');
 console.log('✓ a document cannot run, and the shell does only what the reader asks');
@@ -6027,7 +6031,7 @@ const memoryKv = () => {
     'it opens files, and the doc offers no folder',
   );
   assert.ok(doc.includes(`](${MAC_APP_URL})`), 'and links the Mac app where the welcome does');
-  assert.match(read('./src/reader/reader.js'), /^const POLL_MS = 1500;$/m);
+  assert.match(read('./src/reader/reader.ts'), /^const POLL_MS = 1500;$/m);
   assert.ok(doc.includes('within about a second and a half'), 'a poll of 1500 ms');
   assert.match(read('./scripts/serve-webapp.mjs'), /^const DEFAULT_PORT = 8081;$/m);
   assert.ok(doc.includes('http://127.0.0.1:8081'), 'and the address the server answers on');

@@ -20,7 +20,7 @@
 //                     page without SharedWorker imports to be its own worker.
 //
 // No entry point touches node:, which is the property that makes this
-// possible and the one src/reader/platform.js exists to preserve.
+// possible and the one src/reader/platform.ts exists to preserve.
 //
 // Why bundle rather than ship the modules and let the browser resolve them:
 // markdown-it's ESM entry imports its dependencies by bare name (entities,

@@ -173,7 +173,7 @@ const PLANTUML_LANGS = new Set(['plantuml', 'puml', 'uml', 'pu', 'iuml']);
  * It cannot be any more. This module now runs inside the webview, where there
  * is no process to spawn and nothing is synchronous, so PlantUML gets the same
  * treatment mermaid always had: a placeholder carrying the source, filled in
- * once whoever can run the jar has answered. `src/reader/plantuml.js` still does the
+ * once whoever can run the jar has answered. `src/reader/plantuml.ts` still does the
  * rendering, now behind a request rather than a function call.
  *
  * The code is kept in the element rather than re-read from the markdown, so
