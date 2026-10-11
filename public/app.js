@@ -311,7 +311,9 @@ async function load({ keepScroll = true } = {}) {
   // arriving, a baseline chosen, all `keepScroll` -- takes it down only if it was asking for a
   // grant, which a read that worked says is no longer needed.
   if (!keepScroll || welcomeAsks) hideWelcome();
-  paint();
+  // `keepScroll` is the same document read again, which is the one case where what is on
+  // screen may already be what the payload says -- see `paint`.
+  paint({ reuse: keepScroll });
   noteOpen();
   if (keepScroll) pane.scrollTo(0, y);
   return true;
@@ -324,6 +326,9 @@ async function load({ keepScroll = true } = {}) {
 function closeDocument({ reopen = null } = {}) {
   clearDocId();
   state.data = null;
+  // Nothing on screen is what `painted` says any more: the same file opened again, with the
+  // same markup, would otherwise be taken for the article still standing.
+  painted = { id: '', source: null };
   doc.replaceChildren();
   clearSidebars();
   // The bar's half of the document, as `paint` draws it: the count, the arrows, the
@@ -363,7 +368,80 @@ function rerender() {
   pane.scrollTo(0, y);
 }
 
-function paint() {
+// What `#doc` was last built from, and whose it is. A reload of the same document that comes
+// out as the same markup leaves the article standing (see `paint`), and this is what it is
+// compared with. Anything else that rewrites `#doc` has to reset it, or that compare lies.
+let painted = { id: '', source: null };
+
+/**
+ * What the reader has done to the article that the markup does not say, and a rebuild would
+ * therefore undo. Each kind names the elements it is about, what to call one so that the same
+ * element can be found in the next build, and how to read and put back what was done to it.
+ *
+ * A name comes from what the element *says*, never from where it is: a paragraph added at the top
+ * moves everything under it, and a position would hand the state to its neighbour. The price is
+ * that an element whose own text is edited is a new one and starts over, which is right, because
+ * it is something else to read.
+ *
+ * A task-list checkbox is one more entry here when there is one: name it by its item's text.
+ */
+const kept = [
+  {
+    name: 'details',
+    selector: 'details',
+    // A "before" is named by its change, whose key is already content-addressed (and is the
+    // one a check-off uses). Any other disclosure is the author's, named by its summary -- or,
+    // with none, by how its text begins. `null` is a "before" in no keyed block: nothing to
+    // name it by, so it starts closed as it was built.
+    key: (el) =>
+      el.classList.contains('chg-before')
+        ? (el.closest('.chg[data-key]')?.dataset.key ?? null)
+        : (el.querySelector(':scope > summary') ?? el).textContent.trim().slice(0, 80),
+    read: (el) => el.open,
+    write: (el, open) => {
+      el.open = open;
+    },
+  },
+];
+
+/**
+ * Every element of `#doc` a kind keeps state for, with its name. Two with the same text are told
+ * apart by which of them it is in reading order, which is the one place position is used: they
+ * are the same to the reader, so no other answer is any better.
+ */
+function* keptElements() {
+  for (const kind of kept) {
+    const seen = new Map();
+    for (const el of doc.querySelectorAll(kind.selector)) {
+      const base = kind.key(el);
+      if (base === null) continue;
+      const nth = seen.get(base) ?? 0;
+      seen.set(base, nth + 1);
+      yield [kind, el, `${kind.name}:${base}#${nth}`];
+    }
+  }
+}
+
+/** The state to carry over, read before the nodes it is on go. */
+const readKept = () =>
+  new Map([...keptElements()].map(([kind, el, name]) => [name, kind.read(el)]));
+
+/** Put back what `readKept` took, onto whichever of the new nodes are the same elements. */
+function writeKept(saved) {
+  for (const [kind, el, name] of keptElements()) {
+    if (saved.has(name)) kind.write(el, saved.get(name));
+  }
+}
+
+/**
+ * `reuse` is for a reload of the document already on screen. If it comes out as the same markup
+ * -- the history arriving, another window marking a version read -- there is nothing for the
+ * article to say, and rebuilding it would throw away what the reader has done to it: a "before"
+ * opened, a selection, the marks of a find. Everything drawn around it is still redrawn.
+ * Left off for anything that changes how the same markup is *drawn* (the theme, a diagram's
+ * colours), which has to rebuild.
+ */
+function paint({ reuse = false } = {}) {
   const d = state.data;
   if (!d) return;
 
@@ -381,13 +459,24 @@ function paint() {
   $('nameBox').title = d.path;
 
   const raw = state.view === 'raw';
-  // The link that was under the pointer is about to stop existing, and a node
-  // that is gone never reports the pointer leaving it.
-  hidePeek();
-  hoverNode = null;
-  // The document's own HTML is let through by the renderer, so this is where
-  // what would run in it is taken out -- see src/page/sanitize.js.
-  doc.innerHTML = sanitizeDocument(raw ? d.rawHtml : d.html);
+  const source = raw ? d.rawHtml : d.html;
+  const stay = reuse && painted.id === state.docId && painted.source === source;
+  if (!stay) {
+    // The link that was under the pointer is about to stop existing, and a node
+    // that is gone never reports the pointer leaving it.
+    hidePeek();
+    hoverNode = null;
+    // Read before the nodes go, and only for this document: what was done to the one on screen
+    // was done to that text, and another file's elements are not these however they are named.
+    const saved = painted.id === state.docId ? readKept() : null;
+    // The document's own HTML is let through by the renderer, so this is where
+    // what would run in it is taken out -- see src/page/sanitize.js.
+    doc.innerHTML = sanitizeDocument(source);
+    painted = { id: state.docId, source };
+    // Put back before anything is measured or drawn: a Mermaid block inside a "before" is drawn
+    // only once it is open, and the scroll the caller restores is of the height it had.
+    if (saved?.size) writeKept(saved);
+  }
   doc.classList.toggle('raw-view', raw);
 
   const view = $('view');
@@ -408,7 +497,8 @@ function paint() {
   // The marks just drawn over are gone with the rest of `#doc`'s old markup;
   // a find still open has to be redone against the document now on screen,
   // not scrolled to again -- the repaint is not something the reader asked for.
-  if (!$('findBar').hidden) {
+  // Not when the article stood: its marks are where they were.
+  if (!stay && !$('findBar').hidden) {
     find.matches = markMatches(find.query);
     const last = find.matches.length - 1;
     find.index = last < 0 ? -1 : Math.max(0, Math.min(find.index, last));

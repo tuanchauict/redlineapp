@@ -238,7 +238,7 @@ assert.deepStrictEqual(shellConf.app.security.dangerousDisableAssetCspModificati
 const appJs = fs.readFileSync(new URL('./public/app.js', import.meta.url), 'utf8');
 assert.match(appJs, /import \{ sanitizeDocument, sanitizeSvg \} from '\.\/vendor\/sanitize\.js';/,
   'the page loads the sanitizer');
-assert.match(appJs, /doc\.innerHTML = sanitizeDocument\(raw \? d\.rawHtml : d\.html\);/,
+assert.match(appJs, /const source = raw \? d\.rawHtml : d\.html;[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);/,
   'the document, rendered or raw, is sanitized on its way into the page');
 assert.match(appJs, /closest\('\.diagram'\)\.innerHTML = sanitizeSvg\(out\.svg\);/,
   'and so is a PlantUML drawing, which the jar made from the document');
@@ -1582,6 +1582,73 @@ assert.ok(!rewritten.includes('w-add'), 'wholesale rewrite not word-diffed');
 const bridged = diffOf('the red car and blue bike', 'the green car and yellow bike');
 assert.strictEqual((bridged.match(/class="w-add"/g) ?? []).length, 1, 'nearby edits merged into one mark');
 console.log('✓ word-level diff inside changed blocks');
+
+// The page carries an opened "before" across a rebuild by the key of the block it is in (`paint`
+// in public/app.js), so the disclosure has to sit directly in a keyed block, and the key has to be
+// the same each time the same change is rendered -- from the same text, with unrelated text moving
+// around it.
+{
+  const keyed = (html) => [...html.matchAll(/data-key="([^"]+)"[^>]*>(?:(?!<div class="chg)[\s\S])*?<details class="chg-before">/g)]
+    .map((m) => m[1]);
+  const before = '- alpha item\n- beta item\n- gamma item';
+  const after = '- alpha item\n- gamma item';
+  const first = diffOf(before, after);
+  assert.strictEqual(keyed(first).length, 1, 'a "before" is inside a block that has a key');
+  assert.deepStrictEqual(keyed(diffOf(before, after)), keyed(first), 'and the same change gets the same key again');
+  // The new paragraph goes after the list: a run of removed blocks is paired with the added ones
+  // by position, so one added in front would push the list off its partner and it would stop
+  // being a "before" at all, which is a different thing to ask about.
+  assert.deepStrictEqual(
+    keyed(diffOf(`# Moved\n\nIntro.\n\n${before}`, `# Moved\n\nIntro.\n\n${after}\n\nA new closing paragraph.`)),
+    keyed(first),
+    'even with text added and unchanged text around it',
+  );
+  console.log('✓ a "before" belongs to a keyed block, and the key survives a rebuild');
+
+  // And that the page does what that is for. Nothing here can run `paint`, so this is the
+  // wiring: that a reload of the document on screen can leave the article standing, that
+  // nothing else is allowed to, and that a rebuild puts an opened "before" back.
+  assert.match(appJs, /paint\(\{ reuse: keepScroll \}\);/, 'a reload of the open document asks to reuse the article');
+  assert.strictEqual((appJs.match(/paint\(\{ reuse:/g) ?? []).length, 1,
+    'and it is the only caller that does: a theme or tint change has to rebuild the diagrams');
+  assert.match(appJs, /const stay = reuse && painted\.id === state\.docId && painted\.source === source;/,
+    'it stays only for the same document and the same markup');
+  assert.match(appJs, /if \(!stay\) \{[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);[\s\S]*?painted = \{ id: state\.docId, source \};/,
+    'otherwise the article is rebuilt, and what it was built from is remembered');
+  assert.match(appJs.match(/function closeDocument\([\s\S]*?\n\}/)?.[0] ?? '', /painted = \{ id: '', source: null \};/,
+    'and closing the document forgets it, so the same file opened again is not taken for what is gone');
+  assert.match(appJs, /if \(!stay && !\$\('findBar'\)\.hidden\)/,
+    'a find is redone only when the nodes it marked were replaced');
+  console.log('✓ the page leaves an unchanged article alone on a reload of the same markup');
+
+  // What a rebuild does to what the reader did, which is the other half: it is read off the old
+  // nodes, put on the new ones by name, and the names are the text's own.
+  const paintFn = appJs.match(/function paint\([\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(paintFn, /const saved = painted\.id === state\.docId \? readKept\(\) : null;/,
+    'a rebuild reads what was done to the article on screen, and only to this document\'s');
+  assert.match(paintFn, /readKept\(\)[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);[\s\S]*?if \(saved\?\.size\) writeKept\(saved\);/,
+    'before the nodes are replaced, and put back onto the new ones straight after');
+  const keptDecl = appJs.match(/const kept = \[[\s\S]*?\n\];/)?.[0] ?? '';
+  assert.match(keptDecl, /name: 'details',\s+selector: 'details',/, 'a disclosure is a kind of state kept');
+  assert.match(keptDecl, /el\.closest\('\.chg\[data-key\]'\)\?\.dataset\.key/,
+    'a "before" is named by its change, the key a check-off already uses');
+  assert.match(keptDecl, /el\.querySelector\(':scope > summary'\)/,
+    'and an author\'s disclosure by its summary, not by where it is');
+  assert.match(keptDecl, /read: \(el\) => el\.open,[\s\S]*?el\.open = open;/, 'and both ways of the state are a property of the element');
+  assert.match(appJs, /const nth = seen\.get\(base\) \?\? 0;[\s\S]*?`\$\{kind\.name\}:\$\{base\}#\$\{nth\}`/,
+    'elements that say the same are told apart by their order, and kinds cannot be mistaken for each other');
+  assert.ok(!/\.chg-before\[open\]|openBefores/.test(appJs), 'nothing reads one kind of disclosure by itself any more');
+
+  // The renderer lets an author's `<details>` through, summary and all, which is what the name is
+  // taken from.
+  const authored = renderDocument(
+    mdPage,
+    '# T\n\n<details>\n<summary>FAQ</summary>\n\nAnswer.\n\n</details>\n',
+    null,
+  ).html;
+  assert.match(authored, /<details>\s*<summary>FAQ<\/summary>/, 'an author\'s disclosure arrives with its summary');
+  console.log('✓ a rebuild puts back what the reader did to a disclosure, by name');
+}
 
 // --- 5. raw view: syntax highlighting + line marks -----------------------
 assert.match(doc.rawHtml, /raw-add[\s\S]*brand new paragraph/, 'raw view marks additions');
@@ -4926,7 +4993,8 @@ const memoryKv = () => {
       /backend\.onNeedsPermission\?\.\(\(\{ name \}\) => showWelcome\(\{ reopen: name \}\)\);/,
       'the backend naming a lapsed file shows it, with its name',
     );
-    assert.match(appJs, /hideWelcome\(\);\s*paint\(\);/, 'and a document that paints hides it');
+    assert.match(appJs, /hideWelcome\(\);\s*(?:\/\/[^\n]*\s*)*paint\((?:\{ reuse: keepScroll \})?\);/,
+      'and a document that paints hides it');
     const hooks = appJs.match(/backend\.welcome\?\.\(welcomeEl, \{([\s\S]*?)\n\}\);/)?.[1] ?? '';
     assert.ok(
       /notify: \(text\) => notify\(text\),/.test(hooks) && !/show:/.test(hooks),
@@ -5093,7 +5161,7 @@ const memoryKv = () => {
     const loadFn = appJs.match(/async function load\([\s\S]*?\n\}/)?.[0] ?? '';
     const noteFn = appJs.match(/function noteOpen\([\s\S]*?\n\}/)?.[0] ?? '';
     assert.ok(
-      /paint\(\);\s+noteOpen\(\);/.test(loadFn) &&
+      /paint\((?:\{ reuse: keepScroll \})?\);\s+noteOpen\(\);/.test(loadFn) &&
         /if \(err\.name === 'NoDocument'\) \{[\s\S]*?closeDocument\(\);/.test(loadFn),
       'every document shown is noted, whatever opened it, and one that is gone is put down',
     );
@@ -5143,7 +5211,7 @@ const memoryKv = () => {
       'Open file… at the foot of the list is the file picker too',
     );
     assert.ok(
-      /if \(!keepScroll \|\| welcomeAsks\) hideWelcome\(\);\s+paint\(\);/.test(loadFn) &&
+      /if \(!keepScroll \|\| welcomeAsks\) hideWelcome\(\);\s+(?:\/\/[^\n]*\s+)*paint\((?:\{ reuse: keepScroll \})?\);/.test(loadFn) &&
         (appJs.match(/hideWelcome\(\);/g) ?? []).length === 2,
       'a document opened takes the welcome down, and the one on screen read again does not',
     );
@@ -5189,8 +5257,9 @@ const memoryKv = () => {
   };
 
   // --- stage-page: a host gets its own reader and nobody else's -------------------------------
-  const tauri = stagePage(path.join(out, 'tauri'), { host: 'tauri' }).dest;
-  const web = stagePage(path.join(out, 'web'), { host: 'web' }).dest;
+  const stagedTauri = stagePage(path.join(out, 'tauri'), { host: 'tauri' });
+  const stagedWeb = stagePage(path.join(out, 'web'), { host: 'web' });
+  const [tauri, web] = [stagedTauri.dest, stagedWeb.dest];
   const [inTauri, inWeb] = [walk(tauri), walk(web)];
   const vendorOf = (list) =>
     list.filter((f) => /^vendor\/[^/]+$/.test(f)).map((f) => f.slice('vendor/'.length)).sort();
@@ -5214,8 +5283,11 @@ const memoryKv = () => {
   assert.ok(mermaidOf(inWeb).length > 10, 'Mermaid\'s tree is there for a document that draws');
   assert.deepStrictEqual(mermaidOf(inWeb), mermaidOf(inTauri), 'and is the same tree in both');
   assert.ok(mermaidOf(inWeb).every((f) => /\.mjs$/.test(f)), 'of modules, and nothing that is not');
+  // The three that name other files of the page are the web app's own, with `?v=` in them: see
+  // "the web app asks for every file by its build", below, for what is in them.
+  const versioned = ['app.js', 'backend.js', 'index.html'];
   const sameInBoth = [
-    ...pageFiles.filter((f) => f !== 'host.js'),
+    ...pageFiles.filter((f) => f !== 'host.js' && !versioned.includes(f)),
     ...shared.map((s) => `vendor/${s}`),
   ];
   for (const f of sameInBoth) {
@@ -5224,6 +5296,19 @@ const memoryKv = () => {
       `${f} is the same bytes in both`,
     );
   }
+  for (const f of versioned) {
+    const text = (dir) => fs.readFileSync(path.join(dir, f), 'utf8');
+    assert.strictEqual(text(web).replace(/\?v=[0-9a-f]{12}/g, ''), text(tauri),
+      `${f} is the desktop app's with a query put in, and nothing else`);
+    assert.notStrictEqual(text(web), text(tauri), `${f} has the query`);
+  }
+  assert.strictEqual(stagedTauri.version, null, 'and the desktop app\'s page is not versioned');
+  assert.doesNotMatch(
+    walk(tauri).filter((f) => /\.(?:js|html)$/.test(f) && !f.includes('mermaid'))
+      .map((f) => fs.readFileSync(path.join(tauri, f), 'utf8')).join('\n'),
+    /\?v=[0-9a-f]{12}/,
+    'no file of it has one',
+  );
   assert.ok(
     fs.readFileSync(path.join(tauri, 'host.js')).equals(
       fs.readFileSync(new URL('./public/host.js', import.meta.url)),
@@ -5286,19 +5371,30 @@ const memoryKv = () => {
   console.log('✓ stagePage will not empty the repository, or anything that holds it');
 
   // --- _headers: the hash is of what is staged, and the worker may load ----------------------
-  const built = buildWebapp(path.join(out, 'app')).dest;
+  const builtApp = buildWebapp(path.join(out, 'app'));
+  const built = builtApp.dest;
   const stagedHtml = fs.readFileSync(path.join(built, 'index.html'), 'utf8');
   const headerText = fs.readFileSync(path.join(built, '_headers'), 'utf8');
   const headerLines = headerText.split('\n');
-  assert.strictEqual(headerLines[0], '/*', 'one rule, for every path -- the worker\'s script too');
-  const rule = Object.fromEntries(
-    headerLines.slice(1).filter(Boolean).map((l) => [l.slice(0, l.indexOf(':')).trim(),
-      l.slice(l.indexOf(':') + 1).trim()]),
-  );
+  /** `_headers` as `Map { path => { header: value } }`: a path starts a rule, an indent goes on. */
+  const rulesOf = (text) => {
+    const rules = new Map();
+    let current = null;
+    for (const l of text.split('\n')) {
+      if (!l.trim() || l.trim().startsWith('#')) continue;
+      if (!/^\s/.test(l)) rules.set(l.trim(), (current = {}));
+      else current[l.slice(0, l.indexOf(':')).trim()] = l.slice(l.indexOf(':') + 1).trim();
+    }
+    return rules;
+  };
+  const headerRules = rulesOf(headerText);
+  assert.strictEqual(headerLines[0], '/*', 'the first rule is for every path -- the worker\'s too');
+  const rule = headerRules.get('/*');
   assert.deepStrictEqual(
     Object.keys(rule),
     ['Content-Security-Policy', 'X-Content-Type-Options', 'Referrer-Policy'],
-    'a policy, and the two headers that keep a response from being read as something else',
+    'a policy, and the two headers that keep a response from being read as something else, and ' +
+      'nothing about caching: that is for the paths it is true of',
   );
   assert.strictEqual(rule['X-Content-Type-Options'], 'nosniff');
   assert.strictEqual(rule['Referrer-Policy'], 'no-referrer');
@@ -5323,6 +5419,44 @@ const memoryKv = () => {
     'and it is read from the staged page, after the shim is over host.js, not from public/');
   assert.ok(/^dist\/$/m.test(read('./.gitignore')), 'dist/web is build output, not source');
   console.log('✓ _headers: the hash is the staged head script\'s, and worker-src is there');
+
+  // --- _headers: index.html is asked about every time, everything else is kept ----------------
+  // The page's files are asked for as `?v=<build>`, so each URL is one file for ever and the
+  // browser may keep it for as long as it will. The one URL that is the same in every build is
+  // the page, and it is what says which build the rest are, so it is asked about each time: if it
+  // were kept, no release would be seen, which is the thing all of this is for.
+  {
+    const held = 'public, max-age=31536000, immutable';
+    const topLevel = fs.readdirSync(built, { withFileTypes: true })
+      .filter((e) => e.name !== 'index.html' && e.name !== '_headers')
+      .map((e) => (e.isDirectory() ? `/${e.name}/*` : `/${e.name}`));
+    assert.ok(topLevel.includes('/app.js') && topLevel.includes('/vendor/*'), 'files, and folders');
+    assert.deepStrictEqual(headerRules.get('/'), { 'Cache-Control': 'no-cache' },
+      'the page, asked for as the bare address, is revalidated each time');
+    assert.deepStrictEqual(headerRules.get('/index.html'), { 'Cache-Control': 'no-cache' },
+      'and by its name');
+    for (const p of topLevel) {
+      assert.deepStrictEqual(headerRules.get(p), { 'Cache-Control': held },
+        `${p} is kept for a year, and never asked about again`);
+    }
+    assert.deepStrictEqual(
+      [...headerRules.keys()].sort(),
+      ['/*', '/', '/index.html', ...topLevel].sort(),
+      'and no path has a rule that is not one of those: nothing is held that is not versioned',
+    );
+    assert.strictEqual(
+      [...headerRules.values()].filter((r) => r['Cache-Control'] === held).length,
+      topLevel.length,
+      'index.html is not one of the paths kept',
+    );
+    assert.strictEqual(held.match(/max-age=(\d+)/)[1], String(365 * 24 * 60 * 60), 'a year');
+    assert.strictEqual(rulesOf(headersFile(stagedHtml)).size, 1,
+      'with no paths to keep, there is the one rule and no caching, as there was');
+    assert.match(read('./scripts/build-webapp.mjs'),
+      /headersFile\(html, heldPaths\(staged\.dest\)\)/,
+      'and build:webapp gives it what it staged');
+    console.log('✓ _headers: index.html is revalidated, and every other path is kept for a year');
+  }
 
   // --- the build is its version and the bundles the reader is made of -------------------------
   // A version alone is the same across every rebuild at that version, and each of those is new
@@ -5399,12 +5533,124 @@ const memoryKv = () => {
         `${f} imports and loads nothing from the root`,
       );
     }
+    // Names are mangled in the bundle, so this is the shape of `sibling` and not its name: a URL
+    // made against a base that defaults to the bundle's own, from the one file's name.
     assert.match(
       staged('vendor/backend-web.js'),
-      /new URL\(['"]\.\/reader-worker\.js['"],\s*import\.meta\.url\)/,
+      /\w+\(\w+,\w+=import\.meta\.url\)\{let \w+=new URL\(\w+,\w+\);return \w+\.search=/,
       'and finds its reader beside itself',
     );
+    assert.match(staged('vendor/backend-web.js'), /=\w+\(["']\.\/reader-worker\.js["']\)/);
     console.log('✓ the staged web app names its files relative to itself, so any path serves it');
+  }
+
+  // --- the web app asks for every file by its build, so that it can be kept for a year ---------
+  // `?v=<build>` is in the URL of everything the page loads, and the headers say a URL with one is
+  // never anything else. A relative import does not take its importer's query, so what is tested
+  // is not that `app.js` has one but that nothing it loads is without: the page, the imports of
+  // the files that are not bundled, and the worker, whose URL is made inside the bundle.
+  {
+    const { pageHash } = await import('./scripts/stage-page.mjs');
+    const { sibling } = await import('./src/hosts/web/backend.js');
+    const { version: v } = builtApp;
+    const staged = (f) => fs.readFileSync(path.join(built, f), 'utf8');
+    assert.match(v, /^[0-9a-f]{12}$/, 'the build is 12 hex, in the URL as `?v=3fa9c2d1e0b4`');
+    assert.strictEqual(v, stagedWeb.version, 'and the same page is the same build, wherever it is');
+
+    // ... the id is of the page, byte by byte and name by name, and not of when it was made
+    const probe = fs.mkdtempSync(path.join(tmp, 'hash-'));
+    fs.mkdirSync(path.join(probe, 'vendor'));
+    fs.writeFileSync(path.join(probe, 'app.js'), 'the page');
+    fs.writeFileSync(path.join(probe, 'vendor', 'x.js'), 'a bundle');
+    const id = pageHash(probe, '0.7.0');
+    assert.strictEqual(pageHash(probe, '0.7.0'), id, 'the same page is the same id');
+    assert.notStrictEqual(pageHash(probe, '0.7.1'), id, 'a new version is a new id, by itself');
+    fs.writeFileSync(path.join(probe, 'vendor', 'x.js'), 'a bundle!');
+    assert.notStrictEqual(pageHash(probe, '0.7.0'), id, 'a byte of any file is a new one');
+    fs.writeFileSync(path.join(probe, 'vendor', 'x.js'), 'a bundle');
+    assert.strictEqual(pageHash(probe, '0.7.0'), id, 'and putting it back puts the id back');
+    fs.renameSync(path.join(probe, 'vendor', 'x.js'), path.join(probe, 'vendor', 'y.js'));
+    assert.notStrictEqual(pageHash(probe, '0.7.0'), id, 'as does the same file under another name');
+    fs.renameSync(path.join(probe, 'vendor', 'y.js'), path.join(probe, 'vendor', 'x.js'));
+    fs.writeFileSync(path.join(probe, 'app.js'), 'the pag');
+    fs.writeFileSync(path.join(probe, 'vendor', 'x.js'), 'ea bundle');
+    assert.notStrictEqual(pageHash(probe, '0.7.0'), id, 'and a byte moved to the next file');
+
+    // ... every file index.html names is asked for by it, and exists
+    const publicHtml = read('./public/index.html');
+    const own = (html) =>
+      [...html.matchAll(/<(?:script|link|img)\b[^>]*?\s(?:src|href)="([^"]*)"/g)]
+        .map((m) => m[1]).filter((u) => !/^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(u));
+    const refs = own(stagedHtml);
+    assert.deepStrictEqual(
+      refs.map((u) => u.replace(/\?v=.*/, '')).sort(),
+      own(publicHtml).sort(),
+      'every file the page names is named in the staged one, and none is added',
+    );
+    assert.ok(refs.length >= 8, 'the script, the icon (twice), four stylesheets and the module');
+    for (const u of refs) {
+      assert.ok(u.endsWith(`?v=${v}`), `${u} asks for this build`);
+      assert.ok(fs.existsSync(path.join(built, u.replace(/\?.*/, ''))), `${u} is a file`);
+    }
+    assert.doesNotMatch(stagedHtml, /(?:src|href)="(?:[a-z]+:|#)[^"]*\?v=/,
+      'and nothing that is not the page\'s is asked for with one');
+    const inlineOf = (html) => [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+    assert.deepStrictEqual(inlineOf(stagedHtml), inlineOf(publicHtml),
+      'the head script is as it was, so what the policy has hashed is what runs');
+
+    // ... and what the files import, which is not inherited, is asked for the same way
+    const specifier = /(?:\bfrom\s*|\bimport\s*\(\s*)(['"])(\.{1,2}\/[^'"]+)\1/g;
+    const loaded = walk(built).filter((f) => /\.js$/.test(f) && !f.includes('mermaid'));
+    assert.deepStrictEqual(
+      loaded.sort(),
+      ['app.js', 'backend.js', 'host.js', 'vendor/backend-web.js', 'vendor/reader-worker.js',
+        'vendor/render.js', 'vendor/sanitize.js'].map((f) => f.split('/').join(path.sep)).sort(),
+      'these are the modules there are to look in',
+    );
+    const found = {};
+    for (const f of loaded) {
+      for (const [, , spec] of staged(f).matchAll(specifier)) {
+        (found[f] ??= []).push(spec);
+        assert.ok(spec.endsWith(`?v=${v}`), `${f} imports ${spec}, which is not this build`);
+        // The desktop app's bundle is named by `backend.js` for the branch that is never taken
+        // here, and is left out of this staging on purpose (12e above): the one import with no
+        // file.
+        const there = fs.existsSync(path.join(built, path.dirname(f), spec.replace(/\?.*/, '')));
+        assert.strictEqual(there, !spec.includes('backend-tauri.js'), `${spec} is a file, or not`);
+      }
+    }
+    assert.deepStrictEqual(Object.keys(found).sort(), ['app.js', 'backend.js'],
+      'only the two that are not bundled import by a path of their own');
+    assert.strictEqual(found['app.js'].length, 4, 'app.js: renderer, DOMPurify, backend, Mermaid');
+    assert.strictEqual(found['backend.js'].length, 2, 'backend.js: the two readers it may load');
+
+    // ... Mermaid's own chunks are named for their content, so they need no query
+    const chunks = walk(built).filter((f) => f.includes(`mermaid${path.sep}chunks`));
+    assert.ok(chunks.length > 10 && chunks.every((f) => /-[A-Z0-9]{8}\.mjs$/.test(f)),
+      'Mermaid\'s chunks are each named by a hash of what is in them');
+    const entryPaths = [
+      ...staged('vendor/mermaid/mermaid.esm.min.mjs').matchAll(/(?:from|import\()\s*"(\.[^"]+)"/g),
+    ].map((m) => m[1]);
+    assert.ok(entryPaths.length > 10 && entryPaths.every((p) => /-[A-Z0-9]{8}\.mjs$/.test(p)),
+      'and its entry reaches nothing else by a path of its own');
+
+    // ... the worker's URL is made inside the bundle, and takes the query from the bundle's
+    assert.strictEqual(
+      sibling('./reader-worker.js', 'https://a.example/vendor/backend-web.js?v=3fa9c2d1e0b4').href,
+      'https://a.example/vendor/reader-worker.js?v=3fa9c2d1e0b4',
+      'the reader is asked for as the page end was, which a relative URL alone would not',
+    );
+    assert.strictEqual(
+      sibling('./reader-worker.js', 'http://127.0.0.1:8080/vendor/backend-web.js').href,
+      'http://127.0.0.1:8080/vendor/reader-worker.js',
+      'and where nothing asked for the page end with one, nothing is added',
+    );
+    assert.match(staged('vendor/backend-web.js'), /\.search=new URL\(\w+\)\.search/,
+      'the shipped bundle does it');
+    assert.match(read('./src/hosts/web/backend.js'),
+      /const WORKER_URL = sibling\('\.\/reader-worker\.js'\)/,
+      'and the SharedWorker and the fallback are both made from that URL');
+    console.log('✓ the web app asks for every file by its build: page, imports and worker');
   }
 
   // --- npm run webapp: the way a static host will serve it ------------------------------
@@ -5423,6 +5669,10 @@ const memoryKv = () => {
     for (const [url, type] of [
       ['/', 'text/html; charset=utf-8'],
       ['/vendor/reader-worker.js', 'text/javascript; charset=utf-8'],
+      // What the page asks for. The query is not part of the path, and the rules for the paths
+      // that are kept are not this server's: it holds nothing, and says so on every response.
+      [`/app.js?v=${builtApp.version}`, 'text/javascript; charset=utf-8'],
+      [`/vendor/reader-worker.js?v=${builtApp.version}`, 'text/javascript; charset=utf-8'],
       ['/vendor/mermaid/mermaid.esm.min.mjs', 'text/javascript; charset=utf-8'],
       [`/${chunk}`, 'text/javascript; charset=utf-8'],
     ]) {

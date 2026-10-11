@@ -27,7 +27,7 @@ working.
 | --- | --- |
 | `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mjs`, which stops the build if a release moves the palettes) |
 | `npm run build:dist` | Stages `shell/dist`: `public/`, the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
-| `npm run build:webapp` | Stages `dist/web`, the web app: the same page, with the web bundles in and the Tauri backend left out, the web app's `host.js` over the empty one, and a `_headers` file. See [The web app](#the-web-app) |
+| `npm run build:webapp` | Stages `dist/web`, the web app: the same page, with the web bundles in and the Tauri backend left out, the web app's `host.js` over the empty one, every file asked for as `?v=<build>`, and a `_headers` file that says what to keep for a year. See [The web app](#the-web-app) |
 
 `npm run app`, `npm run dev`, `npm run bundle`, `npm run webapp` and `npm test` each run
 the ones they need, so the only time to reach for them by hand is after editing `src/` with a
@@ -83,6 +83,32 @@ count as one without a certificate.
   as one rule for every path. The hash is of the head script in the *staged* `index.html`, so
   a change to that script moves it, and a build that did not would ship a page whose first
   script is blocked. Every path, because a worker is held to the policy on its own response.
+- **Every file is asked for by its build, and kept.** The staged `index.html` names its files
+  as `app.js?v=3fa9c2d1e0b4`, and `_headers` lets a browser keep each of them for a year
+  (`Cache-Control: public, max-age=31536000, immutable`). `index.html` alone is `no-cache`: it
+  is the one URL that is the same in every build, and the one that says what the build is, so
+  the browser asks about it every time and is told *not modified* until there is a release. A
+  release is then seen on the next load, in one request, and a file the browser has is not
+  fetched again. The id is a hash of every staged file and of the version (`pageHash` in
+  `stage-page.mjs`, 12 hex): a rebuild that changed nothing is the same id, and a change to
+  anything is a new one, for every file. One id for the page and not one per file, because a
+  file that imports another has the other's id in its own text, and two that import each other
+  have no order to work it out in.
+  - **A query is not inherited.** `app.js?v=…` imports `./backend.js`, and a browser asks for
+    exactly that, with no query. So the staged `app.js` and `backend.js` have it written into
+    their imports (`MODULES` in `stage-page.mjs`; a build that finds none to write fails, since
+    the file has changed shape), and the worker's URL takes its query from its own bundle's
+    (`sibling` in `hosts/web/backend.js`). The bundles import nothing by a path of their own,
+    and a test (12e) reads every staged module and fails on one that does.
+  - **Mermaid's chunks have no query**, and are held all the same: each is named for a hash of
+    what is in it (`chunk-S4TE5DX6.mjs`), so its name is already its version.
+  - **What is held is every path at the top but `index.html`** (`heldPaths` in
+    `build-webapp.mjs`). A file added to `public/` and fetched by a name of its own, with no
+    `?v=`, would be held for a year under a name that never changes; ask for it as the page
+    asks for the rest.
+  - **Only the web app.** The desktop app has its page inside the binary, and the CLI's server
+    holds nothing. `npm run webapp` serves the same URLs and still says `no-store` on each, so
+    a round of edits is never a stale one.
 - **The worker is named for the build**, `redline@<version>+<hash>`: the shim that
   `stage-page.mjs` stages puts `package.json`'s version and a hash of the two staged bundles
   (`vendor/backend-web.js` and `vendor/reader-worker.js`, sha256, 12 hex) on the window, and the
@@ -99,6 +125,11 @@ count as one without a certificate.
   `text/javascript`: a module script is refused under any other type, and the local server
   sets it by extension, so the first deploy is where it is first a fact about Pages. If it is
   wrong, a `Content-Type` rule for `/vendor/mermaid/*` in `_headers` is the fix.
+  Nor that **the caching headers arrive as written**: that Pages sends the `Cache-Control` of
+  each rule, and that nothing on the zone (a cache rule, *Browser Cache TTL*) rewrites it.
+  After a deploy, `curl -sI 'https://app.redline.iamtuna.org/app.js?v=x'` should say
+  `immutable` and `curl -sI https://app.redline.iamtuna.org/` should say `no-cache`. And
+  that a browser takes the new build on the next load: nothing here can look at one.
 
 ### Publishing the web app
 

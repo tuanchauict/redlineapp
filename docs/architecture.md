@@ -111,11 +111,46 @@ and `@tauri-apps/api` in `hosts/tauri/`. The page bundles depend on it: nothing 
 3. Every subscriber on that document is told `{ type: 'change' }` — over SSE in a
    browser tab, as a direct call in the app.
 4. The page asks for the payload again and re-renders the whole document from it,
-   then puts the scroll position back.
+   then puts the scroll position back. If what comes out is the markup already on
+   screen for that document — which is the usual outcome of a `history` event, the
+   version list arriving — `paint` leaves `#doc` standing (`reuse`, and the
+   `painted` it is compared with). Rebuilding it would throw away what the reader has
+   done to the DOM: a disclosure opened, a selection, the marks of a find. When the
+   article *is* rebuilt, what the reader did to it is carried over by `kept`, below.
 
 Re-rendering everything on every keystroke-save is fine at the size a document
 actually is, and it means there is no incremental-update path to get wrong: the page
-is a pure function of the payload.
+is a pure function of the payload. The exceptions are the unchanged article above and
+`kept`, and a paint of a different document inherits neither: `painted` holds the
+document it was built for, and `closeDocument` clears it.
+
+### State the reader put in the DOM
+
+Some things the reader does live on an element and not in the payload — a `<details>`
+being open is the one there is today, and a task-list checkbox would be the next. A
+rebuild would undo them, so `paint` reads them off the old nodes before `innerHTML` is
+replaced and writes them onto the new ones straight after (`readKept` / `writeKept` in
+`public/app.js`), before anything is measured or drawn. What it carries is the `kept`
+table, and a new kind of state is one more entry in it: a selector, a name, how to read
+the state and how to put it back.
+
+The **name** is what makes this safe, and it is made from what the element says and
+never from where it is. A **before** is named by its change's `data-key`, which is
+content-addressed and is the same key a check-off uses. Any other `<details>` is named by
+its summary, or by how its text begins if it has none. Elements with the same name are
+told apart by their order — the one place position is used, because to the reader they
+are the same. Position as the name would be wrong: a paragraph added at the top moves
+everything under it, and the state would go to the neighbour.
+
+What this costs: edit the text an element is named by and it is a new element, with the
+state it was built with. That is the intent, because it is something else to read. State
+is carried only between builds of the *same* document (`painted.id`), and not across a
+switch between the rendered and raw views, which have no elements in common.
+
+It is *not* the answer to state that has to outlive the window or the document being
+reopened. A check-off is that, and lives in `DocStore`; a task-list tick that is to
+survive a quit would too. `kept` is for state that is only worth keeping for as long as
+the page is looking at that text.
 
 ## Open documents
 
@@ -435,12 +470,15 @@ One reader for every tab of the origin, so two tabs on one file share a poll and
 store. It is `createWebHost` in `src/hosts/web/worker.js`, run as a SharedWorker named
 `redline@<version>+<hash>`; a browser with none gets the same code in the page behind a
 `MessageChannel`, one reader a tab over the one IndexedDB store. A SharedWorker is found by its
-URL and its name, so a name that did not change would, after a deploy, hand a new tab the old
-reader that a tab left open on the old build keeps alive. The build is in the name for that:
-the version and a hash of the two bundles the reader is made of, because the version alone is
-the same across every rebuild at one version. Two builds get a worker each, over the one store,
-which is the case the fallback already depends on and which `idb.js` allows by closing its
-connection on `versionchange`. The page learns the build from the shim the build stages (below).
+URL and its name, so one that did not change would, after a deploy, hand a new tab the old
+reader that a tab left open on the old build keeps alive. The build is in both: the URL has the
+page's `?v=` (`sibling` in `backend.js` copies the query of its own bundle's URL, since a
+relative URL does not inherit one), and the name has the version and a hash of the two bundles
+the reader is made of, because the version alone is the same across every rebuild at one
+version. Each alone would do; neither is leaned on alone. Two builds get a worker each, over the
+one store, which is the case the fallback already depends on and which `idb.js` allows by closing
+its connection on `versionchange`. The page learns the build from the shim the build stages
+(below).
 
 - **A tab holds a document from `hello` to `bye` or to silence.** `hello` retains the document
   the page names, `bye` releases it, and a page that has said neither for 30 s is let go of,
@@ -589,13 +627,32 @@ shim over `public/host.js`. `build:web` writes every host's bundles into `public
   The rule covers every path, which is how the worker's own script gets a policy: a worker is held
   to the one on its response, not its page's. The hash is read from the staged page, after the
   shim is in, because the head script's hash changes with the script.
-- **`npm run webapp`** serves `dist/web/` on `127.0.0.1` and answers with `_headers`' rule, so the
-  policy has been run before the first deploy. It does not walk to the next port when one is taken
-  (the landing page's server does): another port is another origin, with its own IndexedDB and
-  its own granted files, and the app would open with no history and look as if it had lost it.
+- **The web app asks for every file by its build, and a browser keeps each for a year.** The
+  staged `index.html` names its scripts, styles and icon as `name?v=<id>`; the staged `app.js` and
+  `backend.js` have it in their imports, which would otherwise be the one place a query is lost
+  (a relative import takes none from its importer); and the worker's URL copies it from its own
+  bundle's (`hosts/web/backend.js`, `sibling`). `<id>` is `pageHash`: 12 hex of a sha256 over every
+  staged file, the version and the shim, taken before anything is rewritten, so that one id covers
+  the page and a cycle of imports has no order to be resolved in. `_headers` then says
+  `Cache-Control: public, max-age=31536000, immutable` for every top-level path but `index.html`
+  (`heldPaths` in `build-webapp.mjs`), and `no-cache` for `/` and `/index.html`, which is what a
+  release is found through. Mermaid's chunks are asked for with no query and held by name, which
+  is safe because each name is a hash of its content (a test reads the staged tree and fails on
+  one that is not). The desktop app, whose page is in the binary, and the CLI, whose server
+  sends no-cache, are not given a `?v=` (`versioned` in `stage-page.mjs`'s host table). The
+  cost of the scheme is a rule: a file in `public/` asked for under a name with no `?v=` would
+  be held for a year under a name that never changes.
+- **`npm run webapp`** serves `dist/web/` on `127.0.0.1` and answers with `_headers`' `/*` rule
+  (it ignores the query, and every response is `no-store`, so the held headers are not run
+  there), so the policy has been run before the first deploy. It does not walk to the next port
+  when one is taken (the landing page's server does): another port is another origin, with its
+  own IndexedDB and its own granted files, and the app would open with no history and look as if
+  it had lost it.
 - **Not verified from here:** that Cloudflare Pages serves Mermaid's `.mjs` chunks as
   `text/javascript`, which a module script needs and `nosniff` will not forgive. The local
-  server sets it, so the first deploy is the first time it is a fact about Pages.
+  server sets it, so the first deploy is the first time it is a fact about Pages. Nor how Pages
+  combines the `/*` rule with the path rules below it for `Cache-Control`, nor that a zone's
+  *Browser Cache TTL* leaves it alone; `curl -sI` against the deployed site says.
 
 ## The desktop shell
 
