@@ -154,7 +154,13 @@ before handing the window to WebKit to paginate — see `print_window` in
 
 The file is watched. When it is saved the page updates in place, keeping your scroll
 position — so an editor on one side and Redline on the other stay in step without a
-reload.
+reload. A **before** you have opened stays open through it, for as long as that change
+is still the same change; edit the wording and it is a new one, shut, to be read again.
+A `<details>` of the document's own does the same, open or shut as you left it, found
+again by its summary — so one you open stays open while a paragraph is added above it,
+and starts over if its summary is reworded. An update that comes out as the same
+document — usually the file's earlier versions arriving after it opened — does not
+touch the text on screen at all.
 
 There is nothing on the bar while that is working, which is all of the time — a light
 that is always on tells you nothing. A red dot appears at the left of the bar, after

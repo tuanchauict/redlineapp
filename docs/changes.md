@@ -91,6 +91,12 @@ falls back to showing the new version with the old behind a **before** disclosur
   valid place to sit inline
 - the block is a diagram
 
+An opened **before** stays open when the page reloads, because it is remembered by the
+change's key (the same content-addressed name a [check-off](#checking-a-change-off) uses).
+Which is also why editing that block again closes it: it is a different change by then.
+The same goes for a `<details>` in the document itself; see
+[live reload](reading.md#live-reload).
+
 A file's [`---` header block](reading.md#the-header-block) is one block to all of
 this, which is why it reports a reworded `description` as a word diff in that one
 value and leaves the fields around it plain.

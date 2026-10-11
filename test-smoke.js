@@ -238,7 +238,7 @@ assert.deepStrictEqual(shellConf.app.security.dangerousDisableAssetCspModificati
 const appJs = fs.readFileSync(new URL('./public/app.js', import.meta.url), 'utf8');
 assert.match(appJs, /import \{ sanitizeDocument, sanitizeSvg \} from '\.\/vendor\/sanitize\.js';/,
   'the page loads the sanitizer');
-assert.match(appJs, /doc\.innerHTML = sanitizeDocument\(raw \? d\.rawHtml : d\.html\);/,
+assert.match(appJs, /const source = raw \? d\.rawHtml : d\.html;[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);/,
   'the document, rendered or raw, is sanitized on its way into the page');
 assert.match(appJs, /closest\('\.diagram'\)\.innerHTML = sanitizeSvg\(out\.svg\);/,
   'and so is a PlantUML drawing, which the jar made from the document');
@@ -1404,6 +1404,73 @@ assert.ok(!rewritten.includes('w-add'), 'wholesale rewrite not word-diffed');
 const bridged = diffOf('the red car and blue bike', 'the green car and yellow bike');
 assert.strictEqual((bridged.match(/class="w-add"/g) ?? []).length, 1, 'nearby edits merged into one mark');
 console.log('✓ word-level diff inside changed blocks');
+
+// The page carries an opened "before" across a rebuild by the key of the block it is in (`paint`
+// in public/app.js), so the disclosure has to sit directly in a keyed block, and the key has to be
+// the same each time the same change is rendered -- from the same text, with unrelated text moving
+// around it.
+{
+  const keyed = (html) => [...html.matchAll(/data-key="([^"]+)"[^>]*>(?:(?!<div class="chg)[\s\S])*?<details class="chg-before">/g)]
+    .map((m) => m[1]);
+  const before = '- alpha item\n- beta item\n- gamma item';
+  const after = '- alpha item\n- gamma item';
+  const first = diffOf(before, after);
+  assert.strictEqual(keyed(first).length, 1, 'a "before" is inside a block that has a key');
+  assert.deepStrictEqual(keyed(diffOf(before, after)), keyed(first), 'and the same change gets the same key again');
+  // The new paragraph goes after the list: a run of removed blocks is paired with the added ones
+  // by position, so one added in front would push the list off its partner and it would stop
+  // being a "before" at all, which is a different thing to ask about.
+  assert.deepStrictEqual(
+    keyed(diffOf(`# Moved\n\nIntro.\n\n${before}`, `# Moved\n\nIntro.\n\n${after}\n\nA new closing paragraph.`)),
+    keyed(first),
+    'even with text added and unchanged text around it',
+  );
+  console.log('✓ a "before" belongs to a keyed block, and the key survives a rebuild');
+
+  // And that the page does what that is for. Nothing here can run `paint`, so this is the
+  // wiring: that a reload of the document on screen can leave the article standing, that
+  // nothing else is allowed to, and that a rebuild puts an opened "before" back.
+  assert.match(appJs, /paint\(\{ reuse: keepScroll \}\);/, 'a reload of the open document asks to reuse the article');
+  assert.strictEqual((appJs.match(/paint\(\{ reuse:/g) ?? []).length, 1,
+    'and it is the only caller that does: a theme or tint change has to rebuild the diagrams');
+  assert.match(appJs, /const stay = reuse && painted\.id === state\.docId && painted\.source === source;/,
+    'it stays only for the same document and the same markup');
+  assert.match(appJs, /if \(!stay\) \{[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);[\s\S]*?painted = \{ id: state\.docId, source \};/,
+    'otherwise the article is rebuilt, and what it was built from is remembered');
+  assert.match(appJs.match(/function closeDocument\([\s\S]*?\n\}/)?.[0] ?? '', /painted = \{ id: '', source: null \};/,
+    'and closing the document forgets it, so the same file opened again is not taken for what is gone');
+  assert.match(appJs, /if \(!stay && !\$\('findBar'\)\.hidden\)/,
+    'a find is redone only when the nodes it marked were replaced');
+  console.log('✓ the page leaves an unchanged article alone on a reload of the same markup');
+
+  // What a rebuild does to what the reader did, which is the other half: it is read off the old
+  // nodes, put on the new ones by name, and the names are the text's own.
+  const paintFn = appJs.match(/function paint\([\s\S]*?\n\}/)?.[0] ?? '';
+  assert.match(paintFn, /const saved = painted\.id === state\.docId \? readKept\(\) : null;/,
+    'a rebuild reads what was done to the article on screen, and only to this document\'s');
+  assert.match(paintFn, /readKept\(\)[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);[\s\S]*?if \(saved\?\.size\) writeKept\(saved\);/,
+    'before the nodes are replaced, and put back onto the new ones straight after');
+  const keptDecl = appJs.match(/const kept = \[[\s\S]*?\n\];/)?.[0] ?? '';
+  assert.match(keptDecl, /name: 'details',\s+selector: 'details',/, 'a disclosure is a kind of state kept');
+  assert.match(keptDecl, /el\.closest\('\.chg\[data-key\]'\)\?\.dataset\.key/,
+    'a "before" is named by its change, the key a check-off already uses');
+  assert.match(keptDecl, /el\.querySelector\(':scope > summary'\)/,
+    'and an author\'s disclosure by its summary, not by where it is');
+  assert.match(keptDecl, /read: \(el\) => el\.open,[\s\S]*?el\.open = open;/, 'and both ways of the state are a property of the element');
+  assert.match(appJs, /const nth = seen\.get\(base\) \?\? 0;[\s\S]*?`\$\{kind\.name\}:\$\{base\}#\$\{nth\}`/,
+    'elements that say the same are told apart by their order, and kinds cannot be mistaken for each other');
+  assert.ok(!/\.chg-before\[open\]|openBefores/.test(appJs), 'nothing reads one kind of disclosure by itself any more');
+
+  // The renderer lets an author's `<details>` through, summary and all, which is what the name is
+  // taken from.
+  const authored = renderDocument(
+    mdPage,
+    '# T\n\n<details>\n<summary>FAQ</summary>\n\nAnswer.\n\n</details>\n',
+    null,
+  ).html;
+  assert.match(authored, /<details>\s*<summary>FAQ<\/summary>/, 'an author\'s disclosure arrives with its summary');
+  console.log('✓ a rebuild puts back what the reader did to a disclosure, by name');
+}
 
 // --- 5. raw view: syntax highlighting + line marks -----------------------
 assert.match(doc.rawHtml, /raw-add[\s\S]*brand new paragraph/, 'raw view marks additions');
@@ -4748,7 +4815,8 @@ const memoryKv = () => {
       /backend\.onNeedsPermission\?\.\(\(\{ name \}\) => showWelcome\(\{ reopen: name \}\)\);/,
       'the backend naming a lapsed file shows it, with its name',
     );
-    assert.match(appJs, /hideWelcome\(\);\s*paint\(\);/, 'and a document that paints hides it');
+    assert.match(appJs, /hideWelcome\(\);\s*(?:\/\/[^\n]*\s*)*paint\((?:\{ reuse: keepScroll \})?\);/,
+      'and a document that paints hides it');
     const hooks = appJs.match(/backend\.welcome\?\.\(welcomeEl, \{([\s\S]*?)\n\}\);/)?.[1] ?? '';
     assert.ok(
       /notify: \(text\) => notify\(text\),/.test(hooks) && !/show:/.test(hooks),
@@ -4915,7 +4983,7 @@ const memoryKv = () => {
     const loadFn = appJs.match(/async function load\([\s\S]*?\n\}/)?.[0] ?? '';
     const noteFn = appJs.match(/function noteOpen\([\s\S]*?\n\}/)?.[0] ?? '';
     assert.ok(
-      /paint\(\);\s+noteOpen\(\);/.test(loadFn) &&
+      /paint\((?:\{ reuse: keepScroll \})?\);\s+noteOpen\(\);/.test(loadFn) &&
         /if \(err\.name === 'NoDocument'\) \{[\s\S]*?closeDocument\(\);/.test(loadFn),
       'every document shown is noted, whatever opened it, and one that is gone is put down',
     );
@@ -4965,7 +5033,7 @@ const memoryKv = () => {
       'Open file… at the foot of the list is the file picker too',
     );
     assert.ok(
-      /if \(!keepScroll \|\| welcomeAsks\) hideWelcome\(\);\s+paint\(\);/.test(loadFn) &&
+      /if \(!keepScroll \|\| welcomeAsks\) hideWelcome\(\);\s+(?:\/\/[^\n]*\s+)*paint\((?:\{ reuse: keepScroll \})?\);/.test(loadFn) &&
         (appJs.match(/hideWelcome\(\);/g) ?? []).length === 2,
       'a document opened takes the welcome down, and the one on screen read again does not',
     );

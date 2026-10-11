@@ -108,11 +108,46 @@ and `@tauri-apps/api` in `hosts/tauri/`. The page bundles depend on it: nothing 
 3. Every subscriber on that document is told `{ type: 'change' }` — over SSE in a
    browser tab, as a direct call in the app.
 4. The page asks for the payload again and re-renders the whole document from it,
-   then puts the scroll position back.
+   then puts the scroll position back. If what comes out is the markup already on
+   screen for that document — which is the usual outcome of a `history` event, the
+   version list arriving — `paint` leaves `#doc` standing (`reuse`, and the
+   `painted` it is compared with). Rebuilding it would throw away what the reader has
+   done to the DOM: a disclosure opened, a selection, the marks of a find. When the
+   article *is* rebuilt, what the reader did to it is carried over by `kept`, below.
 
 Re-rendering everything on every keystroke-save is fine at the size a document
 actually is, and it means there is no incremental-update path to get wrong: the page
-is a pure function of the payload.
+is a pure function of the payload. The exceptions are the unchanged article above and
+`kept`, and a paint of a different document inherits neither: `painted` holds the
+document it was built for, and `closeDocument` clears it.
+
+### State the reader put in the DOM
+
+Some things the reader does live on an element and not in the payload — a `<details>`
+being open is the one there is today, and a task-list checkbox would be the next. A
+rebuild would undo them, so `paint` reads them off the old nodes before `innerHTML` is
+replaced and writes them onto the new ones straight after (`readKept` / `writeKept` in
+`public/app.js`), before anything is measured or drawn. What it carries is the `kept`
+table, and a new kind of state is one more entry in it: a selector, a name, how to read
+the state and how to put it back.
+
+The **name** is what makes this safe, and it is made from what the element says and
+never from where it is. A **before** is named by its change's `data-key`, which is
+content-addressed and is the same key a check-off uses. Any other `<details>` is named by
+its summary, or by how its text begins if it has none. Elements with the same name are
+told apart by their order — the one place position is used, because to the reader they
+are the same. Position as the name would be wrong: a paragraph added at the top moves
+everything under it, and the state would go to the neighbour.
+
+What this costs: edit the text an element is named by and it is a new element, with the
+state it was built with. That is the intent, because it is something else to read. State
+is carried only between builds of the *same* document (`painted.id`), and not across a
+switch between the rendered and raw views, which have no elements in common.
+
+It is *not* the answer to state that has to outlive the window or the document being
+reopened. A check-off is that, and lives in `DocStore`; a task-list tick that is to
+survive a quit would too. `kept` is for state that is only worth keeping for as long as
+the page is looking at that text.
 
 ## Open documents
 
