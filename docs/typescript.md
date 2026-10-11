@@ -5,9 +5,12 @@ three hosts at compile time**: the payload, the `Platform` contract, the rpc mes
 the session surface that Node, Tauri and the web app each implement or consume. The `.ts`
 extension is not the goal; a compile that fails when two hosts disagree is.
 
-This is step 1 of the conversion. **Every file is still JavaScript and nothing is
-type-checked** (`allowJs` on, `checkJs` off): what has landed is the build that the
-renames will run through.
+Step 1 landed the build. Step 2 is converting `src/` from the bottom up, and is under way:
+`src/contract/`, `src/core/`, `src/page/sanitize.ts` and `src/rpc/` are TypeScript; the
+reader and the three hosts are not yet. A `.js` file is not type-checked (`allowJs` on,
+`checkJs` off), and a `.ts` file is checked leniently (`strict: false`): for what it
+declares and what the compiler can infer, with an untyped parameter left as `any` until the
+`noImplicitAny` ratchet.
 
 ## Two homes for compiled code
 
@@ -36,8 +39,33 @@ so a type error does not stop a bundle. `tsc` is what fails the build.
 
 The `src` project has `"types": []` so that "nothing under `core/`, `page/` or `reader/`
 may reach for a node built-in" — a rule `test-smoke.js` checks with a grep — is also a
-compile error once those files are `.ts`. A third project, `page`, holds `public/` and
-`site/` and arrives with step 4.
+compile error in a `.ts` file. `core/hash.ts` is where it showed: it uses Node's `Buffer`
+only where there is no `TextEncoder`, and says so with a `declare const Buffer` of its own
+rather than with the node types. A third project, `page`, holds `public/` and `site/` and
+arrives with step 4.
+
+## `src/contract/`
+
+The shapes that the hosts have to agree on are written down once: `payload.ts` has
+`DocPayload`, `HistoryRow`, `ReaderEvent` and the rest of what the reader produces, and
+`seam.ts` has `Session`, the reader as a transport serves it, and `Backend`, what a page
+holds. It is types only, and a test holds it to that: it imports only itself, and every
+import of it is an `import type`. That is what lets a layer that may import almost nothing
+(`rpc/`, `reader/`) use it, and keeps it out of every bundle.
+
+What it buys is a compile that fails when two sides disagree. `createRpcBackend` returns an
+`RpcBackend`, which is a `Backend` and has to stay one, and `SESSION_METHODS` in
+`rpc/protocol.ts` is asserted equal to `Session`'s methods in both directions, so a method
+added to one and not the other stops `tsc` and does not wait for the first page that asks.
+The reader and the hosts are checked against the same types as they are converted.
+
+## What stays JavaScript
+
+`src/hosts/web/host.js` is a classic script: the first thing in the web app's page, loaded
+without `type="module"`, and copied verbatim by `scripts/stage-page.mjs`. Under
+`"type": "module"` and `NodeNext`, `tsc` appends `export {};` to the output of a file that
+has no import or export, and a classic script that says `export` does not parse. So it stays
+JavaScript, and it is the one `.js` file that will be left in `src/` when step 2 is done.
 
 ## Finding the repository root
 
@@ -68,8 +96,8 @@ Each step is its own PR, with `npm test` and `npm run bundle` green.
 
 1. **Scaffolding** (done): the projects, `out/`, `root.js`, the scripts and the suite running
    from `out/`, the `pages.yml` split.
-2. `src/core` and `src/rpc` with the shared payload and rpc types; then `src/reader`
-   (`Platform`, `Session`); then the three hosts.
+2. `src/`, with the shared payload and rpc types, bottom up: `contract/`, `core/`, `page/`
+   and `rpc/` (done); then `reader/` (`Platform`, `Session`); then the three hosts.
 3. `scripts/` and `bin/`.
 4. The `page` project: `app.ts`, `backend.ts`, `landing.ts`, each a single rename, plus
    `tsc -b --watch` in `scripts/dev.mjs` and the vendor shims in `types/vendor/`.
@@ -81,8 +109,8 @@ design document itself is not in the repository.
 
 ## What `tsc -b` costs
 
-Measured with `tsc` 5.9.3 on an arm64 Mac, over the 50 files compiled today, none of them
-type-checked yet:
+Measured with `tsc` 5.9.3 on an arm64 Mac at the end of step 1, over the 50 files compiled
+then, none of them type-checked:
 
 | | Time |
 | --- | --- |
@@ -92,4 +120,4 @@ type-checked yet:
 
 The last row is what `npm test`, `npm start` and the other scripts pay on every run, most
 of it npm's own start-up. Both numbers grow once the files are `.ts` and are checked; the
-ones to compare against are the ones step 2 reports.
+last PR of step 2 measures them again.

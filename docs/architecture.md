@@ -23,6 +23,9 @@ one it has.
 bin/redline.js          CLI: parse flags, start the server, open a browser
 out/                    tsc's output: what every npm script runs. Gitignored
 
+src/contract/           types only: the payload, the events, the two surfaces; imports only itself
+  payload.ts            what the reader produces and every page consumes
+  seam.ts               `Session`, the reader as a transport serves it; `Backend`, what a page holds
 src/core/               pure: no I/O and no platform, so it runs anywhere
   document.ts           two versions of a text -> HTML, marks, contents
   render.ts             markdown-it and its plugins, block splitting, the outline
@@ -97,11 +100,14 @@ test-smoke.js           the whole test suite
 site/                   the landing page. Nothing above it knows it exists
 ```
 
-Which of the `src/` directories a file may import is a test, not a habit: `core/` imports
-`core/` and packages, `page/` adds `page/`, `reader/` imports `core/` and `reader/`, and a
-host imports anything above it and itself, never another host. `node:` stays in `hosts/node/`,
-and `@tauri-apps/api` in `hosts/tauri/`. The page bundles depend on it: nothing under `core/`,
-`page/` or `reader/` may reach for a node built-in.
+Which of the `src/` directories a file may import is a test, not a habit. `contract/`
+imports only `contract/`; `core/` imports `core/`, `contract/` and packages; `page/` adds
+`page/`; `reader/` imports `core/`, `reader/` and `contract/`, and no packages; `rpc/`
+imports `rpc/` and `contract/`, and no packages; and a host imports anything above it and
+itself, never another host. Every import of `contract/` is an `import type`, which is what
+lets a layer that may import almost nothing import it, and keeps it out of every bundle.
+`node:` stays in `hosts/node/`, and `@tauri-apps/api` in `hosts/tauri/`. The page bundles
+depend on it: nothing under `core/`, `page/` or `reader/` may reach for a node built-in.
 
 ## What happens when a file changes
 
