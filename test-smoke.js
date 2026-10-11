@@ -6031,7 +6031,7 @@ const memoryKv = () => {
     'it opens files, and the doc offers no folder',
   );
   assert.ok(doc.includes(`](${MAC_APP_URL})`), 'and links the Mac app where the welcome does');
-  assert.match(read('./src/reader/reader.js'), /^const POLL_MS = 1500;$/m);
+  assert.match(read('./src/reader/reader.ts'), /^const POLL_MS = 1500;$/m);
   assert.ok(doc.includes('within about a second and a half'), 'a poll of 1500 ms');
   assert.match(read('./scripts/serve-webapp.mjs'), /^const DEFAULT_PORT = 8081;$/m);
   assert.ok(doc.includes('http://127.0.0.1:8081'), 'and the address the server answers on');

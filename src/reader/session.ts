@@ -1,6 +1,6 @@
 // The reader's surface in the form a page asks for it.
 //
-// The reader (./reader.js) is the one back end, and what it takes is not quite what a page
+// The reader (./reader.ts) is the one back end, and what it takes is not quite what a page
 // sends: a page names a document by an id that may be stale, spells "on" as a string, leaves a
 // baseline blank to mean "whatever I last had", and can send a diagram of any length. Those
 // decisions used to be made in the routes of the node server, which made them an http thing.
@@ -11,6 +11,8 @@
 // A transport turns what this throws into its own language: `Closed` is a 410, `BadRequest` a
 // 400, and everything else a fault.
 import { Closed } from './reader.js';
+import type { Reader } from './reader.js';
+import type { AckOptions, Session } from '../contract/seam.js';
 
 /**
  * Cap on a single PlantUML fence, well past any real diagram. Exported because a transport
@@ -21,16 +23,13 @@ export const MAX_DIAGRAM_SOURCE = 256 * 1024;
 
 /** A call that is wrong in itself, whatever the document: nothing to retry, nothing to fix here. */
 export class BadRequest extends Error {
-  constructor(message) {
+  constructor(message: string) {
     super(message);
     this.name = 'BadRequest';
   }
 }
 
-/**
- * @param {Awaited<ReturnType<typeof import('./reader.js').createReader>>} reader
- */
-export function createSession(reader) {
+export function createSession(reader: Reader): Session {
   return {
     /** The document, built against `baseline`; blank means whichever it was last compared to. */
     doc: (id, baseline) => reader.doc(id, baseline || 'last:read'),
@@ -48,7 +47,7 @@ export function createSession(reader) {
      * Check one change off or back on, or uncheck all of them. Answers `{ acked }`: the list of
      * checked keys, which is all a check-off changes.
      */
-    async ack(id, { key, on = true, clear = false, at, block } = {}) {
+    async ack(id, { key, on = true, clear = false, at, block }: AckOptions = {}) {
       if (!key && !clear) throw new BadRequest('no change named');
       return { acked: await reader.ack(id, { key, on, clear: !!clear, at, block }) };
     },

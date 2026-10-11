@@ -11,11 +11,23 @@
 //
 // Everything reaches the disk through a platform (src/reader/platform.ts).
 import { DocStore } from './store.js';
+import type { GitVersion } from './store.js';
 import { hashContent } from '../core/hash.js';
 import { createGit, NO_GIT } from './git.js';
+import type { Git, GitInfo } from './git.js';
 import { systemFonts } from './fonts.js';
 import { homeRelative } from './platform.js';
+import type { Platform } from './platform.js';
 import { createPlantumlRenderer, NO_PLANTUML } from './plantuml.js';
+import type { PlantumlRenderer } from './plantuml.js';
+import type {
+  AckedVersion,
+  DocPayload,
+  HistoryRow,
+  PlantumlResult,
+  ReaderEvent,
+} from '../contract/payload.js';
+import type { AckOptions } from '../contract/seam.js';
 
 // How far back to read a file's committed history when it is first opened.
 // Deep enough to cover the life of a document anyone is still editing, and
@@ -37,22 +49,51 @@ const POLL_MS = 1500;
 // marks — only the "what moved since you checked it" falls back to "added".
 const MAX_ACK_VERSIONS = 20;
 
-/**
- * @param {object} options
- * @param {import('./platform.js').Platform} options.platform
- *   `spawn` is optional; without it git, PlantUML and the font list are off unless a host
- *   provides its own below.
- * @param {string} [options.plantumlJar]
- * @param {ReturnType<typeof createGit>} [options.git]
- *   Shaped like `createGit(platform)`. Default: that, when the platform can spawn, else NO_GIT.
- * @param {false | Awaited<ReturnType<typeof createPlantumlRenderer>>} [options.plantuml]
- *   `false` turns it off. Default: the usual discovery, when the platform can spawn.
- * @param {() => Promise<string[]>} [options.fonts]
- *   Default: the system's, which already answers `[]` off macOS.
- * @param {(abs: string) => { dirLabel: string, pathLabel: string }} [options.label]
- *   How a path is shown. Default: `~` for home.
- * @param {number} [options.pollMs]
- */
+export interface ReaderOptions {
+  /**
+   * `spawn` is optional; without it git, PlantUML and the font list are off unless a host
+   * provides its own below.
+   */
+  platform: Platform;
+  plantumlJar?: string;
+  /** Shaped like `createGit(platform)`. Default: that, when the platform can spawn, else NO_GIT. */
+  git?: Git;
+  /** `false` turns it off. Default: the usual discovery, when the platform can spawn. */
+  plantuml?: false | PlantumlRenderer;
+  /** Default: the system's, which already answers `[]` off macOS. */
+  fonts?: () => Promise<string[]>;
+  /** How a path is shown. Default: `~` for home. */
+  label?: (abs: string) => { dirLabel: string; pathLabel: string };
+  /** Milliseconds between the safety-net polls. Default: `POLL_MS`. */
+  pollMs?: number;
+}
+
+/** A document being read: one per distinct file, however many windows are showing it. */
+interface OpenDoc {
+  id: string;
+  abs: string;
+  /** Windows holding it. The last to let go stops the watcher. */
+  refs: number;
+  store: DocStore;
+  /** Where git has the file; null outside a repo, until a change finds it in one. */
+  git: GitInfo | null;
+  /** The file's text as last read. */
+  current: string;
+  timer: ReturnType<typeof setTimeout> | null;
+  unwatch: (() => void) | null;
+  poll: ReturnType<typeof setInterval> | null;
+  // Set when needed, and absent until then.
+  syncing?: boolean;
+  unreadable?: boolean;
+  gitBusy?: boolean;
+}
+
+/** Someone to tell when document `id` moves. `id` is rewritten by `setFile`. */
+interface Listener {
+  id: string;
+  fn: (event: ReaderEvent) => void;
+}
+
 export async function createReader({
   platform,
   plantumlJar,
@@ -61,7 +102,7 @@ export async function createReader({
   fonts: fontsProvider,
   label: labelProvider,
   pollMs = POLL_MS,
-} = {}) {
+}: ReaderOptions) {
   // Whether this host can run a program at all decides every default below. A host that cannot
   // is not an error: its reader opens, diffs and prunes, and says in the payload what it lacks.
   const canSpawn = typeof platform.spawn === 'function';
@@ -89,7 +130,7 @@ export async function createReader({
   // share one watcher and one store. Entries are reference counted: the last
   // window to let go of a document is the one that stops watching it.
 
-  const docs = new Map();
+  const docs = new Map<string, OpenDoc>();
   const firstDoc = () => docs.values().next().value ?? null;
 
   /**
@@ -97,22 +138,23 @@ export async function createReader({
    * gets whichever one is open; a window that names a closed one gets nothing,
    * rather than being quietly shown somebody else's file.
    */
-  const lookup = (id) => (id ? docs.get(id) ?? null : firstDoc());
+  const lookup = (id: string | null | undefined): OpenDoc | null =>
+    id ? docs.get(id) ?? null : firstDoc();
 
   // --- listeners -----------------------------------------------------------
   // Who to tell when a document moves. A listener names the document it cares
   // about, and is moved across by setFile rather than being dropped, so a view
   // that follows "whatever is open" goes on following it.
 
-  const listeners = new Set(); // { id, fn }
+  const listeners = new Set<Listener>();
 
-  const emit = (id, event) => {
+  const emit = (id: string, event: ReaderEvent) => {
     for (const l of listeners) if (l.id === id) l.fn(event);
   };
 
   /** Hear about one document. Returns the handle, which is how you stop. */
-  function subscribe(id, fn) {
-    const l = { id, fn };
+  function subscribe(id: string, fn: Listener['fn']): () => void {
+    const l: Listener = { id, fn };
     listeners.add(l);
     return () => listeners.delete(l);
   }
@@ -125,7 +167,7 @@ export async function createReader({
    * under it; this says so to whoever is looking. One check at a time, and none for a document
    * that has been let go.
    */
-  async function syncStore(d) {
+  async function syncStore(d: OpenDoc): Promise<void> {
     if (d.syncing) return;
     d.syncing = true;
     try {
@@ -137,13 +179,13 @@ export async function createReader({
     }
   }
 
-  async function watch(d) {
+  async function watch(d: OpenDoc): Promise<void> {
     const check = (retry = 3) => {
       clearTimeout(d.timer);
       d.timer = setTimeout(async () => {
         d.timer = null;
         if (docs.get(d.id) !== d) return; // released mid-flight
-        let content;
+        let content: string | null;
         try {
           content = await platform.readText(d.abs);
         } catch (err) {
@@ -202,10 +244,10 @@ export async function createReader({
   // so two windows asking for one file at the same moment would otherwise each
   // build a document and each start a watcher, and the second would evict the
   // first.
-  const opening = new Map();
+  const opening = new Map<string, Promise<string>>();
 
   /** Start reading `next` (or join a document already open on it). Returns its id. */
-  async function retain(next) {
+  async function retain(next: string): Promise<string> {
     const abs = platform.resolve(next);
     const id = hashContent(abs).slice(0, 12);
     const open = docs.get(id);
@@ -228,14 +270,14 @@ export async function createReader({
     }
   }
 
-  async function open_(abs, id) {
+  async function open_(abs: string, id: string): Promise<string> {
     // Read first: a path that cannot be read must fail before anything is
     // registered, since a caller replacing one document with another balances
     // the old reference only once the new one is held.
     const content = await platform.readText(abs);
     if (content == null) throw new Error(`cannot read ${abs}`);
 
-    const d = {
+    const d: OpenDoc = {
       id,
       abs,
       refs: 1,
@@ -256,7 +298,7 @@ export async function createReader({
   }
 
   /** Let go of a document; the last holder stops the watcher. */
-  function release(id) {
+  function release(id: string): void {
     const d = docs.get(id);
     if (!d || --d.refs > 0) return;
     d.unwatch?.();
@@ -271,7 +313,10 @@ export async function createReader({
    * follows along without reconnecting. The desktop shell opens a tab instead,
    * so this is for an embedder that has only the one view.
    */
-  async function setFile(next, oldId = firstDoc()?.id) {
+  async function setFile(
+    next: string,
+    oldId = firstDoc()?.id,
+  ): Promise<{ id: string; abs: string }> {
     const id = await retain(next); // throws on a bad path before the old one is dropped
     // Unconditional: re-opening the file already in this view lands on the
     // same id, and the retain above still has to be balanced.
@@ -292,7 +337,7 @@ export async function createReader({
    * single `git log` and nothing else. Run on open and on every change to the
    * file, which is when a pull or a checkout would have brought new ones in.
    */
-  async function importGitHistory(d) {
+  async function importGitHistory(d: OpenDoc): Promise<void> {
     if (!d.git || d.gitBusy) return;
     d.gitBusy = true;
     try {
@@ -301,7 +346,7 @@ export async function createReader({
       const fresh = commits.filter((c) => !seen.has(c.sha)).reverse(); // oldest first
       if (!fresh.length) return;
 
-      const versions = [];
+      const versions: GitVersion[] = [];
       for (const c of fresh) {
         const text = await git.showAt(d.git, c.sha, c.relPath);
         if (text == null) continue;
@@ -319,7 +364,7 @@ export async function createReader({
 
   // --- baselines -----------------------------------------------------------
 
-  async function resolveBaseline(doc, id) {
+  async function resolveBaseline(doc: OpenDoc, id: string): Promise<string | null> {
     const { store } = doc;
     if (id === 'none') return null;
     if (id === 'git:HEAD') return git.show(doc.git, 'HEAD');
@@ -328,7 +373,7 @@ export async function createReader({
   }
 
   /** Whether a baseline can still be honoured — the store forgets things. */
-  function validBaseline(doc, wanted) {
+  function validBaseline(doc: OpenDoc, wanted: string): string {
     let id = wanted;
     // `last:<fallback>` is a document being opened rather than a baseline being
     // chosen: compare against whatever this one was on last time, and fall back
@@ -363,7 +408,7 @@ export async function createReader({
    * follow the file rather than naming a version, `current` and `baseline`, are
    * marks on the row they happen to be on.
    */
-  function historyPayload(doc) {
+  function historyPayload(doc: OpenDoc): HistoryRow[] {
     const { store, current } = doc;
     const currentHash = hashContent(current);
     const rows = store.data.history.slice().reverse();
@@ -395,10 +440,10 @@ export async function createReader({
    * use them in. A version that cannot be read is left out quietly: its
    * check-offs degrade to the plain "added" they would have been anyway.
    */
-  async function ackedFrom(doc, base) {
+  async function ackedFrom(doc: OpenDoc, base: string | null): Promise<AckedVersion[]> {
     if (base == null) return [];
     const current = hashContent(doc.current);
-    const byVersion = new Map();
+    const byVersion = new Map<string, string[]>();
     for (const a of doc.store.ackRecords.reverse()) {
       if (!a.at || !a.block || a.at === current) continue;
       if (!byVersion.has(a.at)) {
@@ -407,7 +452,7 @@ export async function createReader({
       }
       byVersion.get(a.at).push(a.block);
     }
-    const out = [];
+    const out: AckedVersion[] = [];
     for (const [hash, blocks] of byVersion) {
       const text = await doc.store.read(hash);
       if (text != null) out.push({ hash, text, blocks });
@@ -415,7 +460,7 @@ export async function createReader({
     return out;
   }
 
-  async function buildDoc(doc, wanted) {
+  async function buildDoc(doc: OpenDoc, wanted: string): Promise<DocPayload> {
     const { abs, current } = doc;
     const baselineId = validBaseline(doc, wanted);
     const base = await resolveBaseline(doc, baselineId);
@@ -479,7 +524,7 @@ export async function createReader({
   // which is a thing that happens: a window can be shut while a request from
   // its page is in flight.
 
-  const need = (id) => {
+  const need = (id: string | null): OpenDoc => {
     const doc = lookup(id);
     if (!doc) throw new Closed();
     return doc;
@@ -504,7 +549,7 @@ export async function createReader({
      *   is how a document is *opened*; the four above are how a baseline is
      *   *chosen*, and choosing one is what the next `last:` will answer with.
      */
-    doc: (id, baseline = 'last:read') => buildDoc(need(id), baseline),
+    doc: (id: string | null, baseline = 'last:read') => buildDoc(need(id), baseline),
 
     /**
      * Count a version as read: everything in it stops being a change. `at` is
@@ -525,7 +570,7 @@ export async function createReader({
      * from another window since the page drew its row — moves nothing, and the
      * list that comes back is what says so.
      */
-    async markRead(id, at) {
+    async markRead(id: string | null, at?: string): Promise<DocPayload> {
       const doc = need(id);
       await doc.store.record(doc.current);
       const now = hashContent(doc.current);
@@ -553,7 +598,10 @@ export async function createReader({
      * Without `at` it is the version on disk, which is the same thing unless
      * the file moved while the click was in flight.
      */
-    ack(id, { key, on = true, clear = false, at, block } = {}) {
+    ack(
+      id: string | null,
+      { key, on = true, clear = false, at, block }: AckOptions = {},
+    ): Promise<string[]> {
       const doc = need(id);
       if (clear) return doc.store.clearAcked();
       if (!key) throw new Error('no change named');
@@ -565,7 +613,7 @@ export async function createReader({
      * deletes rather than adds, so the caller names the version it means and
      * the store refuses to drop the newest.
      */
-    async prune(id, upto, baseline = 'last:read') {
+    async prune(id: string | null, upto: string, baseline = 'last:read') {
       const doc = need(id);
       const removed = await doc.store.prune(upto);
       // Those objects may be the last references; the store is shared between
@@ -575,7 +623,7 @@ export async function createReader({
     },
 
     /** Render one PlantUML fence to inline SVG, or say why not. */
-    async plantumlSvg(code) {
+    async plantumlSvg(code: string): Promise<PlantumlResult> {
       const out = await plantuml.render(code);
       return out?.svg ? { svg: out.svg } : { error: out?.error ?? plantuml.hint };
     },
@@ -592,10 +640,10 @@ export async function createReader({
      * document. Empty means "whichever is open", so this is how a view that
      * named nothing gets something concrete to subscribe to.
      */
-    idOf: (id) => lookup(id)?.id ?? null,
+    idOf: (id: string | null) => lookup(id)?.id ?? null,
 
     /** Which file a document is, or null once it is closed. */
-    pathOf: (id) => docs.get(id)?.abs ?? null,
+    pathOf: (id: string) => docs.get(id)?.abs ?? null,
     get abs() {
       return firstDoc()?.abs ?? null;
     },
@@ -617,3 +665,6 @@ export class Closed extends Error {
     this.name = 'Closed';
   }
 }
+
+/** What `createReader` makes: the open documents and everything a view can do to one. */
+export type Reader = Awaited<ReturnType<typeof createReader>>;

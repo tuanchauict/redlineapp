@@ -1,7 +1,7 @@
-// The browser front door: an http server over a reader (src/reader/reader.js).
+// The browser front door: an http server over a reader (src/reader/reader.ts).
 //
 // Nothing but transport lives here: parsing a request, choosing a status, framing an event
-// stream. What a call means is decided by the session (src/reader/session.js), which any other
+// stream. What a call means is decided by the session (src/reader/session.ts), which any other
 // transport shares. A browser tab needs a URL to talk to, and this is that URL — the reader
 // itself has no opinion about http, because the desktop app holds it directly and never asks
 // it over a socket.

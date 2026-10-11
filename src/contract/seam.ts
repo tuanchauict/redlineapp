@@ -1,6 +1,6 @@
 // The two surfaces the page's front end is written against, and the one a transport serves.
 //
-// `Session` is the reader as a page may ask for it (src/reader/session.js): every call names a
+// `Session` is the reader as a page may ask for it (src/reader/session.ts): every call names a
 // document by id. `Backend` is what the page holds: the same calls with the id taken out, because
 // a page is on one document and the backend remembers which. There are three implementations of
 // `Backend` -- public/backend.js over http, src/hosts/tauri/backend.js over direct calls and
