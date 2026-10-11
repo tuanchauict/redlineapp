@@ -219,7 +219,7 @@ pub async fn spawn(
 
 // --- what the page may ask for -------------------------------------------
 
-/// Where the store can be: src/reader/store.js's `storeRoot`, which takes
+/// Where the store can be: src/reader/store.ts's `storeRoot`, which takes
 /// REDLINE_HOME when it is set and `~/.redline` otherwise, plus the old name it
 /// is moved from. All three, whichever is in use -- the page only ever writes
 /// to one of them, and allowing the others gives it nothing it could not reach.

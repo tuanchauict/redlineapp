@@ -355,17 +355,17 @@ assert.ok(pumlSrc.includes("'-tsvg', '-pipe', '-charset', 'UTF-8'")
 assert.ok(pumlSrc.includes("platform.join(root, 'plantuml.jar')")
   && hostRsCheck.includes('f == "plantuml.jar"'), 'and the jar the store can hold');
 
-// Writing is held to the store's own layout -- the four calls in src/reader/store.js.
+// Writing is held to the store's own layout -- the four calls in src/reader/store.ts.
 for (const cmd of ['write_text', 'mkdirp', 'remove', 'rename']) {
   assert.match(hostRsCheck, new RegExp(`pub fn ${cmd}\\(app: AppHandle,`),
     `${cmd} knows where home is, to know where the store is`);
 }
-const storeJs = fs.readFileSync(rootUrl('src/reader/store.js'), 'utf8');
-assert.ok(storeJs.includes("join(root, 'objects')") && storeJs.includes("hash + '.md'")
+const storeSrc = fs.readFileSync(rootUrl('src/reader/store.ts'), 'utf8');
+assert.ok(storeSrc.includes("join(root, 'objects')") && storeSrc.includes("hash + '.md'")
   && hostRsCheck.includes('*dir == "objects" && name.ends_with(".md")'), 'snapshots');
-assert.ok(storeJs.includes("join(root, 'docs')") && storeJs.includes("docKey(absPath) + '.json'")
+assert.ok(storeSrc.includes("join(root, 'docs')") && storeSrc.includes("docKey(absPath) + '.json'")
   && hostRsCheck.includes('*dir == "docs" && name.ends_with(".json")'), 'and the index per file');
-assert.ok(storeJs.includes("join(home, '.md-reader')")
+assert.ok(storeSrc.includes("join(home, '.md-reader')")
   && hostRsCheck.includes('home.join(".md-reader") || Path::new(&to) != home.join(".redline")'),
   'and the one move the store ever makes');
 console.log('✓ a document cannot run, and the shell does only what the reader asks');

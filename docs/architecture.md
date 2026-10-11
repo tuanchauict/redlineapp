@@ -40,7 +40,7 @@ src/core/               pure: no I/O and no platform, so it runs anywhere
 src/page/sanitize.ts    DOMPurify, and what a document may put on the page
 src/reader/             the reader and what it needs, written against the platform
   reader.js             the open-document registry, the watcher, the payload
-  store.js              the snapshot store: history, baselines, checked changes
+  store.ts              the snapshot store: history, baselines, checked changes
   session.js            the reader's surface as a page asks for it: what each call means
   platform.ts           the `Platform` interface: the disk, as the reader asks for it
   git.ts                git detection, `git log --follow`, `git show`
