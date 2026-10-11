@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "tsBuildInfoFile": "out/tsconfig.src.tsbuildinfo"
+  },
+  "include": ["src"],
+  "exclude": ["src/hosts/node"]
+}
