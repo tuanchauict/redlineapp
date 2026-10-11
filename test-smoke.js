@@ -644,6 +644,22 @@ assert.ok(
 );
 console.log('✓ the bar can move the native window');
 
+// The app's icon, at the bar's left edge in a browser tab: the web app's and the CLI's. The
+// file is the favicon's, which every host serves beside the page (`/icon.svg` above,
+// `stage-page.mjs` for the other two), so a relative src holds under any base URL.
+assert.match(
+  pageHtml,
+  /<header class="bar"[^>]*>\s*(<!--[\s\S]*?-->\s*)?<img class="app-icon" src="icon\.svg" alt=""/,
+  'the icon is the first thing in the bar, and a picture of the name the page already has',
+);
+assert.match(pageCss, /\.app-icon \{[^}]*flex: none;/, 'and the name beside it never squeezes it');
+assert.match(
+  pageCss,
+  /\.native \.app-icon \{\s*display: none;\s*\}/,
+  'and it is not in the native window, whose left edge is the traffic lights\'',
+);
+console.log('✓ a browser tab starts its bar with the app icon');
+
 // The contents list and the checked-off marks are each spread over the same
 // three files, and each fails quietly if one part goes: a list with no rows, or
 // a tag you can click that never changes.
@@ -4836,37 +4852,11 @@ const memoryKv = () => {
       'a link a file cannot follow says why, rather than doing nothing',
     );
 
-    // The way from a document to another file, which only the web app has.
-    const head = pageHtml.indexOf('<header class="bar"');
-    const bar = pageHtml.slice(head, pageHtml.indexOf('</header>', head));
-    assert.match(
-      bar,
-      /<button id="openBtn" class="icon" title="Open a file \(⌘O\)"[^>]*\shidden>/,
-      'the Open button is in the bar and starts hidden, so a build with no welcome never shows it',
-    );
+    // The way from a document to another file, which only the web app has: Open file… at the
+    // foot of the open files, and ⌘O. The bar has no button of its own for it.
     assert.ok(
-      !/#openBtn[^{]*\{[^}]*display/.test(pageCss) && !/#openBtn\[aria-pressed/.test(pageCss),
-      'and no display beats its [hidden], nor is it drawn as a toggle',
-    );
-    assert.match(
-      appJs,
-      /function syncOpenBtn\(\) \{\s*openBtn\.hidden = !state\.data;\s*\}/,
-      'it is there while there is a document',
-    );
-    const showing = appJs.match(/function showWelcome\([\s\S]*?\n\}/)?.[0] ?? '';
-    const hiding = appJs.match(/function hideWelcome\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
-    assert.ok(
-      /syncOpenBtn\(\);\s*if \(seen === welcomeSeen\) return;/.test(showing) &&
-        /syncOpenBtn\(\);\s*\}$/.test(hiding),
-      'and is told each time the welcome comes or goes, before showWelcome can return early',
-    );
-    assert.match(
-      appJs,
-      new RegExp(
-        String.raw`if \(welcome\) \{\s*(//[^\n]*\n\s*)*` +
-          String.raw`openBtn\.addEventListener\('click', \(\) => welcome\.pickFile\(\)\);`,
-      ),
-      'a click is the file picker, not the welcome over the document, and only in the web app',
+      ![pageHtml, appJs, pageCss].some((src) => /openBtn/.test(src)),
+      'there is no Open button by the name',
     );
     assert.match(
       appJs,

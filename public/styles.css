@@ -148,6 +148,14 @@ body {
   flex: 1;
 }
 
+/* The artwork keeps Apple's icon grid -- an 824px square in a 1024px canvas -- so it carries
+   its own margin, and 20px draws a mark about the size of the bar's other icons. */
+.app-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
 /* Between what this document is and what the app is doing with it. Hidden
    when the left of the pair is empty, so it is never a line on its own. */
 .divide {
@@ -1608,6 +1616,12 @@ html:not(.native) [data-shell] {
 
 .native.fullscreen {
   --bar-lead: 10px; /* no traffic lights in full screen */
+}
+
+/* The left edge is the traffic lights', and the dock shows the icon already. Gone in full
+   screen too, where the edge is free: the one bar should not change what it starts with. */
+.native .app-icon {
+  display: none;
 }
 
 /* Dragging the window by this strip is `data-tauri-drag-region` in index.html,

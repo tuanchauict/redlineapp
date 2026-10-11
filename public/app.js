@@ -147,7 +147,6 @@ function clearDocId() {
 // something has one -- the web app's -- so a window shown a document by a shell, or a server told
 // one on a command line, never reaches any of this and nothing here has to ask which it is.
 const welcomeEl = $('welcome');
-const openBtn = $('openBtn');
 const welcome = backend.welcome?.(welcomeEl, {
   open: (path) => openFile(path),
   granted: () => reopened(),
@@ -184,7 +183,6 @@ function showWelcome({ reopen = null } = {}) {
   document.documentElement.classList.add('welcoming');
   welcomeEl.hidden = false;
   doc.hidden = true;
-  syncOpenBtn();
   if (seen === welcomeSeen) return;
   welcomeSeen = seen;
   welcomeAsks = reopen;
@@ -204,7 +202,6 @@ function hideWelcome() {
   document.documentElement.classList.remove('welcoming');
   welcomeEl.hidden = true;
   doc.hidden = false;
-  syncOpenBtn();
 }
 
 /** Back to the document the welcome was put up over. Whether there was one to go back to. */
@@ -215,19 +212,10 @@ function backToDocument() {
   return true;
 }
 
-/**
- * The Open button belongs to the welcome, and so to the web app alone. It is there while there is
- * a document on screen; with nothing open the welcome is the whole page, and has its own.
- */
-function syncOpenBtn() {
-  openBtn.hidden = !state.data;
-}
-
 if (welcome) {
-  // Straight to the browser's file picker, and not the welcome over the document: what is picked
-  // joins the open files, and the one being read stays a click away in them. The foot of the
-  // open files is the same way in.
-  openBtn.addEventListener('click', () => welcome.pickFile());
+  // The way to another file with one on screen, as ⌘O is: straight to the browser's file picker,
+  // and not the welcome over the document. What is picked joins the open files, and the one being
+  // read stays a click away in them.
   $('newTab').title = 'Open a file (⌘O)';
   $('newTab').addEventListener('click', () => welcome.pickFile());
   // A step away from the document, and Escape is the step back. Not while Settings is up: the
@@ -3142,7 +3130,7 @@ document.addEventListener('keydown', (e) => {
     openFind();
   }
   // ⌘O is the web app's alone: a window has File ▸ Open…, and a CLI tab is handed its file.
-  // It is the file picker, as the Open button is, from the welcome too. Caught even with Settings
+  // It is the file picker, as Open file… is, from the welcome too. Caught even with Settings
   // up, because the browser's own would open the file as a page of its own, outside Redline.
   if (welcome && e.code === 'KeyO' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
     e.preventDefault();

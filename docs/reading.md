@@ -155,10 +155,10 @@ position — so an editor on one side and Redline on the other stay in step with
 reload.
 
 There is nothing on the bar while that is working, which is all of the time — a light
-that is always on tells you nothing. A red dot appears at the left of the bar only if
-the watch drops, which is the one state worth knowing about: what is on screen has
-stopped following the file. The connection comes back by itself, and the dot goes
-when it does.
+that is always on tells you nothing. A red dot appears at the left of the bar, after
+the app icon in a browser tab and the traffic lights in the native window, only if the
+watch drops, which is the one state worth knowing about: what is on screen has stopped
+following the file. The connection comes back by itself, and the dot goes when it does.
 
 ## The sidebars
 

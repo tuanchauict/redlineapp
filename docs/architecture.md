@@ -372,7 +372,9 @@ is no component model — the document pane is `innerHTML` from the payload, thr
 **`window.mdNative` is what tells the page it is inside the app**, and its absence
 is what tells it it is a browser tab. Where it is there, the page sizes its toolbar
 for the traffic lights and hides the rows and buttons that are the shell's to answer
-— the Settings gear, which the app menu provides instead. Everything else in
+— the Settings gear, which the app menu provides instead — and the app icon a browser
+tab starts its bar with (`.app-icon`, the favicon's `icon.svg`): the traffic lights have
+that edge, and the dock has the icon. Everything else in
 `app.js` is written once and does not ask.
 
 - **A native window's first document comes from `onTabs`, not from a blind
@@ -477,17 +479,16 @@ connection on `versionchange`. The page learns the build from the shim the build
   file the reader has let go of) or `NeedsPermission` (and offers **Reopen** *name*: `reopen()`,
   then the page loads again, or opens the link that was refused). No other backend has a
   `welcome`, which is the whole of why a shell, VS Code and the CLI's tab never show one.
-  - **Open, with a document on screen**: the folder button before the name (`#openBtn`), ⌘O and
-    **Open file…** at the foot of the open files are the file picker itself, `welcome.pickFile()`
-    — the welcome's own **Open file…**, called inside the click or the key, as a picker has to
-    be — and not the welcome over the document: what is picked joins the open files, and the
-    file being read stays a click away in them. The button is `hidden` in the markup, wired only
-    `if (welcome)`, and shown by `syncOpenBtn` while there is a document, so no other build has
-    it. The welcome still comes up over a document for a folder dropped and for a grant that
-    lapsed, with **Back to the document**, and Escape takes it down (`backToDocument`). `load()`
-    takes it down only for a document opened (`keepScroll: false`) or a grant it was asking
-    for: the one on screen read again — the 1.5 s poll's `change` and `history` among them —
-    would otherwise take it away from under the user a moment after it came up.
+  - **Open, with a document on screen**: ⌘O and **Open file…** at the foot of the open files
+    (`#newTab`, retitled `if (welcome)`) are the file picker itself, `welcome.pickFile()` — the
+    welcome's own **Open file…**, called inside the click or the key, as a picker has to be —
+    and not the welcome over the document: what is picked joins the open files, and the file
+    being read stays a click away in them. The bar has no button for it. The welcome still
+    comes up over a document for a folder dropped and for a grant that lapsed, with **Back to
+    the document**, and Escape takes it down (`backToDocument`). `load()` takes it down only
+    for a document opened (`keepScroll: false`) or a grant it was asking for: the one on screen
+    read again — the 1.5 s poll's `change` and `history` among them — would otherwise take it
+    away from under the user a moment after it came up.
   - **Open folder…** (`showDirectoryPicker({ mode: 'read' })`, the primary button) lists the
     files a link would open — `MD_LINK`, in `core/links.js`, the same pattern the page follows
     links by — three folders down and at most 500, without entering dot-folders or
