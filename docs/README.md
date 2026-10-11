@@ -22,3 +22,4 @@ pages are the detail behind it.
 | --- | --- |
 | [Architecture](architecture.md) | How the pieces fit: one reader, two shells, the store, the diff |
 | [Building and testing](building.md) | `npm test`, what is generated, shipping a `.dmg`, the landing page and its deploy |
+| [TypeScript](typescript.md) | The compile step, `out/`, finding the repository root, and where the conversion stands |

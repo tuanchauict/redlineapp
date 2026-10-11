@@ -21,7 +21,8 @@ from your shell and does get them.
 
 ## `redline` — in your browser
 
-On your `$PATH` after `npm link`; from a checkout, `npm start --`.
+On your `$PATH` after `npm run build:ts && npm link` — the command is the compiled copy in
+`out/`, so build it first; from a checkout, `npm start --`.
 
 ```
 redline <file.md> [options]

@@ -2,7 +2,7 @@
 
 ```
 npm install
-npm start -- sample.md       # a browser tab: node, no build step
+npm start -- sample.md       # a browser tab: compiled, bundled, served
 npm test
 
 rustup toolchain install stable   # once, for the native window
@@ -11,20 +11,21 @@ npm run dev -- sample.md     # the same window, page reloadable without a recomp
 npm run webapp               # the web app, built and served on 127.0.0.1:8081
 ```
 
-For the browser there is no build step worth the name: `src/` and `public/` run as
-they are, and `prestart` only writes the two generated files below. The native
-window is a Rust binary, so it needs a toolchain — [rustup](https://rustup.rs) — and
-the first compile takes a few minutes. After that it is seconds.
+For the browser the build is short: `tsc -b` compiles what node runs into `out/` (a no-op
+when nothing changed), `prestart` bundles `src/` for the page, and `public/` runs as it
+is. The native window is a Rust binary, so it needs a toolchain — [rustup](https://rustup.rs) —
+and the first compile takes a few minutes. After that it is seconds.
 
 ## What is generated
 
-Three commands, and the reason to know about the first two is that the app **embeds**
-its copy of the page at compile time. A change to `public/` that has not been through
-both is a change that is not in the window, which looks exactly like the change not
-working.
+Four commands, and the reason to know about `build:web` and `build:dist` is that the app
+**embeds** its copy of the page at compile time. A change to `public/` that has not been
+through both is a change that is not in the window, which looks exactly like the change
+not working.
 
 | | |
 | --- | --- |
+| `npm run build:ts` | `tsc -b`: compiles `bin/`, `scripts/`, `src/` and the test into `out/`, which mirrors the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`). Gitignored, and what every npm script runs; every other build command runs it first. See [TypeScript](typescript.md) |
 | `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mjs`, which stops the build if a release moves the palettes) |
 | `npm run build:dist` | Stages `shell/dist`: `public/`, the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
 | `npm run build:webapp` | Stages `dist/web`, the web app: the same page, with the web bundles in and the Tauri backend left out, the web app's `host.js` over the empty one, every file asked for as `?v=<build>`, and a `_headers` file that says what to keep for a year. See [The web app](#the-web-app) |
@@ -32,7 +33,9 @@ working.
 `npm run app`, `npm run dev`, `npm run bundle`, `npm run webapp` and `npm test` each run
 the ones they need, so the only time to reach for them by hand is after editing `src/` with a
 window already open — and `npm run dev` re-runs them for you on every edit, which is
-[the point of it](#the-dev-loop).
+[the point of it](#the-dev-loop). One exception: `npm run dev` compiles `out/` once, when
+it starts. A change to `scripts/` or `src/hosts/node/` while it runs is not picked up until
+the next `npm run build:ts`; a change to `src/` is, because esbuild reads it directly.
 
 `build:dist` and `build:webapp` are both `stagePage` in `scripts/stage-page.mjs`, called
 for a different host: it is the one place that knows what goes into a page and what only
@@ -255,7 +258,9 @@ drag-region toolbar, the tab strip, the menu wiring, the drop overlay.
 npm test
 ```
 
-One file, `test-smoke.js`, run by `node` with no test framework. It boots the real
+One file, `test-smoke.js`, which `pretest` compiles into `out/` and `node` runs from there,
+with no test framework. Its file lookups go through `rootUrl`, from the repository root, so
+the compiled copy greps the same source the original does. It boots the real
 server on a temp file under a temp `REDLINE_HOME`, edits the file, and asserts on
 what comes back over HTTP — so a passing run means the thing actually works end to
 end, not that its units agree with their mocks.
@@ -302,7 +307,7 @@ remembered to ask about.
 | | |
 | --- | --- |
 | `.github/workflows/ci.yml` | Three jobs, each behind the one before it. **`test`**: `npm ci` and `npm test` on `ubuntu-latest` and `macos-latest`, and on the Mac `cargo test` in `shell/` too. **`bundle`**: `npm run bundle` on `macos-latest`, uploaded as an artifact — **`Redline-universal-dmg`** or **`Redline-arm64-dmg`**. **`release`**: only for a `vN.N.N` tag or a ticked **Deploy**, and [published](#publishing-a-release) |
-| `.github/workflows/pages.yml` | the landing page, [deployed](#deploying-it) to Cloudflare Pages |
+| `.github/workflows/pages.yml` | the landing page, built in one job and [deployed](#deploying-it) to Cloudflare Pages from another |
 | `.github/workflows/webapp.yml` | the web app, [published](#publishing-the-web-app) to a Cloudflare Pages project of its own |
 
 What starts `ci.yml`, and what it does:
@@ -711,8 +716,9 @@ nothing in the repository chose it: the deploy log is where it is written, on
 wrangler's last line (`✨ Deployment complete! Take a peek over at …`), and the Pages
 dashboard shows it too.
 
-`wrangler.toml` names the project and the directory, so the workflow and a local run
-cannot disagree about what is being deployed:
+`wrangler.toml` names the project and the directory for a local run. The workflow has no
+checkout to read it from, so it writes the same two on its command line, and
+`test-smoke.js` fails if they ever differ:
 
 ```toml
 name = "redline"
@@ -734,10 +740,15 @@ CLOUDFLARE_API_TOKEN     a token with the "Cloudflare Pages: Edit" permission
 CLOUDFLARE_ACCOUNT_ID    Workers & Pages, in the sidebar on the right
 ```
 
-The deploy runs `npm run build:site` first and **no `npm ci`**: the page has no
-dependencies, and the ones in this repository belong to the reader. An unbuilt `site/`
-is the page with no icon and no link preview, and it would upload perfectly happily —
-which is why the staging step is asserted in `test-smoke.js` alongside the page itself.
+It is **two jobs**, the way [the web app's](#publishing-the-web-app) is. `build` runs
+`npm ci` and `npm run build:site` — which compiles `scripts/build-site.mjs` first, so
+the job needs the repository's dependencies, and `npm ci` runs every dependency's
+install scripts — and uploads `site/`. `deploy` holds the Cloudflare token and runs
+nothing from the repository: it downloads that artifact and hands it to wrangler, with
+the project and the directory named on the command line, because it has no checkout and
+so no `wrangler.toml`. An unbuilt `site/` is the page with no icon and no link preview,
+and it would upload perfectly happily — which is why the staging step is asserted in
+`test-smoke.js` alongside the page itself.
 
 `site/_headers` is Cloudflare's own format and is committed rather than copied in;
 nothing in it is cached as immutable, because none of these filenames carries a

@@ -86,7 +86,7 @@ In a browser, with Node 18+ and no build toolchain:
 
 ```sh
 npm install
-npm start -- path/to/doc.md        # or: npm link && redline doc.md
+npm start -- path/to/doc.md        # or: npm run build:ts && npm link && redline doc.md
 ```
 
 As the Mac app, with a [Rust toolchain](https://rustup.rs) as well:
@@ -227,8 +227,9 @@ that ships with macOS instead of bundling a browser, so the whole app is one bin
 of about 8 MB per architecture. Most of that is the page compiled into it, and most
 of the page is the Mermaid renderer.
 
-**No framework, no transpiler, six dependencies.** What you read in `src/` and
-`public/` is what runs: one client module and one hand-written stylesheet. The diff
+**No framework, one compiler, six dependencies.** `tsc` compiles the code Node runs and
+nothing else; the page runs what you read in `src/` and `public/`, bundled but not
+translated: one client module and one hand-written stylesheet. The diff
 works at two levels, blocks and then words, on top of markdown-it's own parser. The
 word diff compares *rendered HTML* rather than markdown source, which is why a mark
 never splits a link or a run of bold text.
