@@ -31,17 +31,35 @@ export const LINK_NOTE =
   'The web app opens one file at a time, so links to other files do not open here. ' +
   'The Mac app follows them.';
 
-// Resolved against this file, which is `vendor/backend-web.js` once bundled, so the worker is the
-// bundle beside it. Not an import: the page must not download the reader unless it has to.
-const WORKER_URL = new URL('./reader-worker.js', import.meta.url);
+/**
+ * A file beside `base`, asked for the way `base` was: with the same query.
+ *
+ * The staged page asks for every file as `name?v=<build>` and lets the browser keep it for a year,
+ * and a relative URL does not take its base's query: `new URL('./b.js', 'http://h/a.js?v=1')` is
+ * `http://h/b.js`. A worker found that way would be the one file of the page held under a name
+ * that never changes, and the new page would be given the old reader for as long as the cache
+ * liked. With no query on `base`, which is every host but the web app's, there is none to copy
+ * and the URL is what it always was.
+ *
+ * @param {string} name
+ * @param {string} [base]  Default: this file, which is `vendor/backend-web.js` once bundled.
+ */
+export function sibling(name, base = import.meta.url) {
+  const url = new URL(name, base);
+  url.search = new URL(base).search;
+  return url;
+}
+
+// The bundle beside this one. Not an import: the page must not download the reader unless it
+// has to.
+const WORKER_URL = sibling('./reader-worker.js');
 
 /**
- * What the page calls its SharedWorker. One is found by its URL and its name, and both would
- * otherwise be the same after a deploy: a tab left open on the old build keeps the old reader
- * alive, and a tab opened on the new one would join it -- new page code against old reader code,
- * until every tab closed. The build is in the name so that the two builds get a worker each. Two
- * readers over the one store is the case the fallback already depends on, and the store closes on
- * a schema upgrade rather than hold one up (`idb.js`).
+ * What the page calls its SharedWorker. One is found by its URL and its name, and a tab left open
+ * on the old build keeps the old reader alive: a tab opened on the new one would join it -- new
+ * page code against old reader code, until every tab closed. The URL differs between builds
+ * because it has the page's `?v=` in it (`sibling`); the build is in the name as well, so that
+ * the two builds get a worker each without leaning on one thing alone. Two
  *
  * The build is the version *and a hash of the bundles*, `0.7.0+3fa9c2d1e0b4`. The version alone
  * does not change between rebuilds at one version -- every round of `npm run webapp`, a redeploy

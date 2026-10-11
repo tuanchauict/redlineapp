@@ -110,7 +110,7 @@ says.
 | Git | There is no git to run, so the git import is not offered, and neither is **Compare against ▸ git HEAD**. A saved choice of git shows as **Last read** |
 | PlantUML | Not drawn. A PlantUML fence stays as highlighted source, with a note saying why. [Mermaid](diagrams.md) draws as it does everywhere |
 | Fonts | Settings offers the usual choices, not a list of the fonts installed on your machine, which a browser only gives after a permission prompt |
-| Updates | There is no **Check for Updates…**. A reload is the latest version |
+| Updates | There is no **Check for Updates…**. A reload is the latest version: your browser keeps the app's files and asks only whether the page itself has changed, so a release is fetched on the next load, and nothing is downloaded twice. A tab left open stays on the version it started with until you reload it |
 | Shell settings | The ones that belong to the Mac app's window are not shown |
 
 ## Where your data lives
@@ -161,8 +161,8 @@ disk.
 
 - **The reader has its own console.** It runs in a worker, so its messages are not in the
   page's. In Chromium, open `chrome://inspect/#workers` and inspect the shared worker. Its
-  name is `redline@<version>+<hash>`, because after an update a tab left open on the old build
-  keeps the old reader, and a new tab gets a new one.
+  name is `redline@<version>+<hash>`, and its address ends in the build's `?v=`, because after an
+  update a tab left open on the old build keeps the old reader, and a new tab gets a new one.
 - **A file you opened before will not open.** Its grant has probably lapsed: the page says
   so and offers **Reopen**.
 - **The page opens with no history.** Check the address first: another origin has another

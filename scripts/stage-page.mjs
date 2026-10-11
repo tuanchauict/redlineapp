@@ -46,10 +46,13 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
  * below would not notice.
  */
 export const HOSTS = {
-  tauri: { bundles: ['backend-tauri.js'], shim: null },
+  tauri: { bundles: ['backend-tauri.js'], shim: null, versioned: false },
   web: {
     bundles: ['backend-web.js', 'reader-worker.js'],
     shim: 'src/hosts/web/host.js',
+    // The page is fetched over the network, and from a cache that is meant to hold it for a year.
+    // The desktop app has its files inside the binary, and the CLI's server never caches them.
+    versioned: true,
   },
 };
 
@@ -117,13 +120,97 @@ export function bundleHash(buffers) {
 }
 
 /**
+ * The id that goes in the URL of every file the web app loads, `?v=3fa9c2d1e0b4`: a hash of every
+ * file under `dir`, by path and by bytes, and of `extra`. Anything that changes what ships is a new
+ * one, and nothing else is, so a rebuild that changed nothing asks the browser for nothing.
+ *
+ * It is of the whole page and not of each file, on purpose. A file that imports another has the
+ * other's id in its own text, so a per-file id would be one that has to be worked out in the
+ * order of the imports, and a cycle between two files has no such order. One id for all of them
+ * is one more download for the files that did not change, once per release, and that is all.
+ *
+ * @param {string} dir
+ * @param {string} [extra]  What is part of the build and is not in `dir` yet.
+ */
+export function pageHash(dir, extra = '') {
+  const h = crypto.createHash('sha256').update(`${extra.length}:${extra}`);
+  const walk = (rel) =>
+    fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).flatMap((e) => {
+      const next = rel ? `${rel}/${e.name}` : e.name;
+      return e.isDirectory() ? walk(next) : [next];
+    });
+  // readdir's order is the filesystem's, and the id has to be the same on a Mac and on Linux.
+  for (const rel of walk('').sort()) {
+    const bytes = fs.readFileSync(path.join(dir, rel));
+    h.update(`${rel}\0${bytes.length}:`).update(bytes);
+  }
+  return h.digest('hex').slice(0, 12);
+}
+
+/**
+ * The page's own files that import other files of it by a string literal, which the browser
+ * resolves for itself and which therefore *do not* inherit the `?v=` of the file that has them.
+ * `app.js` imports `./backend.js` and a browser asks for exactly that, with no query, however
+ * `app.js` was asked for. So the query is written into the specifiers of the files that are not
+ * bundled, and the build fails if one has nothing to write it into, which means the file has
+ * changed shape and nobody has looked.
+ *
+ * Not the bundles (`vendor/*.js`), which import nothing by a path of their own: one that does
+ * is for the test (12e) to say, and not for a pattern to rewrite inside minified code. The one
+ * place a bundle builds a URL, the worker's, takes its query from its own (`hosts/web/backend.js`).
+ * And not Mermaid's chunks, whose names are a hash of their content already.
+ */
+const MODULES = ['app.js', 'backend.js'];
+
+/**
+ * Put `?v=<version>` on every file the staged page names, so that a file can be cached for as long
+ * as a browser will keep it and a new build is still a new URL, asked for at once.
+ *
+ * `index.html` is the one file that is not versioned, because it is the one that says what the
+ * version is: it is the file a browser has to ask about every time (`_headers` says so).
+ *
+ * @param {string} out  The staged page.
+ * @param {string} version  From `pageHash`.
+ */
+function versionPage(out, version) {
+  const query = `?v=${version}`;
+
+  // A file of the page: not another site (`https:`), not the root of this one, not an anchor.
+  const own = (url) => !/^(?:[a-z][a-z0-9+.-]*:|\/|#)/i.test(url);
+  const html = path.join(out, 'index.html');
+  fs.writeFileSync(
+    html,
+    fs
+      .readFileSync(html, 'utf8')
+      .replace(/(<(?:script|link|img)\b[^>]*?\s(?:src|href)=")([^"]*)(")/g, (m, open, url, close) =>
+        own(url) ? `${open}${url}${query}${close}` : m,
+      ),
+  );
+
+  for (const file of MODULES) {
+    const f = path.join(out, file);
+    let n = 0;
+    const text = fs.readFileSync(f, 'utf8').replace(
+      /(\bfrom\s*|\bimport\s*\(\s*)(['"])(\.{1,2}\/[^'"?]+)\2/g,
+      (m, lead, q, specifier) => {
+        n++;
+        return `${lead}${q}${specifier}${query}${q}`;
+      },
+    );
+    if (!n) throw new Error(`${file} has no imports to version -- stage-page.mjs is out of date`);
+    fs.writeFileSync(f, text);
+  }
+}
+
+/**
  * Write the page for `host` into `dest`, which is emptied first, so that a file that stops
  * being part of the page stops being shipped. Only ever what this wrote: `dest` is build output
  * and is not in the repository.
  *
  * @param {string} dest  Relative to the repository root, or absolute. Not the repository.
  * @param {{ host: keyof typeof HOSTS }} opts
- * @returns {{ dest: string, bytes: number }}  The absolute path, and what is in it.
+ * @returns {{ dest: string, bytes: number, version: string|null }}  The absolute path, what is
+ *   in it, and the `?v=` its files are asked for by: null for a host that does not version them.
  */
 export function stagePage(dest, { host }) {
   const spec = HOSTS[host];
@@ -171,6 +258,16 @@ export function stagePage(dest, { host }) {
     }
   }
 
+  const shim = spec.shim ? fs.readFileSync(path.join(ROOT, spec.shim), 'utf8') : '';
+
+  // The id is of everything that ships, and so it is worked out here, after the page is all there
+  // and before anything is written into it: the shim is not in `out` yet, so it goes in by hand,
+  // with the version. The query goes in only after, because a file's id cannot include itself.
+  // It is the page's URLs that carry it. The worker's name, below, is the reader's alone, and
+  // changes only when the reader does.
+  const version = spec.versioned ? pageHash(out, `${buildVersion()}\n${shim}`) : null;
+  if (version) versionPage(out, version);
+
   // The host's own shim goes over the empty one, with the build's name after it: the version and
   // a hash of the bundles. This is what writes the page, and a SharedWorker is found by its URL
   // and its name, so the web app names its worker for the build (hosts/web/backend.js) and learns
@@ -180,7 +277,6 @@ export function stagePage(dest, { host }) {
   // because they are what runs in the worker and what talks to it, and it is of the staged ones
   // because those are what ship. It is semver's own build-metadata form, `0.7.0+3fa9c2d1e0b4`.
   if (spec.shim) {
-    const shim = fs.readFileSync(path.join(ROOT, spec.shim), 'utf8');
     const bundles = spec.bundles.map((b) => fs.readFileSync(path.join(out, 'vendor', b)));
     const build = `${buildVersion()}+${bundleHash(bundles)}`;
     fs.writeFileSync(
@@ -189,7 +285,7 @@ export function stagePage(dest, { host }) {
     );
   }
 
-  return { dest: out, bytes: size(out) };
+  return { dest: out, bytes: size(out), version };
 }
 
 const size = (dir) =>
