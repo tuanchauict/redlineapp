@@ -299,7 +299,7 @@ assert.deepStrictEqual(
   ['ack', 'closest', 'count', 'doc', 'more', 'x'],
   'no innerHTML the page does not know is safe',
 );
-const sanitizeJs = fs.readFileSync(rootUrl('src/page/sanitize.js'), 'utf8');
+const sanitizeJs = fs.readFileSync(rootUrl('src/page/sanitize.ts'), 'utf8');
 assert.match(sanitizeJs, /FORBID_TAGS: \['style', 'form'\]/,
   'a document cannot restyle the window or hide its own marks');
 assert.match(sanitizeJs, /SANITIZE_DOM: false,\n\s*FORBID_ATTR: \['name'\]/,

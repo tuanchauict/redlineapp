@@ -121,7 +121,7 @@ function bridge(ops) {
  * Mark up `newHtml` with what changed relative to `oldHtml`.
  * Returns the annotated HTML, or null when a word diff would not help.
  */
-export function inlineDiff(oldHtml, newHtml) {
+export function inlineDiff(oldHtml: string, newHtml: string): string | null {
   // Diagrams are one opaque node (or thousands of SVG elements); a word diff
   // of either is meaningless.
   if (oldHtml.length + newHtml.length > MAX_HTML) return null;

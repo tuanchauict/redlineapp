@@ -80,7 +80,7 @@ count as one without a certificate.
   is an error rather than a step to the next, unlike `npm run site`: a server that moved
   quietly would open an app with no history in it, which looks like data lost. Pick another
   with `-p` and it is a choice.
-- **`_headers`** is generated from `src/core/csp.js`, the same list the CLI's server and the
+- **`_headers`** is generated from `src/core/csp.ts`, the same list the CLI's server and the
   Tauri config are compared with: the CLI's policy with the head script's hash, plus
   `worker-src 'self'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`,
   as one rule for every path. The hash is of the head script in the *staged* `index.html`, so

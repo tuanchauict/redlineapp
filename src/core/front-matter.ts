@@ -32,6 +32,18 @@ const ITEM = /^-(?:[ \t]+(.*))?$/;
 /** `|`, `>`, and the chomping and indent indicators they can carry. */
 const BLOCK = /^([|>])[+-]?\d*$/;
 
+/** One value in a header: a scalar, a sequence of scalars, or a nested mapping. */
+export type FrontValue =
+  | { kind: 'text'; text: string; pre?: boolean }
+  | { kind: 'list'; items: string[] }
+  | { kind: 'map'; rows: FrontRow[] };
+
+/** A row of a header, in document order. `key` is null for a line that is not a field. */
+export interface FrontRow {
+  key: string | null;
+  value: FrontValue;
+}
+
 const indentOf = (line) => /^[ \t]*/.exec(line)[0].length;
 
 /** Blank lines and whole-line comments are structure, not content. */
@@ -110,7 +122,7 @@ function block(lines, folded) {
 }
 
 /** Everything after a `key:`, which may be on the line or under it. */
-function readValue(lines, cur, indent, rest) {
+function readValue(lines, cur, indent, rest): FrontValue {
   const fold = BLOCK.exec(rest);
   if (fold) {
     const taken = [];
@@ -145,7 +157,7 @@ function readValue(lines, cur, indent, rest) {
 }
 
 /** `- a`, `- b` at one indent. */
-function readList(lines, cur, indent) {
+function readList(lines, cur, indent): FrontValue {
   const items = [];
   while (cur.at < lines.length) {
     if (skip(lines[cur.at])) {
@@ -165,8 +177,8 @@ function readList(lines, cur, indent) {
 }
 
 /** `key: value` pairs at one indent, with their values. */
-function readMap(lines, cur, indent) {
-  const rows = [];
+function readMap(lines, cur, indent): FrontRow[] {
+  const rows: FrontRow[] = [];
   while (cur.at < lines.length) {
     const line = lines[cur.at];
     if (skip(line)) {
@@ -202,7 +214,7 @@ function readMap(lines, cur, indent) {
  *
  * A line it cannot read comes back with `key: null` and the line as its text.
  */
-export function parseFrontMatter(body) {
+export function parseFrontMatter(body: string): FrontRow[] {
   return readMap(body.split('\n'), { at: 0 }, 0);
 }
 
@@ -214,7 +226,7 @@ export function parseFrontMatter(body) {
  * meaning that. The test is the one YAML itself would apply to the first thing
  * in a mapping: it has to be a field with a name.
  */
-export function looksLikeFrontMatter(rows) {
+export function looksLikeFrontMatter(rows: FrontRow[]): boolean {
   return rows.length > 0 && rows[0].key != null;
 }
 
@@ -231,7 +243,7 @@ export function looksLikeFrontMatter(rows) {
  * is one line of a toolbar, and a value that cannot be one is better ignored
  * than clipped into looking like one.
  */
-export function headerTitle(rows) {
+export function headerTitle(rows: FrontRow[]): string {
   for (const want of ['title', 'name']) {
     const value = rows.find((r) => r.key === want)?.value;
     const text = value?.kind === 'text' ? value.text.trim() : '';

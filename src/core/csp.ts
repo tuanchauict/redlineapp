@@ -7,9 +7,12 @@
 // from it. The Tauri build carries a copy in shell/tauri.conf.json, where the bundler works
 // out the hash itself; the test suite compares that copy with this list.
 //
-// Pure and synchronous on purpose, like hash.js: it runs in node build scripts, in the
+// Pure and synchronous on purpose, like hash.ts: it runs in node build scripts, in the
 // server and in the VS Code extension host.
 import { sha256Hex } from './hash.js';
+
+/** A policy as data: each directive's name against its sources, in header order. */
+export type Policy = Record<string, string[]>;
 
 /**
  * The `'sha256-…'` source for every inline `<script>` in `html` -- the ones with no `src`.
@@ -18,13 +21,13 @@ import { sha256Hex } from './hash.js';
  * policy that forbids inline script lets that one through. The body is hashed exactly as it
  * stands between the tags, whitespace included, which is how the browser hashes it.
  */
-export function inlineScriptHashes(html) {
+export function inlineScriptHashes(html: string): string[] {
   return [...html.matchAll(/<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/g)].map(
     ([, body]) => `'sha256-${hexToBase64(sha256Hex(body))}'`,
   );
 }
 
-function hexToBase64(hex) {
+function hexToBase64(hex: string): string {
   let bytes = '';
   for (let i = 0; i < hex.length; i += 2) {
     bytes += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
@@ -40,8 +43,8 @@ function hexToBase64(hex) {
  * script hashes passes `{ 'script-src': ["'self'", ...hashes] }`; it is not done here because
  * which scripts are inline is a fact about the page this is applied to.
  */
-export function directives(overrides = {}) {
-  const base = {
+export function directives(overrides: Record<string, string[] | null> = {}): Policy {
+  const base: Policy = {
     'default-src': ["'self'"],
     'script-src': ["'self'"],
     // Inline styles are the page's own -- sizes the head script restores, the widths a drag
@@ -60,11 +63,11 @@ export function directives(overrides = {}) {
   };
   const out = { ...base, ...overrides };
   for (const [name, sources] of Object.entries(out)) if (sources == null) delete out[name];
-  return out;
+  return out as Policy;
 }
 
 /** The header (or `<meta content>`) string for a directive object. */
-export function serialize(policy) {
+export function serialize(policy: Policy): string {
   return Object.entries(policy)
     .map(([name, sources]) => [name, ...sources].join(' '))
     .join('; ');

@@ -5,8 +5,8 @@
 // Five bundles, all of them code that started life in src/ and has to end up
 // running in a webview:
 //
-//   render.js         src/core/document.js -- the diff and the markdown rendering.
-//   sanitize.js       src/page/sanitize.js -- DOMPurify, and what a document may put
+//   render.js         src/core/document.ts -- the diff and the markdown rendering.
+//   sanitize.js       src/page/sanitize.ts -- DOMPurify, and what a document may put
 //                     on the page. Not in render.js, which Node imports too.
 //   backend-tauri.js  src/hosts/tauri/backend.js -- the reader, the store and the
 //                     Tauri platform, for the desktop build where there is no
@@ -51,8 +51,8 @@ const require = createRequire(import.meta.url);
 const VENDOR = path.join(ROOT, 'public', 'vendor');
 
 const BUNDLES = [
-  { entry: 'src/core/document.js', out: 'render.js' },
-  { entry: 'src/page/sanitize.js', out: 'sanitize.js' },
+  { entry: 'src/core/document.ts', out: 'render.js' },
+  { entry: 'src/page/sanitize.ts', out: 'sanitize.js' },
   { entry: 'src/hosts/tauri/backend.js', out: 'backend-tauri.js' },
   { entry: 'src/hosts/web/backend.js', out: 'backend-web.js' },
   { entry: 'src/hosts/web/worker.js', out: 'reader-worker.js' },

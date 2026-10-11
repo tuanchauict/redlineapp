@@ -24,17 +24,17 @@ bin/redline.js          CLI: parse flags, start the server, open a browser
 out/                    tsc's output: what every npm script runs. Gitignored
 
 src/core/               pure: no I/O and no platform, so it runs anywhere
-  document.js           two versions of a text -> HTML, marks, contents
-  render.js             markdown-it and its plugins, block splitting, the outline
-  front-matter.js       the `---` header block's lines, as fields to show
-  hljs.js               the highlighter, with a chosen set of languages
-  diff.js               block-level diff, and the markup the marks are made of
-  inline-diff.js        word-level diff, over rendered HTML
-  hash.js               SHA-1 and SHA-256 in plain JS, because they are names
-  paths.js              join, dirname, basename, resolve for a given separator
-  links.js              where a link points: `walkPath`, `shorten` for `~`, and `MD_LINK`
-  csp.js                the content security policy as data, and the inline-script hashes
-src/page/sanitize.js    DOMPurify, and what a document may put on the page
+  document.ts           two versions of a text -> HTML, marks, contents
+  render.ts             markdown-it and its plugins, block splitting, the outline
+  front-matter.ts       the `---` header block's lines, as fields to show
+  hljs.ts               the highlighter, with a chosen set of languages
+  diff.ts               block-level diff, and the markup the marks are made of
+  inline-diff.ts        word-level diff, over rendered HTML
+  hash.ts               SHA-1 and SHA-256 in plain JS, because they are names
+  paths.ts              join, dirname, basename, resolve for a given separator
+  links.ts              where a link points: `walkPath`, `shorten` for `~`, and `MD_LINK`
+  csp.ts                the content security policy as data, and the inline-script hashes
+src/page/sanitize.ts    DOMPurify, and what a document may put on the page
 src/reader/             the reader and what it needs, written against the platform
   reader.js             the open-document registry, the watcher, the payload
   store.js              the snapshot store: history, baselines, checked changes
@@ -52,7 +52,7 @@ src/hosts/node/         the CLI's shell
   platform.js           the platform over node
   root.js               where the repository is, from any file, in source or compiled
 src/hosts/tauri/        the app's shell, in the page
-  platform.js           the platform over the shell's IPC, on core/paths.js
+  platform.js           the platform over the shell's IPC, on core/paths.ts
   native.js             `window.mdNative` over the shell's IPC
   backend.js            the entry point the app's page imports
 src/hosts/web/          the web app's shell: no server, no node, files in IndexedDB
@@ -243,7 +243,7 @@ sequence of round trips:
 
 **The document itself is not in here** — no `html`, no `rawHtml`, no stats, changes
 or contents list. Those come from `renderDocument(root, text, base)` in
-`src/core/document.js`, called by the page, and that is the whole reason the payload is
+`src/core/document.ts`, called by the page, and that is the whole reason the payload is
 shaped like this: the diff is the product, and a browser tab and the app disagreeing
 about what changed is the one bug this rules out rather than tests for. There is one
 implementation and it runs wherever the page is.
@@ -328,12 +328,12 @@ list is a check-off from before records, and is read as `{ key }`.
 
 ## The diff
 
-`src/core/diff.js` splits both versions into top-level blocks with markdown-it's own
+`src/core/diff.ts` splits both versions into top-level blocks with markdown-it's own
 parser (`splitBlocks`), diffs the block *sources* with `diffArrays`, and pairs a run
 of removals against the run of additions after it: an aligned pair that is at least
 35% similar is one edit rather than a delete and an insert.
 
-A paired block goes to `src/core/inline-diff.js`, which diffs the two blocks' **rendered
+A paired block goes to `src/core/inline-diff.ts`, which diffs the two blocks' **rendered
 HTML** word by word. Marking up markdown source would cut through emphasis runs,
 link destinations and fences; working on HTML means the marks have to respect tag
 boundaries instead, which is the bulk of that module — plus the bail-outs that send
@@ -546,7 +546,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
     dropped is refused, *The web app opens files, not folders*, and pointed at the Mac app.
     The worker still reads a folder root it was given before, and follows that folder's links.
   - **Open file…** (the primary button) is `showOpenFilePicker` for markdown: `MD_LINK`, in
-    `core/links.js`, the same pattern the page follows links by. Picking one is
+    `core/links.ts`, the same pattern the page follows links by. Picking one is
     `addRoot(file)` and `open('web:<root>/<name>')`. The file is a root of its own and can read
     nothing beside it, so a click on one of its links says that the web app opens one file at a
     time and that the Mac app follows them (`backend.linkNote`, `LINK_NOTE`, shown by the page
@@ -626,7 +626,7 @@ shim over `public/host.js`. `build:web` writes every host's bundles into `public
 - **`stagePage` empties its destination**, so it will not be given the repository or anything
   that holds it (`assertSafeDest`): `''` and `'.'` are the repository, `.git` and all. It does not
   stop a destination inside the repository, `src/` say, which is for whoever picks it.
-- **`_headers`**, for Cloudflare Pages, is the CLI's policy from `core/csp.js` with the *staged*
+- **`_headers`**, for Cloudflare Pages, is the CLI's policy from `core/csp.ts` with the *staged*
   `index.html`'s head-script hash and one directive more, `worker-src 'self'`, plus
   `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`, as one rule for `/*`.
   The rule covers every path, which is how the worker's own script gets a policy: a worker is held
@@ -759,7 +759,7 @@ app, the page that draws the document is also the page that can ask the shell to
 run git and write the store. So there are three layers, and each one assumes the
 one before it has failed.
 
-**Sanitized at insertion.** `src/page/sanitize.js` runs DOMPurify over the document —
+**Sanitized at insertion.** `src/page/sanitize.ts` runs DOMPurify over the document —
 rendered or raw — as `app.js` assigns it to the pane, and over each PlantUML SVG
 as it replaces its fence. That happens in the page, after the diff, not in
 `render.js`: the renderer also runs in Node, where DOMPurify has no DOM and gives
@@ -786,7 +786,7 @@ server, or in the app the shell's IPC. `object-src`, `base-uri`, `form-action`
 and `frame-ancestors` are all `'none'`. The policy lives in two places:
 
 - `src/hosts/node/server.js` computes it, hash included, and sends it as a header on
-  `index.html`. The directive list and the hashing are `src/core/csp.js`, which a
+  `index.html`. The directive list and the hashing are `src/core/csp.ts`, which a
   host that builds its own page (a `<meta>`, a `_headers` file) takes the same list from.
   It may tighten a directive and may not loosen one.
 - `shell/tauri.conf.json` carries it for the app. The bundler hashes the inline
