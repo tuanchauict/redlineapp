@@ -4,25 +4,32 @@
 // The reader is in a SharedWorker (worker.js), one for every tab of this origin; where there is
 // none, it is the same code in this page, behind a MessageChannel. Either way `createRpcBackend`
 // does what it does for every host that is not in the page's own heap, and this wraps it with
-// the three things a browser tab has that the others do not:
+// the four things a browser tab has that the others do not:
 //
 //   - the page's lifecycle. A tab that goes into the back/forward cache is not closed and not
 //     alive, and the worker has to be told, so that it neither holds the document for ever nor
 //     forgets the tab when it comes back
-//   - permission. A folder the user granted last week may have to be granted again, and only a
+//   - permission. A file the user granted last week may have to be granted again, and only a
 //     page, from a click, can ask (`reopen`)
-//   - the ways to open something that are not a link: a folder, a file, a drop (`welcome.js`)
-//   - the folder a document came from, listed for the left column (`folder`)
+//   - the ways to open something that are not a link: a file, a drop (`welcome.js`)
+//   - the files the tab has open, for the left column, which a window has a shell to keep
+//     (`openFiles`)
 //
 // Bundled to public/vendor/backend-web.js, and loaded only when `host.js` has said this is the
 // web app, so no other build downloads it.
 import { createRpcBackend } from '../../rpc/client.js';
 import { createIdbKv } from './idb.js';
-import { parseWebPath, webPath } from './handles.js';
-import { listMarkdown, mountWelcome } from './welcome.js';
+import { parseWebPath } from './handles.js';
+import { createOpenFiles, storageOf } from './open-files.js';
+import { mountWelcome } from './welcome.js';
 
 /** How often to tell the worker this page is still here. It lets go of a document after 30 s. */
 export const PING_MS = 10_000;
+
+/** What a click on a link to another file says, in a web app that opens one file at a time. */
+export const LINK_NOTE =
+  'The web app opens one file at a time, so links to other files do not open here. ' +
+  'The Mac app follows them.';
 
 // Resolved against this file, which is `vendor/backend-web.js` once bundled, so the worker is the
 // bundle beside it. Not an import: the page must not download the reader unless it has to.
@@ -231,8 +238,8 @@ export async function createWebBackend({
 
     // What the welcome offers. The handles go to the worker as they are -- a `FileSystemHandle`
     // survives `postMessage` -- and it is the worker that keeps them, so two tabs picking the same
-    // folder at once cannot each write a root.
-    /** A folder or file handle from a picker or a drop. Answers `{ rootId, name, kind }`. */
+    // file at once cannot each write a root.
+    /** A file handle from a picker or a drop. Answers `{ rootId, name, kind }`. */
     addRoot: (handle) => call('addRoot', handle),
     /** A `File` that came with no handle. Answers the path to `open`. */
     addDrop: (file) => call('addDrop', file),
@@ -245,43 +252,27 @@ export async function createWebBackend({
     welcome: (el, hooks) => mountWelcome(el, { backend: api, win, ...hooks }),
 
     /**
-     * Why a link out of this document will not open, or null if it will. A file given on its own
-     * or dropped has no folder around it to read the link from, and the page would otherwise be
-     * silent: the worker refuses and the click does nothing.
+     * Why a link out of this document will not open, or null if it will. A file granted or
+     * dropped has no folder around it to read the link from, and the page would otherwise be
+     * silent: the worker refuses and the click does nothing. The web app opens nothing else, so
+     * the note says where links are followed rather than how to make them work here. A folder
+     * granted before the web app took only files still follows its own.
      */
     async linkNote(path) {
       const dropped = path?.startsWith('drop:');
       const rooted = parseWebPath(path);
       const rec = rooted ? await kv.roots.get(rooted.rootId) : null;
-      return dropped || rec?.kind === 'file'
-        ? 'Open the folder that holds this file to follow its links.'
-        : null;
+      return dropped || rec?.kind === 'file' ? LINK_NOTE : null;
     },
 
     /**
-     * The markdown in the folder the document on screen was opened from, for the left column:
-     * `{ name, current, capped, files: [{ rel, path }] }`, `path` being what `open` takes and
-     * `current` the `rel` of the document. Null when there is no such folder -- nothing open, a
-     * file picked on its own, a drop -- which the page says in words of its own.
-     *
-     * Read here and not by the worker. The page holds the same handle from the same store, the
-     * grant is the origin's and not the reader's, and the welcome lists a folder the same way;
-     * a round trip would add nothing but a second copy of the walk. It rejects when the folder
-     * cannot be read, a lapsed grant among them, and the page says that too.
+     * The files this tab has open, which the left column lists as the desktop app lists its
+     * tabs (`open-files.js`). Off `win`'s storage, so a test's window keeps a list in memory.
      */
-    async folder() {
-      const id = docId();
-      const was = id ? await kv.opened.get(id) : null;
-      const rec = was?.rootId ? await kv.roots.get(was.rootId) : null;
-      if (rec?.kind !== 'directory') return null;
-      const { files, capped } = await listMarkdown(rec.handle);
-      return {
-        name: rec.name,
-        current: was.rel,
-        capped,
-        files: files.map((rel) => ({ rel, path: webPath(was.rootId, rel) })),
-      };
-    },
+    openFiles: createOpenFiles({
+      tab: storageOf(win, 'sessionStorage'),
+      shared: storageOf(win, 'localStorage'),
+    }),
 
     /** Stop pinging and close the port. A page never needs this; a test does. */
     close() {

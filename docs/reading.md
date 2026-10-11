@@ -81,7 +81,9 @@ The filename is never lost, only put behind the title rather than under it: **ho
 the name to see where the file is** — its directory, or, when there is a title, the
 full path with the filename on the end. That line clips from the left, so the name
 is the part that stays visible when the path is too long for the bar. The swap is in
-place, so the bar stays one line tall whether or not a document has a title.
+place, so the bar stays one line tall whether or not a document has a title. Where
+there is no path to show — nothing open, or in the web app a file granted by itself,
+which has no folder around it — hovering leaves the name as it is.
 
 Only the bar reads this. The open-files rows and the native window title still go by
 filename — naming those means reading the header, and counting the headings, of every
@@ -155,10 +157,10 @@ position — so an editor on one side and Redline on the other stay in step with
 reload.
 
 There is nothing on the bar while that is working, which is all of the time — a light
-that is always on tells you nothing. A red dot appears at the left of the bar only if
-the watch drops, which is the one state worth knowing about: what is on screen has
-stopped following the file. The connection comes back by itself, and the dot goes
-when it does.
+that is always on tells you nothing. A red dot appears at the left of the bar, after
+the app icon in a browser tab and the traffic lights in the native window, only if the
+watch drops, which is the one state worth knowing about: what is on screen has stopped
+following the file. The connection comes back by itself, and the dot goes when it does.
 
 ## The sidebars
 
@@ -176,21 +178,27 @@ open". The icon says the second thing.
 
 **⌘B — the left column**, which is where you came from:
 
-- **Open files** — the tabs of this window, and nothing else. Desktop app only;
-  see [Tabs](native-window.md#tabs).
-- **The folder** — in the web app, which has no tabs: the markdown in the folder
-  the document was opened from, three folders down, as the welcome lists it, under
-  the folder's name. The document on screen is filled in; click another to read
-  it. It is listed again whenever a document opens or the column does, which is
-  when a file added since turns up — a browser does not say when one is. A file
-  picked by itself or dropped has no folder to list, and the column says so.
+- **Open files** — the files you have open, and nothing else. In the desktop app
+  they are this window's tabs; see [Tabs](native-window.md#tabs).
+
+  The web app is one browser tab, so it keeps a list of its own, drawn the same way.
+  Whatever you open joins it at the end — a file picked, a file dropped, the
+  document a visit reopens — so the file you came from is
+  still a click away. Click a row to read it, back where you left it; × or a middle
+  click closes one, and closing the file on screen goes to its neighbour, or to the
+  welcome if it was the last. **Open file…** at the foot is the browser's file
+  picker, as ⌘O is. The list outlives a reload, and each browser tab has its own; a new tab on
+  the app's bare address starts from the list a tab last had, and one whose files
+  were all closed starts at the welcome rather than with the last of them back. As
+  in the desktop app, the column opens by itself at the second file, until you have
+  used ⌘B either way.
 
 It is the one list you stop needing once you have picked a file, and it gets the
 column to itself so that choice fades once it is made instead of sitting next to
 the document asking to be looked at again.
 
-A CLI tab has neither: it was handed one file and has nowhere else to go, so its
-left column and the button for it are not there, and ⌘B does nothing.
+A CLI tab has no such list: it was handed one file and has nowhere else to go, so
+its left column and the button for it are not there, and ⌘B does nothing.
 
 **⌥⌘B — the right column**, which is where you are in what you are reading:
 
@@ -282,7 +290,8 @@ written against. An absolute path is taken as it stands.
 - **In the desktop app** the file opens in a window of its own, and the document
   you came from stays open behind it.
 - **In a browser tab** it opens in place, and the address updates so Reload comes
-  back to what is on screen.
+  back to what is on screen. In the web app it also joins the
+  [open files](#the-sidebars), so the document you came from is a click away.
 
 A relative link to anything else — an image, a directory, a file this reader does
 not open — does nothing rather than navigating the page off the document.

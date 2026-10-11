@@ -52,11 +52,11 @@ src/hosts/web/          the web app's shell: no server, no node, files in Indexe
   kv-files.js           the store's file operations over a key-value store
   idb.js                that key-value store, over IndexedDB; the one file no test runs
   platform.js           the platform over `web:` handles, `drop:` files and the store
-  handles.js            the folders the user granted, what a doc id was, what may be read now
+  handles.js            the files the user granted, what a doc id was, what may be read now
   worker.js             the reader, in a SharedWorker: one per origin, a document per tab
   backend.js            the page's end of it: finds the worker, names it for the build, pings it,
                         asks for permission
-  welcome.js            the empty state: a folder, a file, a drop, and a grant to ask for again
+  welcome.js            the empty state: a file, a drop, the limits, a grant to ask for again
   host.js               the shim that makes a page the web app's; `stage-page.mjs` puts it over
                         `public/host.js`, with the build's version after it
 
@@ -343,7 +343,7 @@ is no component model — the document pane is `innerHTML` from the payload, thr
   `redline:shut`, and the ones that affect layout are mirrored onto `<html>` by an
   inline script in `index.html` **before first paint** — otherwise the window
   flashes at the wrong size, or with the marks on, on every open. `redline:shut` is the
-  list of folded sections, one key per disclosure (`files`, `folder`, `toc`, `hist`):
+  list of folded sections, one key per disclosure (`files`, `toc`, `hist`):
   `shutNow` reads every twist on the page, hidden ones too, so two sections under one
   key would undo each other. Whether there is a left column at all is decided there as
   well: `html.native` from `?native`, `html.web` from the web app's `host.js`, and with
@@ -373,7 +373,9 @@ is no component model — the document pane is `innerHTML` from the payload, thr
 **`window.mdNative` is what tells the page it is inside the app**, and its absence
 is what tells it it is a browser tab. Where it is there, the page sizes its toolbar
 for the traffic lights and hides the rows and buttons that are the shell's to answer
-— the Settings gear, which the app menu provides instead. Everything else in
+— the Settings gear, which the app menu provides instead — and the app icon a browser
+tab starts its bar with (`.app-icon`, the favicon's `icon.svg`): the traffic lights have
+that edge, and the dock has the icon. Everything else in
 `app.js` is written once and does not ask.
 
 - **A native window's first document comes from `onTabs`, not from a blind
@@ -438,10 +440,10 @@ connection on `versionchange`. The page learns the build from the shim the build
   back/forward cache is `pagehide` → `bye` and `pageshow` (persisted) → `hello`, a new watch
   and a `change`; that wiring is in `backend.js`, where a test can reach it.
 - **A reload is `?id=`.** The worker remembers `docId → { rootId, rel }` in the `opened` store,
-  so a fresh worker can find the file again. The folder's permission decides what happens:
+  so a fresh worker can find the file again. The root's permission decides what happens:
   `granted` opens it, `prompt` is `NeedsPermission`, and `denied` or a root the registry does
   not have is `NoDocument` — the page's cue for the welcome and a clean address. `doc` asks
-  again on every call, so a folder denied under a page that is showing it is `NoDocument` too,
+  again on every call, so a root denied under a page that is showing it is `NoDocument` too,
   and lets go of the document, which the reader would otherwise go on polling; a `prompt` keeps
   what it holds, because a grant brings it back.
 - **A visit with no `?id=` is the last document a tab showed.** `opened` has one key that is not
@@ -458,13 +460,13 @@ connection on `versionchange`. The page learns the build from the shim the build
   whoever called `onNeedsPermission(fn)`; its button calls `reopen()`, which
   `requestPermission`s on the handle it already holds and then tells the worker (`grant`), which
   checks for itself before it believes it. The button is on the welcome (below).
-  `NeedsPermission` carries the `rootId` it is about, because a link into another folder
-  (`open` on a lapsed root, whose first read is refused) is not the document on screen, and the
-  button must ask for the folder the link was into. The page then stays on what it was
-  showing, shows the welcome with a way back, and opens the link again after the grant
-  (`pendingLink` in `app.js`), rather than the document it was reading.
+  `NeedsPermission` carries the `rootId` it is about, because a file being opened — one of the
+  open files gone back to, `open` on a lapsed root, whose first read is refused — is not the
+  document on screen, and the button must ask for the file being opened. The page then stays on
+  what it was showing, shows the welcome with a way back, and opens that file again after the
+  grant (`pendingLink` in `app.js`), rather than the document it was reading.
 - **Handles go to the worker as they are** (`addRoot`, over `postMessage`), and only the worker
-  writes the `roots` store, so two tabs picking one folder at once are one root
+  writes the `roots` store, so two tabs picking one file at once are one root
   (`isSameEntry`). The page reads the stores, to hold the handle it will ask about.
 - A document from a drop has no handle to keep: `drop:<name>` lives in the worker's memory, and
   does not outlive it.
@@ -478,46 +480,71 @@ connection on `versionchange`. The page learns the build from the shim the build
   file the reader has let go of) or `NeedsPermission` (and offers **Reopen** *name*: `reopen()`,
   then the page loads again, or opens the link that was refused). No other backend has a
   `welcome`, which is the whole of why a shell, VS Code and the CLI's tab never show one.
-  - **Open, with a document on screen**: the folder button before the name (`#openBtn`) and ⌘O
-    put the welcome up over the document, with **Back to the document**; the button again or
-    Escape takes it down (`backToDocument`). The button is `hidden` in the markup, wired only
-    `if (welcome)`, and shown by `syncOpenBtn` while there is a document, so no other build has
-    it and the welcome with nothing behind it does not offer to put itself up.
-  - **Open folder…** (`showDirectoryPicker({ mode: 'read' })`, the primary button) lists the
-    files a link would open — `MD_LINK`, in `core/links.js`, the same pattern the page follows
-    links by — three folders down and at most 500, without entering dot-folders or
-    `node_modules`. A folder below the top that cannot be read is skipped; the top one is the
-    welcome's error. Picking one is `addRoot(folder)` and `open('web:<root>/<rel>')`.
-  - **Open file…** is `showOpenFilePicker` for markdown. The file is a root of its own and can
-    read nothing beside it, so a click on one of its links says *Open the folder that holds this
-    file to follow its links* (`backend.linkNote`, shown by the page as a notice) instead of
-    doing nothing; so does a copy.
+  - **Open, with a document on screen**: ⌘O and **Open file…** at the foot of the open files
+    (`#newTab`, retitled `if (welcome)`) are the file picker itself, `welcome.pickFile()` — the
+    welcome's own **Open file…**, called inside the click or the key, as a picker has to be —
+    and not the welcome over the document: what is picked joins the open files, and the file
+    being read stays a click away in them. The bar has no button for it. The welcome still
+    comes up over a document for a grant that lapsed on a file that is not the one on screen,
+    with **Back to the document**, and Escape takes it down (`backToDocument`). `load()` takes
+    it down only for a document opened (`keepScroll: false`) or a grant it was asking for.
+  - **Files, not folders.** The web app reads the file in front of it; a set of notes and the
+    links between them is the Mac app's. Nothing calls `showDirectoryPicker`, and a folder
+    dropped is refused, *The web app opens files, not folders*, and pointed at the Mac app.
+    The worker still reads a folder root it was given before, and follows that folder's links.
+  - **Open file…** (the primary button) is `showOpenFilePicker` for markdown: `MD_LINK`, in
+    `core/links.js`, the same pattern the page follows links by. Picking one is
+    `addRoot(file)` and `open('web:<root>/<name>')`. The file is a root of its own and can read
+    nothing beside it, so a click on one of its links says that the web app opens one file at a
+    time and that the Mac app follows them (`backend.linkNote`, `LINK_NOTE`, shown by the page
+    as a notice) instead of doing nothing; so does a copy.
+  - **The limits**, said in the welcome before a user finds them out one refusal at a time: one
+    file at a time, its links not followed, no git, no PlantUML, and a link to the Mac app
+    (`MAC_APP_URL`, the landing page's `#get`, so that it follows each release) in a new tab.
   - **A drop** anywhere on the window — it is on the window, not the welcome, because a file
     dropped on a page that is not listening is opened *by the browser*, in place of the page.
-    `getAsFileSystemHandle()` is read first and is the same as a pick, folder or file; a `File`
-    with no handle is a copy. A drop with a document on screen finds the welcome hidden, so it
-    reaches the page through two hooks: `show`, called before a folder's list is drawn (a sync
-    clears the list, so afterwards would wipe it; and a no-op if the welcome is already up, so it
-    cannot lose a **Reopen** button), and `notify`, for anything the welcome would say while
-    hidden. A refusal goes to the notice and does not take the user off the document.
-  - **No File System Access** (no `showDirectoryPicker`): `<input type="file">`, and every file is
+    `getAsFileSystemHandle()` is read first and is the same as a pick; a `File` with no handle is
+    a copy. A browser with no handles gives a folder as a `File` named for it, so
+    `webkitGetAsEntry()` is read too, in the handler, to refuse it as a folder rather than as
+    not markdown. A drop with a document on screen finds the welcome hidden, and what the
+    welcome would say goes to the page's `notify` hook: a refusal goes to the notice and does
+    not take the user off the document.
+  - **No File System Access** (no `showOpenFilePicker`): `<input type="file">`, and every file is
     a copy, `drop:<name>` — no watching, no links, and a name is the whole of its identity, so
     two files of one name are one history. The welcome says so.
   - A file that is not markdown is refused with a message before anything is granted.
   - After the first document opens from a click the welcome asks for
     `navigator.storage.persist()`, once. It is a request the browser answers from how it has been
     used, and Firefox asks the user, which it may do only for a click.
-- **The left column is the folder.** A web page has one tab, so `#filesSec` (Open files,
-  `data-shell`) has nothing to list; `#folderSec` (`data-web`, shown only under `html.web`)
-  stands in for it. `backend.folder()` looks the document's id up in `opened`, and for a root
-  that is a directory walks it with the welcome's own `listMarkdown` — in the page, not the
-  worker: the grant is the origin's, and the page already holds the handle — answering `{ name,
-  current, capped, files: [{ rel, path }] }`, or null for no document, a file picked alone, or a
-  drop. `paintFolder` in `app.js` draws it as `.tab` rows, the current one filled, a click
-  `openFile(path)`. It walks again for a new document and whenever the column opens (`again`),
-  not for the change and history events that load the same one; the latest of two walks in
-  flight is the one drawn, and a walk that throws — a lapsed grant among them — says *Could not
-  list this folder* and is tried again on the next load.
+- **The left column is the open files, kept by the page.** A desktop window's are its tabs,
+  which the shell keeps and pushes over `md:tabs`; a browser tab has no shell, so
+  `backend.openFiles` (`open-files.js`) keeps the list, `{ id, path, name, dir, label }` in the
+  order opened, and `app.js` puts it in `state.tabs` for `paintTabs` to draw with the same
+  rows. Every way a document arrives — a pick, a drop, a link, a reload, the one a bare visit
+  resumes — ends in `load()`, which calls `noteOpen()`: the document joins the end of the list,
+  or is relabelled in place, and the column opens by itself at the second file while
+  `redline:side` is unset, as `onTabs` does. A row's click and × go through `selectTab` and
+  `closeTab`, which hand them to the shell in a window and to `switchTo` / `closeOpen` here.
+  `switchTo` is `openFile(path)` with the scroll kept in `scrollMemory` per id, and a file that
+  will not open stays listed and says *Could not open …*. `closeOpen` on the file on screen
+  goes to its neighbour (`close` answers which), and to `closeDocument()` — the welcome, with
+  nothing behind it and nothing of it left on the bar: no count, arrows, version tag, ruler or
+  dropped-watch dot — when there is none or it will not open; a neighbour refused for a lapsed
+  grant keeps the welcome asking for that file, so granting it opens it. `paintTabs`
+  remembers which document it drew around (`tabsFor`), so the change and history events that
+  load the same one again do not redraw the rows under the pointer.
+  - **Kept twice, under `redline:open`.** sessionStorage holds the tab's own, so a reload keeps
+    it and two tabs on the app each have one; localStorage holds the last list any tab wrote,
+    to seed a tab that has none of its own. Both are written on every change, and either
+    refusing is not an error — the list then lasts as long as the page. It is not a
+    preference and not in the head script: nothing about the layout depends on it, and the
+    rows are drawn by `app.js` before the first load, so a file that has to be asked for
+    again does not hold the rest of them up.
+  - **A tab that closed everything is not handed a file back.** A bare address is given the
+    document a tab last showed (`last`), which after closing every file is the one just
+    closed. `closedAll()` — a list was kept and is empty — makes the startup show the welcome
+    instead of loading.
+  - `⌃⇥` and `⌘W` are the browser's and are not offered; switching and closing are the rows'.
 - **What the host cannot do is not offered** (`caps`, on every payload). `state.caps` is read in
   `adopt`, and `applyCaps` hides the `git HEAD` option of *Compare against* unless `caps.git`; a
   saved choice of git is shown as *Last read* where there is none. The option is `hidden` in the
@@ -526,8 +553,8 @@ connection on `versionchange`. The page learns the build from the shim the build
   (`showDiagramError`), and there is no Settings row for it to hide yet.
 - **What is not verified from here:** the pickers, a drop, `persist()` and how a `SharedWorker`
   calls `getFile()` and `queryPermission()` are behaviours of a browser. The tests stand in
-  fakes for them (test-smoke.js, 12d), and the layout and contrast of the welcome and of the
-  folder list have not been looked at.
+  fakes for them (test-smoke.js, 12d), and the layout and contrast of the welcome, and of the
+  open files in a browser, have not been looked at.
 
 ### Staging the page, and the web app's build
 
@@ -555,7 +582,7 @@ shim over `public/host.js`. `build:web` writes every host's bundles into `public
 - **`npm run webapp`** serves `dist/web/` on `127.0.0.1` and answers with `_headers`' rule, so the
   policy has been run before the first deploy. It does not walk to the next port when one is taken
   (the landing page's server does): another port is another origin, with its own IndexedDB and
-  its own granted folders, and the app would open with no history and look as if it had lost it.
+  its own granted files, and the app would open with no history and look as if it had lost it.
 - **Not verified from here:** that Cloudflare Pages serves Mermaid's `.mjs` chunks as
   `text/javascript`, which a module script needs and `nosniff` will not forgive. The local
   server sets it, so the first deploy is the first time it is a fact about Pages.

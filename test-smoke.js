@@ -644,6 +644,22 @@ assert.ok(
 );
 console.log('✓ the bar can move the native window');
 
+// The app's icon, at the bar's left edge in a browser tab: the web app's and the CLI's. The
+// file is the favicon's, which every host serves beside the page (`/icon.svg` above,
+// `stage-page.mjs` for the other two), so a relative src holds under any base URL.
+assert.match(
+  pageHtml,
+  /<header class="bar"[^>]*>\s*(<!--[\s\S]*?-->\s*)?<img class="app-icon" src="icon\.svg" alt=""/,
+  'the icon is the first thing in the bar, and a picture of the name the page already has',
+);
+assert.match(pageCss, /\.app-icon \{[^}]*flex: none;/, 'and the name beside it never squeezes it');
+assert.match(
+  pageCss,
+  /\.native \.app-icon \{\s*display: none;\s*\}/,
+  'and it is not in the native window, whose left edge is the traffic lights\'',
+);
+console.log('✓ a browser tab starts its bar with the app icon');
+
 // The contents list and the checked-off marks are each spread over the same
 // three files, and each fails quietly if one part goes: a list with no rows, or
 // a tag you can click that never changes.
@@ -655,12 +671,11 @@ assert.match(pageCss, /\.toc\.on::before/, 'and says which row that is');
 // choosing a file fades once it is chosen; Contents and History share the
 // right column, so a reader following a long document through a review can
 // have the map and the versions up together. All three fold away, each the
-// list its own column stops needing most often — and so does the web app's
-// folder, which stands where Open files does in a tab that has no tabs.
+// list its own column stops needing most often.
 assert.strictEqual(
   (pageHtml.match(/class="side-twist"/g) ?? []).length,
-  4,
-  'Open files, the folder, Contents and History are all disclosures',
+  3,
+  'Open files, Contents and History are all disclosures',
 );
 assert.match(pageHtml, /redline:shut/, 'and remember themselves before first paint');
 assert.match(pageJs, /prefs\.setItem\(SHUT_KEY/, 'and write that back');
@@ -669,11 +684,6 @@ assert.ok(pageCss.includes('.shut-toc #tocSec'), 'and Contents too');
 assert.ok(pageCss.includes('.shut-hist #histSec'), 'and History too');
 assert.match(pageHtml, /data-shut="hist"/, 'History shuts under its own key');
 assert.match(pageHtml, /k === "hist"/, 'restored before first paint, like the other two');
-// Its own key, not `files`: every twist on the page is read back into the one
-// list, the hidden one included, and two under one name would undo each other.
-assert.match(pageHtml, /data-shut="folder"/, 'the folder shuts under its own key');
-assert.match(pageHtml, /k === "folder"/, 'restored before first paint as well');
-assert.ok(pageCss.includes('.shut-folder #folderSec'), 'and folded away by the stylesheet');
 assert.match(pageHtml, /id="tocSide"[^>]*class="side side-r"/, 'the contents are their own column');
 assert.ok(pageCss.includes('.toc-open #tocSide'), 'laid out down the right');
 assert.ok(pageCss.includes('.toc-open main'), 'with the document keeping clear of it');
@@ -1110,7 +1120,7 @@ assert.ok(
 );
 assert.match(
   pageJs,
-  /if \(native\) \{\s*\/\/[^\n]*\n(\s*\/\/[^\n]*\n)*\s*await firstTabShown;\s*\} else if/,
+  /if \(native\) \{\s*\/\/[^\n]*\n(\s*\/\/[^\n]*\n)*\s*await firstTabShown;\s*\} else \{/,
   'a native window waits for that answer instead of calling load() itself',
 );
 // Watched only if it painted: with the web app's welcome up there is no document to watch.
@@ -1939,6 +1949,17 @@ assert.match(pageCss, /\.name-dir \{[^}]*position: absolute/, 'the path overlays
 assert.match(pageCss, /\.name-dir \{[^}]*opacity: 0/, 'and starts out hidden behind it');
 assert.ok(pageCss.includes('.name:hover .name-file'), 'pointing at it fades the name');
 assert.ok(pageCss.includes('.name:hover .name-dir'), 'and brings the path forward in its place');
+// Not when there is no path to bring forward -- nothing open, or a file granted by itself in the
+// web app -- where the swap would empty the bar under the pointer. One function sets the path, so
+// nothing can set it and leave the mark as it was.
+assert.match(pageCss, /\.name\.no-path:hover \.name-file \{\s*opacity: 1;/,
+  'a box with no path keeps its name');
+assert.match(pageHtml, /<span id="nameBox" class="name no-path">/, 'which it has none of to start');
+assert.ok(
+  /\$\('nameBox'\)\.classList\.toggle\('no-path', !text\);/.test(appJs) &&
+    appJs.match(/\$\('nameDir'\)/g)?.length === 1,
+  'and is marked as it is set, by the one function that sets it',
+);
 
 // `.name` grows to fill the bar's spare width, so a button placed after it in
 // the markup sits wherever that grown box happens to end, not next to the
@@ -4041,15 +4062,15 @@ const memoryKv = () => {
 
   // --- W3: the welcome ---------------------------------------------------------------------
   // The page's empty state, driven through the real backend and the real worker. What stands in
-  // for the browser is a DOM of only what the welcome touches, folders with folders in them, and
-  // the pickers. Whether a real `showDirectoryPicker`, a real drop or a real
-  // `navigator.storage.persist()` behaves as these do is for a person with a browser.
-  // (docs/web-app.md, Opening something)
+  // for the browser is a DOM of only what the welcome touches, file handles, and the pickers.
+  // Whether a real `showOpenFilePicker`, a real drop or a real `navigator.storage.persist()`
+  // behaves as these do is for a person with a browser. (docs/web-app.md, Opening something)
   {
-    const { listMarkdown, MAX_DEPTH, MAX_FILES } = await import('./src/hosts/web/welcome.js');
+    const { MAC_APP_URL } = await import('./src/hosts/web/welcome.js');
+    const { LINK_NOTE } = await import('./src/hosts/web/backend.js');
     const { MD_LINK } = await import('./src/core/links.js');
 
-    // A file as a handle gives it, and readable only while the folder it is in is granted.
+    // A file as a handle gives it, and readable only while it is granted.
     const fileOf = (n, text, state = () => 'granted') => {
       const f = {
         kind: 'file',
@@ -4063,105 +4084,24 @@ const memoryKv = () => {
       f.isSameEntry = async (other) => other === f;
       return f;
     };
-    /** A folder with folders in it: `spec` maps a name to text (a file) or to another spec. */
-    const tree = (name, spec, top = null) => {
-      const h = { kind: 'directory', name, state: 'granted', allow: true, asked: 0 };
-      const [files, sub] = [{}, {}];
-      const state = () => (top ?? h).state;
-      for (const [n, v] of Object.entries(spec)) {
-        if (typeof v === 'string') files[n] = fileOf(n, v, state);
-        else sub[n] = tree(n, v, top ?? h);
-      }
-      h.sub = sub;
-      h.queryPermission = async () => state();
-      h.requestPermission = async () => {
-        (top ?? h).asked++;
-        if ((top ?? h).allow) (top ?? h).state = 'granted';
-        return state();
+    /** A file whose grant a test can take away, and that asks the user when a page asks again. */
+    const grantable = (n, text) => {
+      const f = fileOf(n, text, () => f.state);
+      Object.assign(f, { state: 'granted', allow: true, asked: 0 });
+      f.requestPermission = async () => {
+        f.asked++;
+        if (f.allow) f.state = 'granted';
+        return f.state;
       };
-      h.isSameEntry = async (other) => other === h;
-      h.entries = async function* () {
-        yield* Object.entries(files);
-        yield* Object.entries(sub);
-      };
-      h.getDirectoryHandle = async (n) => sub[n] ?? Promise.reject(refusal('NotFoundError'));
-      h.getFileHandle = async (n) => files[n] ?? Promise.reject(refusal('NotFoundError'));
-      return h;
+      return f;
     };
-    const unreadable = async function* () {
-      throw refusal('NotAllowedError');
-    };
-
-    // --- what a folder lists ------------------------------------------------------------
-    {
-      const proj = tree('proj', {
-        'README.md': '# Readme\n\nHello.\n',
-        'notes.txt': 'plain notes\n',
-        'b.MD': '# Bee\n',
-        'logo.png': 'not text',
-        docs: {
-          'guide.md': '# Guide\n\nSteps.\n',
-          api: { 'ref.md': '# Ref\n', deep: { 'more.md': '# More\n', deeper: { 'far.md': '' } } },
-          locked: { 'away.md': '' },
-        },
-        '.git': { 'HEAD.md': '' },
-        node_modules: { pkg: { 'README.md': '' } },
-      });
-      proj.sub.docs.sub.locked.entries = unreadable;
-      const found = await listMarkdown(proj);
-      assert.deepStrictEqual(
-        found,
-        {
-          files: [
-            'b.MD',
-            'docs/api/deep/more.md',
-            'docs/api/ref.md',
-            'docs/guide.md',
-            'notes.txt',
-            'README.md',
-          ],
-          capped: false,
-        },
-        'a folder lists what a link would open, three folders down, sorted, and nothing else',
-      );
-      assert.deepStrictEqual(
-        [MAX_DEPTH, MAX_FILES],
-        [3, 500],
-        'three levels deep, and it stops at 500',
-      );
-      assert.deepStrictEqual(
-        [
-          ['a.md', 'A.MD', 'b.markdown', 'c.mdown', 'd.mkd', 'e.mdx', 'f.txt'].every((n) =>
-            MD_LINK.test(n),
-          ),
-          ['g.png', 'h.md.bak', 'md', 'i.mdd'].some((n) => MD_LINK.test(n)),
-        ],
-        [true, false],
-        'and what a link would open is one pattern, the one the page follows links by',
-      );
-
-      const many = (n) =>
-        tree('many', Object.fromEntries(Array.from({ length: n }, (_, i) => [`n${i}.md`, ''])));
-      const five = await listMarkdown(many(5), { max: 5 });
-      const six = await listMarkdown(many(6), { max: 5 });
-      assert.deepStrictEqual(
-        [five.files.length, five.capped, six.files.length, six.capped],
-        [5, false, 5, true],
-        'it says it stopped only when there was a further file to stop at',
-      );
-      const big = await listMarkdown(many(MAX_FILES + 3));
-      assert.deepStrictEqual([big.files.length, big.capped], [MAX_FILES, true], 'at 500, say');
-      const twelve = (await listMarkdown(many(12))).files;
-      assert.ok(twelve.indexOf('n2.md') < twelve.indexOf('n10.md'), 'and numbers sort as numbers');
-
-      const dead = tree('dead', {});
-      dead.entries = unreadable;
-      await rejection(listMarkdown(dead), 'NotAllowedError');
-      console.log('✓ a folder lists its markdown three levels down, skipping dot-folders');
-    }
+    // A folder, as a drop with a handle gives one. The welcome is not to read it, only to see it is
+    // a folder, so it has nothing in it to read.
+    const folderOf = (name) => ({ kind: 'directory', name, isSameEntry: async () => false });
+    const NOT_A_FOLDER = /opens files, not folders/;
 
     // --- the welcome, through the real backend and worker ------------------------------------
-    // The DOM it touches: elements, a class list on <html>, and a click that can be awaited.
+    // The DOM it touches: elements, text, a class list on <html>, and a click that can be awaited.
     class El {
       constructor(tag, owner) {
         Object.assign(this, { tag, ownerDocument: owner, parent: null, children: [], own: '' });
@@ -4185,8 +4125,10 @@ const memoryKv = () => {
       }
       append(...kids) {
         for (const k of kids) {
-          k.parent = this;
-          this.children.push(k);
+          // A string is a text node, as `append` makes one.
+          const node = typeof k === 'string' ? Object.assign(new El('#text'), { own: k }) : k;
+          node.parent = this;
+          this.children.push(node);
         }
       }
       replaceChildren(...kids) {
@@ -4217,7 +4159,6 @@ const memoryKv = () => {
     const named = (root, cls) => all(root).filter((e) => e.className.split(' ').includes(cls));
     const button = (root, text) =>
       all(root).find((e) => e.tag === 'button' && e.textContent === text);
-    const files = (root) => named(root, 'welcome-file').map((b) => b.title);
     const status = (root) => named(root, 'welcome-status')[0];
 
     /**
@@ -4264,29 +4205,31 @@ const memoryKv = () => {
       page.win.dispatchEvent(e);
       return e;
     };
+    const item = (give) => ({ kind: 'file', ...give });
+    const copy = (n, text) => ({ name: n, text, lastModified: 5 });
 
-    const proj = tree('proj', {
-      'README.md': '# Readme\n\nHello.\n',
-      docs: { 'guide.md': '# Guide\n\nSteps.\n' },
-      'logo.png': 'not text',
-    });
     const single = fileOf('single.md', '# Single\n\nOn its own.\n');
-    const behave = { dir: async () => proj, file: async () => [single] };
+    const behave = { file: async () => [single] };
     const picks = [];
     const hostW = startHost();
 
-    // --- a folder: the primary door ---
+    // --- a file: the one door ---
     {
       const w = await mount(hostW, {
-        showDirectoryPicker: (opts) => (picks.push(['dir', opts]), behave.dir()),
-        showOpenFilePicker: (opts) => (picks.push(['file', opts]), behave.file()),
+        // A browser that could pick a folder is not offered one: the web app opens files.
+        showDirectoryPicker: async () => {
+          throw new Error('the welcome picked a folder');
+        },
+        showOpenFilePicker: (opts) => (picks.push(opts), behave.file()),
       });
-      const folderBtn = button(w.el, 'Open folder…');
-      assert.ok(shown(folderBtn), 'a browser that can pick a folder offers to');
+      const fileBtn = button(w.el, 'Open file…');
       assert.ok(
-        folderBtn.className.includes('welcome-primary') &&
-          button(w.el, 'Open file…').className.includes('welcome-secondary'),
-        'and it is the primary one',
+        shown(fileBtn) && fileBtn.className.includes('welcome-primary'),
+        'Open file… is the way in, and the primary button',
+      );
+      assert.ok(
+        !all(w.el).some((e) => /folder/i.test(e.own)),
+        'and nothing offers a folder, even in a browser that could pick one',
       );
       assert.deepStrictEqual(
         [named(w.el, 'welcome-reopen')[0].hidden, button(w.el, 'Back to the document').hidden],
@@ -4294,81 +4237,42 @@ const memoryKv = () => {
         'nothing to reopen and no document to go back to, until the page says so',
       );
 
-      await folderBtn.click();
-      assert.deepStrictEqual(picks, [['dir', { mode: 'read' }]], 'it asks to read, not to write');
-      assert.deepStrictEqual(
-        files(w.el),
-        ['docs/guide.md', 'README.md'],
-        'the folder\'s markdown files are listed, and the picture is not',
+      // What the web app cannot do, said before a user finds it out, with the way to what can.
+      const limits = named(w.el, 'welcome-limits')[0];
+      assert.ok(shown(limits) && limits.className.includes('welcome-hint'), 'the limits are said');
+      assert.match(
+        limits.textContent,
+        /one file at a time: its links to other files do not open, and there is no git or PlantUML/,
+        'which are the ones a reader coming from the Mac app reaches for',
       );
-      assert.strictEqual(named(w.el, 'welcome-folder')[0].textContent, 'proj', 'under its name');
-      assert.strictEqual(w.calls.opened.length, 0, 'a folder picked is not yet a document');
-      assert.strictEqual(w.calls.persist, 0, 'and has not spent the request for storage');
+      const mac = all(limits).find((e) => e.tag === 'a');
+      assert.deepStrictEqual(
+        [mac?.href, mac?.target, mac?.rel, mac?.textContent],
+        [MAC_APP_URL, '_blank', 'noopener', 'Get the Mac app'],
+        'with a link to the Mac app, in a tab of its own',
+      );
+      assert.strictEqual(MAC_APP_URL, 'https://redline.iamtuna.org/#get', "the landing's download");
 
-      await button(w.el, 'docs/guide.md').click();
-      assert.match(w.calls.opened[0], /^web:[^/]+\/docs\/guide\.md$/, 'a file picked is opened');
-      const guide = await w.page.backend.doc();
-      assert.strictEqual(guide.pathLabel, 'proj/docs/guide.md', 'from inside the folder');
-      assert.match(guide.text, /Steps\./, 'and is the file');
-      assert.strictEqual(await w.page.backend.linkNote(w.calls.opened[0]), null, 'links follow');
-      assert.strictEqual(w.calls.persist, 1, 'storage is asked to persist once a file opens');
-      await button(w.el, 'README.md').click();
-      assert.strictEqual(w.calls.opened.length, 2, 'another from the same list');
-      assert.strictEqual(w.calls.persist, 1, 'and storage is not asked again');
-
-      // Not a failure, and not a message.
-      behave.dir = async () => {
-        throw refusal('AbortError');
-      };
-      await folderBtn.click();
-      assert.ok(!shown(status(w.el)), 'a picker that was cancelled says nothing');
-      behave.dir = async () => {
-        throw refusal('SecurityError');
-      };
-      await folderBtn.click();
-      assert.match(status(w.el).textContent, /Could not open that: SecurityError/, 'but a refusal');
-      assert.ok(shown(status(w.el)), 'is said');
-      behave.dir = async () => tree('empty', { 'x.png': '' });
-      await folderBtn.click();
-      assert.match(status(w.el).textContent, /empty has no markdown files/, 'as is an empty one');
-      assert.ok(!shown(named(w.el, 'welcome-list')[0]), 'with no list');
-
-      // One at a time: a second click while a picker is up is not a second picker.
-      let release;
-      const before = picks.length;
-      behave.dir = () =>
-        new Promise((r) => {
-          release = () => r(proj);
-        });
-      const first = folderBtn.click();
-      const second = folderBtn.click();
-      assert.strictEqual(picks.length, before + 1, 'a click while one is open opens no other');
-      assert.strictEqual(w.el.attrs['aria-busy'], 'true', 'and the section says it is busy');
-      release();
-      await Promise.all([first, second]);
-      assert.strictEqual(w.el.attrs['aria-busy'], undefined, 'until it is not');
-
-      w.w.sync({});
-      assert.ok(!shown(named(w.el, 'welcome-list')[0]), 'the page saying it moved on clears it');
-      behave.dir = async () => proj;
-
-      // A file that was given alone, in the same window.
-      const opened = w.calls.opened.length;
-      await button(w.el, 'Open file…').click();
-      const [kind, opts] = picks.at(-1);
-      assert.strictEqual(kind, 'file', 'a file is picked with the file picker');
+      await fileBtn.click();
+      const opts = picks.at(-1);
       assert.deepStrictEqual(
         [opts.excludeAcceptAllOption, opts.types[0].accept['text/markdown'].includes('.md')],
         [true, true],
-        'for markdown, and only for it',
+        'the file picker is asked for markdown, and only for it',
       );
       assert.ok(opts.types[0].accept['text/plain'].includes('.txt'), 'and text');
-      assert.match(w.calls.opened[opened], /^web:[^/]+\/single\.md$/, 'which opens');
-      assert.match(
-        (await w.page.backend.linkNote(w.calls.opened[opened])) ?? '',
-        /Open the folder that holds this file/,
-        'and says why its links will not',
+      assert.match(w.calls.opened[0], /^web:[^/]+\/single\.md$/, 'a file picked is opened');
+      assert.match((await w.page.backend.doc()).text, /On its own\./, 'and is the file');
+      assert.strictEqual(w.calls.persist, 1, 'storage is asked to persist once a file opens');
+      await fileBtn.click();
+      assert.strictEqual(w.calls.opened.length, 2, 'another pick opens again');
+      assert.strictEqual(w.calls.persist, 1, 'and storage is not asked again');
+      assert.strictEqual(
+        await w.page.backend.linkNote(w.calls.opened[0]),
+        LINK_NOTE,
+        'a link out of it says why it will not open',
       );
+      assert.match(LINK_NOTE, /one file at a time[\s\S]*The Mac app follows them/, 'and where');
       for (const [p, why] of [
         [null, 'a page with no document'],
         ['web:nope/x.md', 'a root that is gone'],
@@ -4376,22 +4280,72 @@ const memoryKv = () => {
       ]) {
         assert.strictEqual(await w.page.backend.linkNote(p), null, `says nothing for ${why}`);
       }
+      assert.deepStrictEqual(
+        [
+          ['a.md', 'A.MD', 'b.markdown', 'c.mdown', 'd.mkd', 'e.mdx', 'f.txt'].every((n) =>
+            MD_LINK.test(n),
+          ),
+          ['g.png', 'h.md.bak', 'md', 'i.mdd'].some((n) => MD_LINK.test(n)),
+        ],
+        [true, false],
+        'what it takes is one pattern, the one the page follows links by',
+      );
 
+      // Not a failure, and not a message.
+      behave.file = async () => {
+        throw refusal('AbortError');
+      };
+      await fileBtn.click();
+      assert.ok(!shown(status(w.el)), 'a picker that was cancelled says nothing');
+      behave.file = async () => {
+        throw refusal('SecurityError');
+      };
+      await fileBtn.click();
+      assert.match(status(w.el).textContent, /Could not open that: SecurityError/, 'but a refusal');
+      assert.ok(shown(status(w.el)), 'is said');
+      w.w.sync({});
+      assert.ok(!shown(status(w.el)), 'until the page says it moved on');
+
+      // One at a time: a second click while a picker is up is not a second picker.
+      let release;
+      const before = picks.length;
+      behave.file = () =>
+        new Promise((r) => {
+          release = () => r([single]);
+        });
+      const first = fileBtn.click();
+      const second = fileBtn.click();
+      assert.strictEqual(picks.length, before + 1, 'a click while one is open opens no other');
+      assert.strictEqual(w.el.attrs['aria-busy'], 'true', 'and the section says it is busy');
+      release();
+      await Promise.all([first, second]);
+      assert.strictEqual(w.el.attrs['aria-busy'], undefined, 'until it is not');
+
+      const opened = w.calls.opened.length;
       const roots = stores.roots.m.size;
       behave.file = async () => [fileOf('logo.png', '')];
-      await button(w.el, 'Open file…').click();
+      await fileBtn.click();
       assert.match(status(w.el).textContent, /Redline opens markdown/, 'a picture is refused');
       assert.deepStrictEqual(
         [w.calls.opened.length, stores.roots.m.size],
-        [opened + 1, roots],
+        [opened, roots],
         'before it is opened, or granted',
       );
-      console.log('✓ the welcome opens a file from a folder or alone, and says what it cannot');
+
+      // What the page's Open button and ⌘O call, with a document on screen and the welcome
+      // hidden: the picker inside the gesture, before anything is awaited.
+      behave.file = async () => [single];
+      const picked = picks.length;
+      const asked = w.w.pickFile();
+      assert.strictEqual(picks.length, picked + 1, 'the page can call the picker itself, at once');
+      await asked;
+      assert.match(w.calls.opened.at(-1), /^web:[^/]+\/single\.md$/, 'and it opens what is picked');
+      console.log('✓ the welcome opens a file, offers no folder, and says what the Mac app adds');
     }
 
     // --- a drop ---
     {
-      const w = await mount(hostW, { showDirectoryPicker: async () => proj });
+      const w = await mount(hostW, { showOpenFilePicker: async () => [single] });
       const dragging = () => w.doc.classes.has('dropping');
       assert.ok(dragOf(w.page, 'dragenter').defaultPrevented, 'a file dragged in is taken');
       assert.ok(dragging(), 'and the page says so');
@@ -4404,7 +4358,6 @@ const memoryKv = () => {
       assert.ok(!text.defaultPrevented && !dragging(), 'a dragged selection is not its business');
 
       const handled = fileOf('dropped.md', '# Dropped\n\nBy handle.\n');
-      const item = (give) => ({ kind: 'file', ...give });
       const e = dropOf(w.page, [item({ getAsFileSystemHandle: async () => handled })]);
       assert.ok(e.defaultPrevented, 'a drop is not left for the browser to open in our place');
       assert.ok(!dragging(), 'and is the end of the dragging');
@@ -4412,16 +4365,29 @@ const memoryKv = () => {
       assert.match(w.calls.opened[0], /^web:[^/]+\/dropped\.md$/, 'a handle dropped is a grant');
       assert.strictEqual(
         await w.page.backend.linkNote(w.calls.opened[0]),
-        'Open the folder that holds this file to follow its links.',
+        LINK_NOTE,
         'of the file alone',
       );
 
-      dropOf(w.page, [item({ getAsFileSystemHandle: async () => proj })]);
-      await until(() => files(w.el).length === 2, 'the dropped folder to be listed');
-      assert.strictEqual(w.calls.opened.length, 1, 'a folder dropped is listed and not opened');
+      const roots = stores.roots.m.size;
+      dropOf(w.page, [item({ getAsFileSystemHandle: async () => folderOf('proj') })]);
+      await until(() => NOT_A_FOLDER.test(status(w.el).textContent), 'a dropped folder refused');
+      assert.match(status(w.el).textContent, /open the folder in the Mac app/, 'with where to');
+      assert.deepStrictEqual(
+        [w.calls.opened.length, stores.roots.m.size],
+        [1, roots],
+        'a folder dropped is neither opened nor granted',
+      );
+      // A browser with no handles gives a folder as a `File` named for it, and only the entry
+      // says it is not one: without it the user would be told the folder is not markdown.
+      w.w.sync({});
+      dropOf(w.page, [
+        item({ webkitGetAsEntry: () => ({ isDirectory: true }), getAsFile: () => copy('notes') }),
+      ]);
+      await until(() => NOT_A_FOLDER.test(status(w.el).textContent), 'a folder with no handle');
+      assert.strictEqual(w.calls.opened.length, 1, 'is refused as a folder too');
 
-      const copy = (n, body) => ({ name: n, text: async () => body, lastModified: 5 });
-      const fell = copy('fell-back.md', '# Fell\n');
+      const fell = copy('fell-back.md', async () => '# Fell\n');
       dropOf(w.page, [
         item({
           getAsFileSystemHandle: async () => {
@@ -4434,38 +4400,40 @@ const memoryKv = () => {
       assert.strictEqual(w.calls.opened[1], 'drop:fell-back.md', 'is read as a copy');
       assert.strictEqual(
         await w.page.backend.linkNote('drop:fell-back.md'),
-        'Open the folder that holds this file to follow its links.',
+        LINK_NOTE,
         'which says why it has no links',
       );
-      dropOf(w.page, [item({ getAsFile: () => copy('plain.txt', 'text\n') })], []);
+      dropOf(w.page, [item({ getAsFile: () => copy('plain.txt', async () => 'text\n') })], []);
       await until(() => w.calls.opened.length === 3, 'a drop from a browser with no handles');
       assert.strictEqual(w.calls.opened[2], 'drop:plain.txt', 'is the same');
-      dropOf(w.page, [], [copy('old.md', '# Old\n')]);
+      dropOf(w.page, [], [copy('old.md', async () => '# Old\n')]);
       await until(() => w.calls.opened.length === 4, 'a drop that has only a file list');
       assert.strictEqual(w.calls.opened[3], 'drop:old.md', 'is the same again');
 
-      dropOf(w.page, [item({ getAsFile: () => copy('pic.png', '') })]);
+      dropOf(w.page, [item({ getAsFile: () => copy('pic.png', async () => '') })]);
       await until(() => /Redline opens markdown/.test(status(w.el).textContent), 'a refusal');
       assert.strictEqual(w.calls.opened.length, 4, 'a picture dropped opens nothing');
       assert.deepStrictEqual(unhandled, [], 'and no drop left a rejection nobody handled');
-      console.log('✓ a drop is a grant when it has a handle and a copy when it has not');
+      console.log('✓ a drop is a grant with a handle and a copy without one, and never a folder');
     }
 
     // --- no File System Access: a copy, and one history for a name ---
     {
       const w = await mount(hostW, {});
       const copyBtn = button(w.el, 'Open file…');
-      assert.ok(!shown(button(w.el, 'Open folder…')), 'with no folder picker there is no button');
-      assert.ok(copyBtn.className.includes('welcome-primary'), 'and the file one is the primary');
+      assert.ok(copyBtn.className.includes('welcome-primary'), 'the file button is the primary');
       assert.match(
         named(w.el, 'welcome-hint').map((h) => h.textContent).join(' '),
         /reads a copy[\s\S]*same name[\s\S]*continues its history/,
         'which says it is a copy, and that a name is a history',
       );
+      assert.ok(shown(named(w.el, 'welcome-limits')[0]), 'and what the web app cannot do too');
       const input = all(w.el).find((e) => e.tag === 'input');
       assert.ok(input.hidden, 'the input is not drawn');
       await copyBtn.click();
       assert.strictEqual(input.clicks, 1, 'the button is the input\'s');
+      w.w.pickFile();
+      assert.strictEqual(input.clicks, 2, 'and so is the page\'s own way to the picker');
 
       const pick = async (n, body) => {
         input.files = [{ name: n, text: async () => body, lastModified: 7 }];
@@ -4481,12 +4449,12 @@ const memoryKv = () => {
       assert.strictEqual(w.calls.ids[0], w.calls.ids[1], 'and a file of that name is one document');
       assert.match((await w.page.backend.doc()).text, /Second\./, 'with what it says now');
       assert.strictEqual(w.calls.persist, 1, 'the storage request is made once here too');
-      console.log('✓ with no folder picker the welcome takes a copy, and a name is one history');
+      console.log('✓ with no file picker the welcome takes a copy, and a name is one history');
     }
 
     // --- a grant that lapsed, and the ways out of the welcome ---
     {
-      const lapsed = tree('lapsed', { 'l.md': '# L\n\nStill here.\n' });
+      const lapsed = grantable('l.md', '# L\n\nStill here.\n');
       const hostR = startHost();
       const setup = await openPage(hostR);
       const lroot = await setup.backend.addRoot(lapsed);
@@ -4495,21 +4463,21 @@ const memoryKv = () => {
 
       const w = await mount(hostR, {}, lopen.id);
       await rejection(w.page.backend.doc(), 'NeedsPermission');
-      assert.deepStrictEqual(w.page.asked, [{ name: 'lapsed' }], 'the page is told which folder');
+      assert.deepStrictEqual(w.page.asked, [{ name: 'l.md' }], 'the page is told which file');
       const box = named(w.el, 'welcome-reopen')[0];
       assert.ok(!shown(box), 'the welcome does not ask until the page says to');
-      w.w.sync({ reopen: 'lapsed' });
+      w.w.sync({ reopen: 'l.md' });
       assert.ok(shown(box), 'the page says so, and it asks');
-      assert.match(box.textContent, /permission to read lapsed again/, 'about that folder');
-      const reopen = button(w.el, 'Reopen lapsed');
+      assert.match(box.textContent, /permission to read l\.md again/, 'about that file');
+      const reopen = button(w.el, 'Reopen l.md');
       assert.ok(reopen, 'with a button that names it');
 
       lapsed.allow = false;
       await reopen.click();
       assert.strictEqual(lapsed.asked, 1, 'a click asks the user');
-      assert.strictEqual(status(w.el).textContent, 'Redline was not given lapsed.', 'who says no');
+      assert.strictEqual(status(w.el).textContent, 'Redline was not given l.md.', 'who says no');
       assert.deepStrictEqual([w.calls.granted, w.calls.persist], [0, 0], 'is not a grant');
-      w.w.sync({ reopen: 'lapsed' });
+      w.w.sync({ reopen: 'l.md' });
       assert.ok(!shown(status(w.el)), 'and the page moving on clears what was said about the last');
 
       lapsed.allow = true;
@@ -4526,114 +4494,149 @@ const memoryKv = () => {
       await back.click();
       assert.strictEqual(w.calls.back, 1, 'and takes it');
       assert.deepStrictEqual(unhandled, [], 'nothing was left unhandled');
-      console.log('✓ the welcome asks again for a lapsed folder, and offers the way back');
+      console.log('✓ the welcome asks again for a lapsed file, and offers the way back');
     }
 
-    // --- a drop with a document on screen: the welcome is hidden, and nothing it draws is seen ---
+    // --- a drop with a document on screen: the welcome is hidden, and stays so ---
     {
       const said = [];
-      const asked = [];
-      const w = await mount(hostW, { showDirectoryPicker: async () => proj }, null, {
+      const w = await mount(hostW, { showOpenFilePicker: async () => [single] }, null, {
         hidden: true,
-        hooks: {
-          // What the page's `show` does: nothing if the welcome is up, and otherwise `showWelcome`,
-          // which un-hides it and syncs it -- and a sync clears the status and the list.
-          show: () => {
-            asked.push(files(w.el).length);
-            if (!w.el.hidden) return;
-            w.el.hidden = false;
-            w.w.sync({ back: true });
-          },
-          notify: (text) => said.push(text),
-        },
+        hooks: { notify: (text) => said.push(text) },
       });
-      const item = (give) => ({ kind: 'file', ...give });
-      const copy = (n, text) => ({ name: n, text, lastModified: 5 });
 
-      dropOf(w.page, [item({ getAsFileSystemHandle: async () => proj })]);
-      await until(() => files(w.el).length === 2, 'a dropped folder to be listed');
-      assert.deepStrictEqual(asked, [0], 'the page is asked for the welcome before the list');
-      assert.ok(!w.el.hidden, 'so the welcome is up');
-      assert.ok(shown(named(w.el, 'welcome-list')[0]), 'and the list is where it can be read');
-      assert.ok(shown(button(w.el, 'Back to the document')), 'with the way back to the document');
-      assert.deepStrictEqual(said, [], 'a folder is answered in the welcome and not by a notice');
-
-      // Back to the document: the welcome is hidden again, and a refusal must still be heard.
-      w.el.hidden = true;
-      dropOf(w.page, [item({ getAsFile: () => copy('pic.png', async () => '') })]);
-      await until(() => said.length === 1, 'a picture dropped on a document to be refused');
-      assert.match(said[0], /Redline opens markdown/, 'is told so by the page');
-      assert.ok(w.el.hidden && asked.length === 1, 'and the user is not taken off the document');
+      dropOf(w.page, [item({ getAsFileSystemHandle: async () => folderOf('proj') })]);
+      await until(() => said.length === 1, 'a folder dropped on a document to be refused');
+      assert.match(said[0], NOT_A_FOLDER, 'is told so by the page');
+      assert.ok(w.el.hidden, 'and the user is not taken off the document');
       assert.strictEqual(status(w.el).textContent, '', 'nor is it said where it cannot be read');
+
+      dropOf(w.page, [item({ getAsFile: () => copy('pic.png', async () => '') })]);
+      await until(() => said.length === 2, 'a picture dropped on a document to be refused');
+      assert.match(said[1], /Redline opens markdown/, 'is said the same way');
 
       const bad = async () => {
         throw refusal('NotReadableError');
       };
       dropOf(w.page, [item({ getAsFile: () => copy('unreadable.md', bad) })]);
-      await until(() => said.length === 2, 'a file that will not open to be refused');
-      assert.match(said[1], /^Could not open that/, 'a failure is said the same way');
-      assert.ok(w.el.hidden, 'and still without the welcome');
+      await until(() => said.length === 3, 'a file that will not open to be refused');
+      assert.match(said[2], /^Could not open that/, 'and so is a failure');
+      assert.ok(w.el.hidden, 'still without the welcome');
 
       const before = w.calls.opened.length;
       dropOf(w.page, [item({ getAsFile: () => copy('fine.md', async () => '# Fine\n') })]);
       await until(() => w.calls.opened.length === before + 1, 'a markdown file to open');
       assert.deepStrictEqual(
-        [said.length, asked.length, w.el.hidden],
-        [2, 1, true],
+        [said.length, w.el.hidden],
+        [3, true],
         'a file that opens is just opened: no notice, and the welcome stays out of the way',
       );
       assert.deepStrictEqual(unhandled, [], 'and none of it left a rejection nobody handled');
-      console.log('✓ a drop on a document: the welcome for a folder, a notice for a refusal');
+      console.log('✓ a drop on a document: a notice for a folder or a refusal, never the welcome');
     }
 
-    // --- the folder in the left column: what the web app has instead of tabs ---
+    // --- the open files: what the web app keeps where a window has its shell's tabs ---
     {
-      const page = await openPage(hostW);
-      assert.strictEqual(await page.backend.folder(), null, 'with nothing open, no folder');
-      const shelf = tree('shelf', {
-        'index.md': '# Index\n',
-        notes: { 'a.md': '# A\n\nAy.\n', 'b.txt': 'bee\n' },
-        'pic.png': '',
-        '.hidden': { 'x.md': '' },
-      });
-      const { rootId } = await page.backend.addRoot(shelf);
-      page.id = (await page.backend.open(webPath(rootId, 'notes/a.md'))).id;
-      const listed = await page.backend.folder();
-      assert.deepStrictEqual(
-        listed,
-        {
-          name: 'shelf',
-          current: 'notes/a.md',
-          capped: false,
-          files: ['index.md', 'notes/a.md', 'notes/b.txt'].map((rel) => ({
-            rel,
-            path: webPath(rootId, rel),
-          })),
-        },
-        'a document from a folder lists the folder it came from, as the welcome does, itself named',
+      const { createOpenFiles, storageOf, OPEN_KEY } = await import(
+        './src/hosts/web/open-files.js'
       );
-      page.id = (await page.backend.open(listed.files[0].path)).id;
-      assert.match((await page.backend.doc()).text, /# Index/, 'a path from the list opens');
-      assert.strictEqual((await page.backend.folder()).current, 'index.md', 'and is then current');
-
-      const lone = await page.backend.addRoot(fileOf('lone.md', '# Lone\n'));
-      page.id = (await page.backend.open(webPath(lone.rootId, 'lone.md'))).id;
-      assert.strictEqual(await page.backend.folder(), null, 'a file picked by itself has none');
-      const dropped = await page.backend.addDrop({
-        name: 'dropped.md',
-        text: async () => '# Dropped\n',
-        lastModified: 5,
+      const store = () => {
+        const m = new Map();
+        return {
+          m,
+          getItem: (k) => (m.has(k) ? m.get(k) : null),
+          setItem: (k, v) => void m.set(k, String(v)),
+        };
+      };
+      const entry = (id, rel) => ({
+        id,
+        path: `web:r/${rel}`,
+        name: rel.split('/').pop(),
+        dir: 'shelf',
+        label: `shelf/${rel}`,
       });
-      page.id = (await page.backend.open(dropped)).id;
-      assert.strictEqual(await page.backend.folder(), null, 'and nor has a drop');
-      page.id = 'never-opened';
-      assert.strictEqual(await page.backend.folder(), null, 'nor an id this browser never made');
+      const shared = store();
+      const tabA = store();
+      const a = createOpenFiles({ tab: tabA, shared });
+      assert.deepStrictEqual(
+        [a.list(), a.closedAll()],
+        [[], false],
+        'a first visit has nothing open, and has not closed everything either',
+      );
+      assert.ok(a.note(entry('1', 'a.md')) && a.note(entry('2', 'b.md')), 'files join the list');
+      assert.ok(a.note(entry('3', 'c.md')), 'in the order they were opened');
+      assert.strictEqual(a.note(entry('1', 'a.md')), false, 'one open already is not added twice');
+      assert.ok(
+        a.note({ ...entry('1', 'a.md'), dir: 'shelf2', label: 'shelf2/a.md' }),
+        'but is relabelled, in place',
+      );
+      assert.deepStrictEqual(
+        a.list().map((t) => [t.id, t.dir]),
+        [['1', 'shelf2'], ['2', 'shelf'], ['3', 'shelf']],
+        'so the list is what was opened, in order, each once',
+      );
+      a.list()[0].name = 'scribbled';
+      assert.strictEqual(a.list()[0].name, 'a.md', 'and what it hands out is a copy');
 
-      page.id = (await page.backend.open(webPath(rootId, 'index.md'))).id;
-      shelf.entries = unreadable;
-      await rejection(page.backend.folder(), 'NotAllowedError');
-      assert.deepStrictEqual(unhandled, [], 'and a folder that cannot be read is a rejection only');
-      console.log('✓ the web app lists the folder a document came from, and none for a lone file');
+      const again = createOpenFiles({ tab: tabA, shared });
+      assert.deepStrictEqual(again.list(), a.list(), 'a reload of the tab has its list back');
+      const tabB = store();
+      const b = createOpenFiles({ tab: tabB, shared });
+      assert.deepStrictEqual(
+        b.list(),
+        a.list(),
+        'a tab with none of its own starts from the last list any tab kept, as a bare visit does',
+      );
+      b.note(entry('4', 'd.md'));
+      assert.strictEqual(
+        createOpenFiles({ tab: tabA, shared }).list().length,
+        3,
+        'and after that each tab keeps its own',
+      );
+
+      assert.strictEqual(a.close('2').id, '3', 'closing one goes to the file after it');
+      assert.strictEqual(a.close('3').id, '1', 'or, closing the last, to the one before');
+      assert.strictEqual(a.close('nope'), null, 'a file not in the list closes nothing');
+      assert.strictEqual(a.closedAll(), false, 'one left is not none');
+      assert.strictEqual(a.close('1'), null, 'and the last of them leaves nothing to go to');
+      assert.strictEqual(a.closedAll(), true, 'which is every file closed');
+      assert.strictEqual(
+        createOpenFiles({ tab: tabA, shared }).closedAll(),
+        true,
+        'and stays so on a reload, so a bare address does not hand the closed one back',
+      );
+
+      tabA.m.set(OPEN_KEY, '{not json');
+      shared.m.set(OPEN_KEY, JSON.stringify([entry('5', 'e.md'), { id: 6 }, null]));
+      assert.deepStrictEqual(
+        createOpenFiles({ tab: tabA, shared }).list().map((t) => t.id),
+        ['5'],
+        'a list that will not parse is no list, and an entry that is not one is dropped',
+      );
+      const refusing = {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error('quota');
+        },
+      };
+      const mem = createOpenFiles({ tab: refusing, shared: null });
+      assert.ok(mem.note(entry('7', 'g.md')), 'storage that refuses is not a reason to fail');
+      assert.strictEqual(mem.list().length, 1, 'the list lasts as long as the page');
+      const blocked = {
+        get sessionStorage() {
+          throw Object.assign(new Error('blocked'), { name: 'SecurityError' });
+        },
+      };
+      assert.strictEqual(storageOf(blocked, 'sessionStorage'), null, 'nor is storage blocked');
+
+      const page = await openPage(hostW);
+      assert.deepStrictEqual(
+        page.backend.openFiles.list(),
+        [],
+        'the web backend has a list, off its window\'s storage, which a test window has none of',
+      );
+      assert.deepStrictEqual(unhandled, [], 'and none of it left a rejection nobody handled');
+      console.log('✓ the web app keeps the files a tab has open, per tab, and what was closed');
     }
   }
 
@@ -4734,20 +4737,22 @@ const memoryKv = () => {
     );
     assert.ok(
       /!welcome \|\| !\['NoDocument', 'NeedsPermission'\]\.includes\(err\?\.name\)/.test(appJs) &&
-        /showWelcome\(\);[\s\S]*?showWelcome\(\{ reopen: welcomeAsks \?\? /.test(appJs),
+        new RegExp(
+          String.raw`if \(err\.name === 'NoDocument'\) \{[^}]*?closeDocument\(\);\s*\} ` +
+            String.raw`else \{\s*showWelcome\(\{ reopen: welcomeAsks \?\? 'this file' \}\);`,
+        ).test(appJs),
       'a document that is none, or must be asked for again, shows the welcome, and only with one',
     );
     assert.match(
       appJs,
       /backend\.onNeedsPermission\?\.\(\(\{ name \}\) => showWelcome\(\{ reopen: name \}\)\);/,
-      'the backend naming a lapsed folder shows it, with its name',
+      'the backend naming a lapsed file shows it, with its name',
     );
     assert.match(appJs, /hideWelcome\(\);\s*paint\(\);/, 'and a document that paints hides it');
     const hooks = appJs.match(/backend\.welcome\?\.\(welcomeEl, \{([\s\S]*?)\n\}\);/)?.[1] ?? '';
     assert.ok(
-      /show: \(\) => \{\s*if \(welcomeEl\.hidden\) showWelcome\(\);\s*\},/.test(hooks) &&
-        /notify: \(text\) => notify\(text\),/.test(hooks),
-      'a drop on a document brings the welcome up if it is not, and a refusal goes to the notice',
+      /notify: \(text\) => notify\(text\),/.test(hooks) && !/show:/.test(hooks),
+      'a drop on a document is answered by the notice, and never puts the welcome up',
     );
     assert.match(
       appJs,
@@ -4765,10 +4770,10 @@ const memoryKv = () => {
       ],
       'which resets what they keep and empties their lists',
     );
-    const fileRule = pageCss.match(/\n\.welcome-file \{([^}]*)\}/)?.[1] ?? '';
     assert.ok(
-      /white-space: nowrap;/.test(fileRule) && /text-overflow: ellipsis;/.test(fileRule),
-      'a long path in the folder list is cut short and does not wrap, which needs both',
+      /\n\.welcome-limits a \{\s*color: var\(--mod\);/.test(pageCss) &&
+        !/\.welcome-(list|folder|files?)\b/.test(pageCss + read('./src/hosts/web/welcome.js')),
+      'the way to the Mac app is drawn as a link, and the folder list the welcome had is gone',
     );
     assert.match(
       appJs,
@@ -4776,31 +4781,11 @@ const memoryKv = () => {
       'a link a file cannot follow says why, rather than doing nothing',
     );
 
-    // The way from a document to the welcome, which only the web app has.
-    const head = pageHtml.indexOf('<header class="bar"');
-    const bar = pageHtml.slice(head, pageHtml.indexOf('</header>', head));
-    assert.match(
-      bar,
-      /<button\s+id="openBtn"\s+class="icon"[^>]*\saria-pressed="false"\s+hidden\s*>/,
-      'the Open button is in the bar and starts hidden, so a build with no welcome never shows it',
-    );
-    assert.ok(!/#openBtn[^{]*\{[^}]*display/.test(pageCss), 'and no display beats its [hidden]');
-    assert.match(
-      appJs,
-      /function syncOpenBtn\(\) \{\s*openBtn\.hidden = !state\.data;\s*openBtn\.setAttribute\('aria-pressed', String\(!welcomeEl\.hidden\)\);/,
-      'it is there while there is a document, and pressed while the welcome is over it',
-    );
-    const showing = appJs.match(/function showWelcome\([\s\S]*?\n\}/)?.[0] ?? '';
-    const hiding = appJs.match(/function hideWelcome\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+    // The way from a document to another file, which only the web app has: Open file… at the
+    // foot of the open files, and ⌘O. The bar has no button of its own for it.
     assert.ok(
-      /syncOpenBtn\(\);\s*if \(seen === welcomeSeen\) return;/.test(showing) &&
-        /syncOpenBtn\(\);\s*\}$/.test(hiding),
-      'and is told each time the welcome comes or goes, before showWelcome can return early',
-    );
-    assert.match(
-      appJs,
-      /if \(welcome\) \{\s*openBtn\.addEventListener\('click', \(\) => \{\s*if \(!backToDocument\(\)\) showWelcome\(\);/,
-      'a click puts the welcome up or takes it down, and only where there is a welcome',
+      ![pageHtml, appJs, pageCss].some((src) => /openBtn/.test(src)),
+      'there is no Open button by the name',
     );
     assert.match(
       appJs,
@@ -4809,8 +4794,8 @@ const memoryKv = () => {
     );
     assert.match(
       appJs,
-      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(welcomeEl\.hidden && !\$\('prefs'\)\.open\) showWelcome\(\);/,
-      '⌘O puts it up, in the web app alone: a window has File ▸ Open…',
+      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(!\$\('prefs'\)\.open\) welcome\.pickFile\(\);/,
+      '⌘O is the same, in the web app alone: a window has File ▸ Open…',
     );
     assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");
     assert.ok(
@@ -4860,10 +4845,11 @@ const memoryKv = () => {
     );
     console.log('✓ the page shows #welcome with no document or a lapsed grant, and hides git');
 
-    // The left column: the web app's folder where the desktop app has its tabs, and none at all
-    // in a CLI tab, which has neither. Whether there is a column is known before first paint, so
-    // the head script asks it as app.js does; a CLI tab that saved `side` open in a desktop
-    // window's origin -- `npm run dev` is one -- would otherwise open on an empty strip.
+    // The left column: the files open, the web app's as the desktop app's, and none at all in a
+    // CLI tab, which is handed one file and keeps no list. Whether there is a column is known
+    // before first paint, so the head script asks it as app.js does; a CLI tab that saved `side`
+    // open in a desktop window's origin -- `npm run dev` is one -- would otherwise open on an
+    // empty strip.
     const webAt = pageHtml.indexOf('if (globalThis.__REDLINE_WEB) document.documentElement');
     assert.ok(
       webAt > 0 && webAt < pageHtml.indexOf('const sideOn ='),
@@ -4895,44 +4881,104 @@ const memoryKv = () => {
     );
     assert.match(
       leftAside,
-      new RegExp(
-        '<section id="folderSec" class="side-sec side-grow" data-web>' +
-          '[\\s\\S]*id="folderName"[\\s\\S]*<nav id="folderList"',
-      ),
-      'the folder is a section of the left column, named for the folder',
+      /<section id="filesSec" class="side-sec side-grow">/,
+      'Open files is the left column wherever there is one, not only in the desktop app',
+    );
+    assert.ok(
+      !/folderSec|paintFolder|backend\.folder|data-web/.test(pageHtml + appJs + pageCss) &&
+        !/async folder\(\)/.test(backendSrc),
+      'and the folder list it replaces is gone, all of it',
     );
     assert.match(
-      pageCss,
-      /html:not\(\.web\) \[data-web\] \{\s+display: none;/,
-      'and the web app\'s alone',
+      appJs,
+      /const openFiles = backend\.openFiles \?\? null;\nif \(openFiles\) state\.tabs = /,
+      'the page takes the web backend\'s list as its tabs',
     );
-    const setSideFn = appJs.match(/function setSide\([\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /openFiles: createOpenFiles\(\{\s+tab: storageOf\(win, 'sessionStorage'\),/.test(
+        backendSrc,
+      ) && /\s+shared: storageOf\(win, 'localStorage'\),\s+\}\),/.test(backendSrc),
+      'which keeps it per tab, and the last one for a bare visit',
+    );
+    const selectFn = appJs.match(/function selectTab\([\s\S]*?\n\}/)?.[0] ?? '';
+    const closeTabFn = appJs.match(/function closeTab\([\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /if \(native\) native\.selectTab\(id\);\s+else switchTo\(id\);/.test(selectFn) &&
+        /if \(native\) native\.closeTab\(id\);\s+else closeOpen\(id\);/.test(closeTabFn),
+      'a row switches and closes through the shell in a window, and through the page in a tab',
+    );
+    assert.deepStrictEqual(
+      [/native\.selectTab\(/g, /native\.closeTab\(/g].map((re) => appJs.match(re)?.length),
+      [1, 1],
+      'and nothing calls the shell for it but those two, the rows and the menu included',
+    );
     const loadFn = appJs.match(/async function load\([\s\S]*?\n\}/)?.[0] ?? '';
+    const noteFn = appJs.match(/function noteOpen\([\s\S]*?\n\}/)?.[0] ?? '';
     assert.ok(
-      /paintTabs\(\);\s+paintFolder\(\{ again: true \}\);/.test(setSideFn) &&
-        /clearSidebars\(\);\s+paintFolder\(\);/.test(loadFn) &&
-        /paint\(\);\s+paintFolder\(\);/.test(loadFn),
-      'listed as the column opens, as a document loads, and emptied when there is none',
-    );
-    const folderFn = appJs.match(/async function paintFolder\([\s\S]*?\n\}/)?.[0] ?? '';
-    assert.ok(
-      /if \(!backend\.folder \|\| !state\.side\) return;/.test(folderFn) &&
-        /row\.addEventListener\('click', \(\) => openFile\(path\)\)/.test(folderFn) &&
-        /if \(run !== folderRun\) return;/.test(folderFn),
-      'only where a backend has a folder, a row opening its file, the later of two lists kept',
-    );
-    assert.strictEqual(
-      (appJs.match(/backend\.folder\b/g) ?? []).length,
-      2,
-      'and the backend is asked for one nowhere else',
+      /paint\(\);\s+noteOpen\(\);/.test(loadFn) &&
+        /if \(err\.name === 'NoDocument'\) \{[\s\S]*?closeDocument\(\);/.test(loadFn),
+      'every document shown is noted, whatever opened it, and one that is gone is put down',
     );
     assert.ok(
-      /async folder\(\) \{/.test(backendSrc) &&
-        /rec\?\.kind !== 'directory'\) return null;/.test(backendSrc) &&
-        /await listMarkdown\(rec\.handle\)/.test(backendSrc),
-      'which is the web backend, listing a folder the way the welcome does',
+      /if \(!openFiles\) return;/.test(noteFn) &&
+        /openFiles\.note\(\{\s+id: state\.docId,\s+path: d\.path,/.test(noteFn) &&
+        /=== null && state\.tabs\.length > 1\) setSide\(true, false\);/.test(noteFn),
+      'into the list, which opens the column at the second file as the desktop app does',
     );
-    console.log('✓ the left column lists the folder in the web app, and is not in a CLI tab');
+    const switchFn = appJs.match(/async function switchTo\([\s\S]*?\n\}/)?.[0] ?? '';
+    const closeFn = appJs.match(/async function closeOpen\([\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /scrollMemory\.set\(state\.docId, pane\.scrollTop\)/.test(switchFn) &&
+        /await openFile\(t\.path, \{ unopened: /.test(switchFn) &&
+        /pane\.scrollTo\(0, scrollMemory\.get\(id\) \?\? 0\)/.test(switchFn),
+      'a switch opens the file by its path, and keeps the place in each',
+    );
+    assert.match(appJs, /if \(unopened\) notify\(unopened\);/, 'and says so when it cannot');
+    assert.ok(
+      /const next = openFiles\.close\(id\);/.test(closeFn) &&
+        /if \(id !== state\.docId\) return;/.test(closeFn) &&
+        /if \(next && \(await switchTo\(next\.id\)\)\) return;/.test(closeFn) &&
+        /\s+closeDocument\(\{ reopen: pendingLink \? welcomeAsks : null \}\);\n\}/.test(closeFn),
+      'closing the one on screen goes to its neighbour, and closing the last to the welcome',
+    );
+    // What the bar draws from the document is drawn by `paint`, not by the sidebars, so a close
+    // that empties the sidebars and not the bar leaves a count over the welcome for no file.
+    const closeDocFn = appJs.match(/function closeDocument\([\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /paintSolo\(null\);\s+paintCount\(\);\s+paintRuler\(\);/.test(closeDocFn) &&
+        /setLive\(true\);/.test(closeDocFn),
+      'and the welcome has no count, arrows, ruler or dropped watch left on the bar from it',
+    );
+    assert.ok(
+      /if \(!t\) return false;/.test(switchFn) &&
+        /\.name\}\.` \}\)\)\) return false;/.test(switchFn) &&
+        /\n  return true;\n\}$/.test(switchFn) &&
+        /showWelcome\(\{ reopen \}\);/.test(appJs),
+      'as does a neighbour that will not open, still asking for its folder if that is why',
+    );
+    assert.match(
+      appJs,
+      new RegExp(
+        String.raw`if \(welcome\) \{[\s\S]{0,600}` +
+          String.raw`\$\('newTab'\)\.addEventListener\('click', \(\) => welcome\.pickFile\(\)\);`,
+      ),
+      'Open file… at the foot of the list is the file picker too',
+    );
+    assert.ok(
+      /if \(!keepScroll \|\| welcomeAsks\) hideWelcome\(\);\s+paint\(\);/.test(loadFn) &&
+        (appJs.match(/hideWelcome\(\);/g) ?? []).length === 2,
+      'a document opened takes the welcome down, and the one on screen read again does not',
+    );
+    assert.match(
+      appJs,
+      new RegExp(
+        String.raw`\} else \{[^}]*?paintTabs\(\);\s+` +
+          String.raw`if \(!state\.docId && openFiles\?\.closedAll\(\)\) \{` +
+          String.raw`[^}]*?showWelcome\(\);\s+\} else if \(await load\(`,
+      ),
+      'drawn before the first load, and a tab that closed everything is not handed one back',
+    );
+    console.log('✓ the left column lists the files open in the web app, and is not in a CLI tab');
   }
 }
 
@@ -5271,7 +5317,7 @@ const memoryKv = () => {
 }
 
 // --- 12f. docs/web-app.md says what the code does -------------------------------------------
-// It is what a person reads before they trust a folder to a browser, so a number or a name in it
+// It is what a person reads before they trust a file to a browser, so a number or a name in it
 // that the code has since changed is worse than no page: the next reader believes it. These are
 // the things in it that a person would act on, held to the code they describe, and that it is
 // reachable from the two indexes, since a page nobody links to is one nobody reads.
@@ -5291,16 +5337,25 @@ const memoryKv = () => {
     'every store, in the order the code makes them, and none that it does not',
   );
 
-  // What a person would count on: how far down a folder is listed, and how long an edit takes to
-  // show. Read from the code that holds the number, the one place it is written.
-  const { MAX_DEPTH, MAX_FILES } = await import('./src/hosts/web/welcome.js');
-  const depth = ['no', 'one', 'two', 'three', 'four', 'five'][MAX_DEPTH];
-  assert.ok(doc.includes(`${depth} folders down and at most ${MAX_FILES}`),
-    'the welcome lists what the doc says it lists');
+  // What a person would count on: what the web app opens, where the rest is, and how long an
+  // edit takes to show. Read from the code that holds the number, the one place it is written.
+  const { MAC_APP_URL } = await import('./src/hosts/web/welcome.js');
+  assert.ok(
+    !/Open folder|folders down/.test(doc) && /files, not folders/.test(doc),
+    'it opens files, and the doc offers no folder',
+  );
+  assert.ok(doc.includes(`](${MAC_APP_URL})`), 'and links the Mac app where the welcome does');
   assert.match(read('./src/reader/reader.js'), /^const POLL_MS = 1500;$/m);
   assert.ok(doc.includes('within about a second and a half'), 'a poll of 1500 ms');
   assert.match(read('./scripts/serve-webapp.mjs'), /^const DEFAULT_PORT = 8081;$/m);
   assert.ok(doc.includes('http://127.0.0.1:8081'), 'and the address the server answers on');
+
+  // The open files, under the key the code keeps them by. And the way to another file as the page
+  // has it: the bar once had a folder button for the welcome, and a doc that still offers it sends
+  // a person looking for something that is not there.
+  const { OPEN_KEY } = await import('./src/hosts/web/open-files.js');
+  assert.ok(doc.includes(`under \`${OPEN_KEY}\``), 'the open files are kept where it says');
+  assert.ok(!/folder button/.test(doc), 'and no button in the bar puts the welcome up');
 
   // The plan this was built to was kept out of the repository, so anything here that cites it
   // cites a document a reader of the repository cannot open. What it decided is in docs/. The

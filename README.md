@@ -248,7 +248,7 @@ unreachable would otherwise pass.
 | [Change marks](docs/changes.md) | What the marks mean, how the diff is made, choosing a baseline, checking a change off |
 | [History](docs/history.md) | Every version of a file, the git import, cleaning up, where it lives |
 | [The native window](docs/native-window.md) | Windows, tabs, Settings, checking for updates |
-| [The web app](docs/web-app.md) | Opening a folder or a file in a browser, which browsers do what, where the history is kept |
+| [The web app](docs/web-app.md) | Opening a file in a browser, which browsers do what, what it leaves to the Mac app, where the history is kept |
 | [Keyboard](docs/keyboard.md) | Every key and menu shortcut |
 | [Diagrams](docs/diagrams.md) | Mermaid and PlantUML |
 | [Command line](docs/cli.md) | Flags, ports, environment variables |
