@@ -239,8 +239,9 @@ column is open the first time you start — an update that quietly took away the
 list you had up would read as a bug.
 
 With the left column hidden, the chevron next to the filename opens the file list
-as a menu. The `+3 ~1 −2` counter opens the right column instead — "changed since
-what?" is a question about versions — and clicking it again puts it away.
+as a menu. The right column, where the history is, has a button of its own and ⌥⌘B;
+the `+3 ~1 −2` counter is not a way to it, because a figure is something to go and look
+at — it [steps through the changes](changes.md).
 
 **Drag either inner edge** to make that column wider or narrower. 236 px is where
 each starts, not what it is: a path over a filename, a commit subject and a

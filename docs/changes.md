@@ -10,16 +10,28 @@ file read. What moved since then is marked in the margin.
 - everything else keeps its normal colour, so the document still reads as a document
 - hover a marked block to tint it and name the change — `added`, `changed`,
   `removed` — in the right margin
-- `+3 ~1 −2` on the bar is how much is still outstanding; clicking it opens the
-  [history](history.md), which is where "changed since *what*?" is answered
+- `+3 ~1 −2` on the bar is how much is still outstanding. Click a figure to go to
+  the next change of that kind, ⇧-click for the previous; the [history](history.md),
+  where "changed since *what*?" is answered, has its own button and key
 
 ![A blue bar beside a paragraph whose changed words are struck through and
 tinted in place, the CHANGED label lit at its top corner; a table with one changed
 cell below it, and a removed paragraph struck out](images/changes.png)
 
-`n` / `j` and `p` / `k` walk the marks. `d` puts them away and leaves a clean
-document; nothing is forgotten while they are hidden — the baseline keeps tracking,
-and turning them back on costs no round trip.
+`n` / `j` and `p` / `k` walk the marks, as do the arrows on the bar and the figures
+beside them. `d` puts them away and leaves a clean document; nothing is forgotten
+while they are hidden — the baseline keeps tracking, and turning them back on costs
+no round trip.
+
+A step is from where you are. It goes on from the change it last took you to for as
+long as you are still there — on screen, or the scroll to it still under way — and
+otherwise from the top of the window: the first change below it going forward, the
+last change above it going back. So scrolling away by hand, or a reload, does not send
+the next press back to the first change. It wraps at either end. In the
+[raw view](reading.md#rendered-and-raw), where marks are lines, a run of them is one
+stop, and a removed line is one too, so the arrows walk the same changes the count
+and the ruler show. That view has no *changed*, only lines added and removed, so
+the `~` figure there walks them all.
 
 ## The ruler
 
