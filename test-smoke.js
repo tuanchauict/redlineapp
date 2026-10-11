@@ -4381,6 +4381,15 @@ const memoryKv = () => {
         [opened + 1, roots],
         'before it is opened, or granted',
       );
+
+      // What the page's Open button and ⌘O call, with a document on screen and the welcome
+      // hidden: the picker inside the gesture, before anything is awaited.
+      behave.file = async () => [single];
+      const picked = picks.length;
+      const asked = w.w.pickFile();
+      assert.strictEqual(picks.length, picked + 1, 'the page can call the picker itself, at once');
+      await asked;
+      assert.match(w.calls.opened.at(-1), /^web:[^/]+\/single\.md$/, 'and it opens what is picked');
       console.log('✓ the welcome opens a file from a folder or alone, and says what it cannot');
     }
 
@@ -4461,6 +4470,8 @@ const memoryKv = () => {
       assert.ok(input.hidden, 'the input is not drawn');
       await copyBtn.click();
       assert.strictEqual(input.clicks, 1, 'the button is the input\'s');
+      w.w.pickFile();
+      assert.strictEqual(input.clicks, 2, 'and so is the page\'s own way to the picker');
 
       const pick = async (n, body) => {
         input.files = [{ name: n, text: async () => body, lastModified: 7 }];
@@ -4825,19 +4836,22 @@ const memoryKv = () => {
       'a link a file cannot follow says why, rather than doing nothing',
     );
 
-    // The way from a document to the welcome, which only the web app has.
+    // The way from a document to another file, which only the web app has.
     const head = pageHtml.indexOf('<header class="bar"');
     const bar = pageHtml.slice(head, pageHtml.indexOf('</header>', head));
     assert.match(
       bar,
-      /<button\s+id="openBtn"\s+class="icon"[^>]*\saria-pressed="false"\s+hidden\s*>/,
+      /<button id="openBtn" class="icon" title="Open a file \(⌘O\)"[^>]*\shidden>/,
       'the Open button is in the bar and starts hidden, so a build with no welcome never shows it',
     );
-    assert.ok(!/#openBtn[^{]*\{[^}]*display/.test(pageCss), 'and no display beats its [hidden]');
+    assert.ok(
+      !/#openBtn[^{]*\{[^}]*display/.test(pageCss) && !/#openBtn\[aria-pressed/.test(pageCss),
+      'and no display beats its [hidden], nor is it drawn as a toggle',
+    );
     assert.match(
       appJs,
-      /function syncOpenBtn\(\) \{\s*openBtn\.hidden = !state\.data;\s*openBtn\.setAttribute\('aria-pressed', String\(!welcomeEl\.hidden\)\);/,
-      'it is there while there is a document, and pressed while the welcome is over it',
+      /function syncOpenBtn\(\) \{\s*openBtn\.hidden = !state\.data;\s*\}/,
+      'it is there while there is a document',
     );
     const showing = appJs.match(/function showWelcome\([\s\S]*?\n\}/)?.[0] ?? '';
     const hiding = appJs.match(/function hideWelcome\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
@@ -4848,8 +4862,11 @@ const memoryKv = () => {
     );
     assert.match(
       appJs,
-      /if \(welcome\) \{\s*openBtn\.addEventListener\('click', \(\) => \{\s*if \(!backToDocument\(\)\) showWelcome\(\);/,
-      'a click puts the welcome up or takes it down, and only where there is a welcome',
+      new RegExp(
+        String.raw`if \(welcome\) \{\s*(//[^\n]*\n\s*)*` +
+          String.raw`openBtn\.addEventListener\('click', \(\) => welcome\.pickFile\(\)\);`,
+      ),
+      'a click is the file picker, not the welcome over the document, and only in the web app',
     );
     assert.match(
       appJs,
@@ -4858,8 +4875,8 @@ const memoryKv = () => {
     );
     assert.match(
       appJs,
-      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(welcomeEl\.hidden && !\$\('prefs'\)\.open\) showWelcome\(\);/,
-      '⌘O puts it up, in the web app alone: a window has File ▸ Open…',
+      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(!\$\('prefs'\)\.open\) welcome\.pickFile\(\);/,
+      '⌘O is the same, in the web app alone: a window has File ▸ Open…',
     );
     assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");
     assert.ok(
@@ -5015,10 +5032,15 @@ const memoryKv = () => {
     assert.match(
       appJs,
       new RegExp(
-        String.raw`if \(welcome\) \{[\s\S]{0,300}` +
-          String.raw`\$\('newTab'\)\.addEventListener\('click', \(\) => showWelcome\(\)\);`,
+        String.raw`if \(welcome\) \{[\s\S]{0,600}` +
+          String.raw`\$\('newTab'\)\.addEventListener\('click', \(\) => welcome\.pickFile\(\)\);`,
       ),
-      'Open file… at the foot of the list puts up the welcome',
+      'Open file… at the foot of the list is the file picker too',
+    );
+    assert.ok(
+      /if \(!keepScroll \|\| welcomeAsks\) hideWelcome\(\);\s+paint\(\);/.test(loadFn) &&
+        (appJs.match(/hideWelcome\(\);/g) ?? []).length === 2,
+      'a document opened takes the welcome down, and the one on screen read again does not',
     );
     assert.match(
       appJs,

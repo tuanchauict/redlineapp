@@ -477,11 +477,17 @@ connection on `versionchange`. The page learns the build from the shim the build
   file the reader has let go of) or `NeedsPermission` (and offers **Reopen** *name*: `reopen()`,
   then the page loads again, or opens the link that was refused). No other backend has a
   `welcome`, which is the whole of why a shell, VS Code and the CLI's tab never show one.
-  - **Open, with a document on screen**: the folder button before the name (`#openBtn`) and ⌘O
-    put the welcome up over the document, with **Back to the document**; the button again or
-    Escape takes it down (`backToDocument`). The button is `hidden` in the markup, wired only
+  - **Open, with a document on screen**: the folder button before the name (`#openBtn`), ⌘O and
+    **Open file…** at the foot of the open files are the file picker itself, `welcome.pickFile()`
+    — the welcome's own **Open file…**, called inside the click or the key, as a picker has to
+    be — and not the welcome over the document: what is picked joins the open files, and the
+    file being read stays a click away in them. The button is `hidden` in the markup, wired only
     `if (welcome)`, and shown by `syncOpenBtn` while there is a document, so no other build has
-    it and the welcome with nothing behind it does not offer to put itself up.
+    it. The welcome still comes up over a document for a folder dropped and for a grant that
+    lapsed, with **Back to the document**, and Escape takes it down (`backToDocument`). `load()`
+    takes it down only for a document opened (`keepScroll: false`) or a grant it was asking
+    for: the one on screen read again — the 1.5 s poll's `change` and `history` among them —
+    would otherwise take it away from under the user a moment after it came up.
   - **Open folder…** (`showDirectoryPicker({ mode: 'read' })`, the primary button) lists the
     files a link would open — `MD_LINK`, in `core/links.js`, the same pattern the page follows
     links by — three folders down and at most 500, without entering dot-folders or

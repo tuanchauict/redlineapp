@@ -115,7 +115,10 @@ const NOT_MARKDOWN =
  *   that would take the user off the document for a file they were told they cannot open.
  * @param {typeof globalThis} [deps.win]  Pickers, `navigator`, and what fires `dragover`.
  * @param {Document} [deps.doc]
- * @returns {{ sync: (state: { reopen?: string|null, back?: boolean }) => void }}
+ * @returns {{
+ *   sync: (state: { reopen?: string|null, back?: boolean }) => void,
+ *   pickFile: () => void,
+ * }}
  */
 export function mountWelcome(
   el,
@@ -259,22 +262,22 @@ export function mountWelcome(
       },
     },
   });
+  // Called inside a click or a key, as a picker has to be: `run` calls it before it awaits.
+  const pickFile = () =>
+    canFile
+      ? run(async () => {
+          const [handle] = await win.showOpenFilePicker({
+            types: MARKDOWN_TYPES,
+            excludeAcceptAllOption: true,
+          });
+          await openHandle(handle);
+        })
+      : input.click();
   const fileBtn = h(doc, 'button', {
     type: 'button',
     className: canFolder ? 'welcome-secondary' : 'welcome-primary',
     textContent: 'Open file…',
-    on: {
-      click: () =>
-        canFile
-          ? run(async () => {
-              const [handle] = await win.showOpenFilePicker({
-                types: MARKDOWN_TYPES,
-                excludeAcceptAllOption: true,
-              });
-              await openHandle(handle);
-            })
-          : input.click(),
-    },
+    on: { click: pickFile },
   });
 
   // --- a grant that lapsed -----------------------------------------------------------------
@@ -396,5 +399,12 @@ export function mountWelcome(
       say('');
       listBox.hidden = true;
     },
+
+    /**
+     * The browser's file picker, straight from a click or ⌘O on a document, and not the welcome:
+     * a document open is one the user is reading, and what they asked for is another file.
+     * What it has to say goes to `notify` while the welcome is hidden, as a drop's does.
+     */
+    pickFile,
   };
 }

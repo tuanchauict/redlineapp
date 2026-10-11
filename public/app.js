@@ -217,21 +217,19 @@ function backToDocument() {
 
 /**
  * The Open button belongs to the welcome, and so to the web app alone. It is there while there is
- * a document to put the welcome over and come back to, and pressed while the welcome is over it.
- * With nothing open the welcome is the whole page, and a button to put it up would do nothing.
+ * a document on screen; with nothing open the welcome is the whole page, and has its own.
  */
 function syncOpenBtn() {
   openBtn.hidden = !state.data;
-  openBtn.setAttribute('aria-pressed', String(!welcomeEl.hidden));
 }
 
 if (welcome) {
-  openBtn.addEventListener('click', () => {
-    if (!backToDocument()) showWelcome();
-  });
-  // The foot of the open files is the same way in: what is picked there joins the list.
-  $('newTab').title = 'Open a folder or a file (⌘O)';
-  $('newTab').addEventListener('click', () => showWelcome());
+  // Straight to the browser's file picker, and not the welcome over the document: what is picked
+  // joins the open files, and the one being read stays a click away in them. The foot of the
+  // open files is the same way in.
+  openBtn.addEventListener('click', () => welcome.pickFile());
+  $('newTab').title = 'Open a file (⌘O)';
+  $('newTab').addEventListener('click', () => welcome.pickFile());
   // A step away from the document, and Escape is the step back. Not while Settings is up: the
   // Escape is the dialog's, and closes it alone.
   document.addEventListener('keydown', (e) => {
@@ -316,7 +314,11 @@ async function load({ keepScroll = true } = {}) {
   // the one you have already left must not paint over the one you are on.
   if (want && want !== state.docId) return false;
   adopt(data);
-  hideWelcome();
+  // A document opened takes the welcome down. The one on screen read again -- an edit, a version
+  // arriving, a baseline chosen, all `keepScroll` -- does not, or a welcome up over it (a folder
+  // dropped, its list being read) would be gone a moment later; unless it was asking for a grant,
+  // which a read that worked says is no longer needed.
+  if (!keepScroll || welcomeAsks) hideWelcome();
   paint();
   noteOpen();
   if (keepScroll) pane.scrollTo(0, y);
@@ -3139,12 +3141,12 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     openFind();
   }
-  // ⌘O is the web app's alone: a window has File ▸ Open…, and a CLI tab is handed its file and
-  // has no welcome to put up. Caught even with nothing to do -- the welcome already up -- because
-  // the browser's own would open the file as a page of its own, outside Redline.
+  // ⌘O is the web app's alone: a window has File ▸ Open…, and a CLI tab is handed its file.
+  // It is the file picker, as the Open button is, from the welcome too. Caught even with Settings
+  // up, because the browser's own would open the file as a page of its own, outside Redline.
   if (welcome && e.code === 'KeyO' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
     e.preventDefault();
-    if (welcomeEl.hidden && !$('prefs').open) showWelcome();
+    if (!$('prefs').open) welcome.pickFile();
   }
 });
 

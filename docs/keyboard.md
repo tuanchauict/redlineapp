@@ -26,10 +26,11 @@ the edge, so on the right-hand one it is ← that makes the column wider.
 
 ## In the web app
 
-`⌘O` (Ctrl+O off a Mac) opens another folder or file: it puts the welcome up over the
-document — **Open folder…**, **Open file…**, or a drop — and Escape, or **Back to the
-document**, goes back to it. The folder button before the document's name does the same.
-A CLI tab has neither: it is handed its file, and `⌘O` there is the browser's.
+`⌘O` (Ctrl+O off a Mac) is the browser's file picker, and the file you pick joins the open
+files. The folder button before the document's name, and **Open file…** at the foot of the
+open files, do the same. A CLI tab has neither: it is handed its file, and `⌘O` there is the
+browser's. A folder dropped on the window lists its files in the welcome, over the document;
+Escape, or **Back to the document**, goes back to it.
 
 What you open joins the [open files](reading.md#the-sidebars) in the left column, and that
 is where you switch between them and close them: `⌃⇥` and `⌘W` are the browser's own, for

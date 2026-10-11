@@ -143,19 +143,12 @@
         </svg>
       </button>
 
-      <!-- The web app's way to another file: the welcome again, put up over the
-           document, with the way back in it. Nothing else has one -- a window or
-           a CLI tab is handed its documents and has no welcome -- so it starts
-           hidden, and app.js shows it while the web app has a document on
-           screen. Beside the name, because the name is what it changes. -->
-      <button
-        id="openBtn"
-        class="icon"
-        title="Open a folder or a file (⌘O)"
-        aria-label="Open"
-        aria-pressed="false"
-        hidden
-      >
+      <!-- The web app's way to another file: the browser's file picker, and what
+           is picked joins the open files. Nothing else has one -- a window or a
+           CLI tab is handed its documents -- so it starts hidden, and app.js
+           shows it while the web app has a document on screen. Beside the name,
+           because the name is what it changes. -->
+      <button id="openBtn" class="icon" title="Open a file (⌘O)" aria-label="Open a file" hidden>
         <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
           <path
             d="M1.75 4.5c0-.97.78-1.75 1.75-1.75h2.4c.4 0 .78.17 1.05.47l.9 1.03h4.65
