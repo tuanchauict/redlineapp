@@ -763,7 +763,6 @@ button:focus-visible,
    dropped along with it; it would otherwise hold the header down at whatever
    the list was last dragged to and leave a gap under it. */
 .shut-files #filesSec,
-.shut-folder #folderSec,
 .shut-toc #tocSec,
 .shut-hist #histSec {
   flex: none;
@@ -771,7 +770,6 @@ button:focus-visible,
 }
 
 .shut-files #filesSec > :not(.side-head),
-.shut-folder #folderSec > :not(.side-head),
 .shut-toc #tocSec > :not(.side-head),
 .shut-hist #histSec > :not(.side-head) {
   display: none;
@@ -987,10 +985,10 @@ button:focus-visible,
   padding: 4px;
 }
 
-/* A CLI tab has one file, no tabs and no folder, so the left column would only
-   ever open empty; the button that opens it goes too. Off the classes the head
-   script sets rather than `[hidden]`, which the `display` above would beat, and
-   so before first paint: the button is never drawn to be taken away. */
+/* A CLI tab is handed one file and keeps no list, so the left column would
+   only ever open empty; the button that opens it goes too. Off the classes the
+   head script sets rather than `[hidden]`, which the `display` above would
+   beat, and so before first paint: the button is never drawn to be taken away. */
 html:not(.native):not(.web) #side {
   display: none;
 }
@@ -1603,12 +1601,6 @@ html:not(.native):not(.web) #side {
 /* Windows, Finder and launch belong to the desktop app; a browser tab has
    none of them, so those rows are not shown there. */
 html:not(.native) [data-shell] {
-  display: none;
-}
-
-/* And the other way about: the web app's folder list stands in for the tabs it
-   does not have, and means nothing in the window that has them. */
-html:not(.web) [data-web] {
   display: none;
 }
 

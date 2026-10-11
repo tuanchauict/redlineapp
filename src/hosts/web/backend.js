@@ -4,7 +4,7 @@
 // The reader is in a SharedWorker (worker.js), one for every tab of this origin; where there is
 // none, it is the same code in this page, behind a MessageChannel. Either way `createRpcBackend`
 // does what it does for every host that is not in the page's own heap, and this wraps it with
-// the three things a browser tab has that the others do not:
+// the four things a browser tab has that the others do not:
 //
 //   - the page's lifecycle. A tab that goes into the back/forward cache is not closed and not
 //     alive, and the worker has to be told, so that it neither holds the document for ever nor
@@ -12,14 +12,16 @@
 //   - permission. A folder the user granted last week may have to be granted again, and only a
 //     page, from a click, can ask (`reopen`)
 //   - the ways to open something that are not a link: a folder, a file, a drop (`welcome.js`)
-//   - the folder a document came from, listed for the left column (`folder`)
+//   - the files the tab has open, for the left column, which a window has a shell to keep
+//     (`openFiles`)
 //
 // Bundled to public/vendor/backend-web.js, and loaded only when `host.js` has said this is the
 // web app, so no other build downloads it.
 import { createRpcBackend } from '../../rpc/client.js';
 import { createIdbKv } from './idb.js';
-import { parseWebPath, webPath } from './handles.js';
-import { listMarkdown, mountWelcome } from './welcome.js';
+import { parseWebPath } from './handles.js';
+import { createOpenFiles, storageOf } from './open-files.js';
+import { mountWelcome } from './welcome.js';
 
 /** How often to tell the worker this page is still here. It lets go of a document after 30 s. */
 export const PING_MS = 10_000;
@@ -259,29 +261,13 @@ export async function createWebBackend({
     },
 
     /**
-     * The markdown in the folder the document on screen was opened from, for the left column:
-     * `{ name, current, capped, files: [{ rel, path }] }`, `path` being what `open` takes and
-     * `current` the `rel` of the document. Null when there is no such folder -- nothing open, a
-     * file picked on its own, a drop -- which the page says in words of its own.
-     *
-     * Read here and not by the worker. The page holds the same handle from the same store, the
-     * grant is the origin's and not the reader's, and the welcome lists a folder the same way;
-     * a round trip would add nothing but a second copy of the walk. It rejects when the folder
-     * cannot be read, a lapsed grant among them, and the page says that too.
+     * The files this tab has open, which the left column lists as the desktop app lists its
+     * tabs (`open-files.js`). Off `win`'s storage, so a test's window keeps a list in memory.
      */
-    async folder() {
-      const id = docId();
-      const was = id ? await kv.opened.get(id) : null;
-      const rec = was?.rootId ? await kv.roots.get(was.rootId) : null;
-      if (rec?.kind !== 'directory') return null;
-      const { files, capped } = await listMarkdown(rec.handle);
-      return {
-        name: rec.name,
-        current: was.rel,
-        capped,
-        files: files.map((rel) => ({ rel, path: webPath(was.rootId, rel) })),
-      };
-    },
+    openFiles: createOpenFiles({
+      tab: storageOf(win, 'sessionStorage'),
+      shared: storageOf(win, 'localStorage'),
+    }),
 
     /** Stop pinging and close the port. A page never needs this; a test does. */
     close() {

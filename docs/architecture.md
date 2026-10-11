@@ -342,7 +342,7 @@ is no component model — the document pane is `innerHTML` from the payload, thr
   `redline:shut`, and the ones that affect layout are mirrored onto `<html>` by an
   inline script in `index.html` **before first paint** — otherwise the window
   flashes at the wrong size, or with the marks on, on every open. `redline:shut` is the
-  list of folded sections, one key per disclosure (`files`, `folder`, `toc`, `hist`):
+  list of folded sections, one key per disclosure (`files`, `toc`, `hist`):
   `shutNow` reads every twist on the page, hidden ones too, so two sections under one
   key would undo each other. Whether there is a left column at all is decided there as
   well: `html.native` from `?native`, `html.web` from the web app's `host.js`, and with
@@ -506,17 +506,34 @@ connection on `versionchange`. The page learns the build from the shim the build
   - After the first document opens from a click the welcome asks for
     `navigator.storage.persist()`, once. It is a request the browser answers from how it has been
     used, and Firefox asks the user, which it may do only for a click.
-- **The left column is the folder.** A web page has one tab, so `#filesSec` (Open files,
-  `data-shell`) has nothing to list; `#folderSec` (`data-web`, shown only under `html.web`)
-  stands in for it. `backend.folder()` looks the document's id up in `opened`, and for a root
-  that is a directory walks it with the welcome's own `listMarkdown` — in the page, not the
-  worker: the grant is the origin's, and the page already holds the handle — answering `{ name,
-  current, capped, files: [{ rel, path }] }`, or null for no document, a file picked alone, or a
-  drop. `paintFolder` in `app.js` draws it as `.tab` rows, the current one filled, a click
-  `openFile(path)`. It walks again for a new document and whenever the column opens (`again`),
-  not for the change and history events that load the same one; the latest of two walks in
-  flight is the one drawn, and a walk that throws — a lapsed grant among them — says *Could not
-  list this folder* and is tried again on the next load.
+- **The left column is the open files, kept by the page.** A desktop window's are its tabs,
+  which the shell keeps and pushes over `md:tabs`; a browser tab has no shell, so
+  `backend.openFiles` (`open-files.js`) keeps the list, `{ id, path, name, dir, label }` in the
+  order opened, and `app.js` puts it in `state.tabs` for `paintTabs` to draw with the same
+  rows. Every way a document arrives — a pick, a drop, a link, a reload, the one a bare visit
+  resumes — ends in `load()`, which calls `noteOpen()`: the document joins the end of the list,
+  or is relabelled in place, and the column opens by itself at the second file while
+  `redline:side` is unset, as `onTabs` does. A row's click and × go through `selectTab` and
+  `closeTab`, which hand them to the shell in a window and to `switchTo` / `closeOpen` here.
+  `switchTo` is `openFile(path)` with the scroll kept in `scrollMemory` per id, and a file that
+  will not open stays listed and says *Could not open …*. `closeOpen` on the file on screen
+  goes to its neighbour (`close` answers which), and to `closeDocument()` — the welcome, with
+  nothing behind it — when there is none or it will not open; a neighbour refused for a lapsed
+  grant keeps the welcome asking for that folder, so granting it opens the file. `paintTabs`
+  remembers which document it drew around (`tabsFor`), so the change and history events that
+  load the same one again do not redraw the rows under the pointer.
+  - **Kept twice, under `redline:open`.** sessionStorage holds the tab's own, so a reload keeps
+    it and two tabs on the app each have one; localStorage holds the last list any tab wrote,
+    to seed a tab that has none of its own. Both are written on every change, and either
+    refusing is not an error — the list then lasts as long as the page. It is not a
+    preference and not in the head script: nothing about the layout depends on it, and the
+    rows are drawn by `app.js` before the first load, so a folder that has to be asked for
+    again does not hold the rest of them up.
+  - **A tab that closed everything is not handed a file back.** A bare address is given the
+    document a tab last showed (`last`), which after closing every file is the one just
+    closed. `closedAll()` — a list was kept and is empty — makes the startup show the welcome
+    instead of loading.
+  - `⌃⇥` and `⌘W` are the browser's and are not offered; switching and closing are the rows'.
 - **What the host cannot do is not offered** (`caps`, on every payload). `state.caps` is read in
   `adopt`, and `applyCaps` hides the `git HEAD` option of *Compare against* unless `caps.git`; a
   saved choice of git is shown as *Last read* where there is none. The option is `hidden` in the
@@ -525,8 +542,8 @@ connection on `versionchange`. The page learns the build from the shim the build
   (`showDiagramError`), and there is no Settings row for it to hide yet.
 - **What is not verified from here:** the pickers, a drop, `persist()` and how a `SharedWorker`
   calls `getFile()` and `queryPermission()` are behaviours of a browser. The tests stand in
-  fakes for them (test-smoke.js, 12d), and the layout and contrast of the welcome and of the
-  folder list have not been looked at.
+  fakes for them (test-smoke.js, 12d), and the layout and contrast of the welcome, and of the
+  open files in a browser, have not been looked at.
 
 ### Staging the page, and the web app's build
 

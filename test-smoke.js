@@ -655,12 +655,11 @@ assert.match(pageCss, /\.toc\.on::before/, 'and says which row that is');
 // choosing a file fades once it is chosen; Contents and History share the
 // right column, so a reader following a long document through a review can
 // have the map and the versions up together. All three fold away, each the
-// list its own column stops needing most often — and so does the web app's
-// folder, which stands where Open files does in a tab that has no tabs.
+// list its own column stops needing most often.
 assert.strictEqual(
   (pageHtml.match(/class="side-twist"/g) ?? []).length,
-  4,
-  'Open files, the folder, Contents and History are all disclosures',
+  3,
+  'Open files, Contents and History are all disclosures',
 );
 assert.match(pageHtml, /redline:shut/, 'and remember themselves before first paint');
 assert.match(pageJs, /prefs\.setItem\(SHUT_KEY/, 'and write that back');
@@ -669,11 +668,6 @@ assert.ok(pageCss.includes('.shut-toc #tocSec'), 'and Contents too');
 assert.ok(pageCss.includes('.shut-hist #histSec'), 'and History too');
 assert.match(pageHtml, /data-shut="hist"/, 'History shuts under its own key');
 assert.match(pageHtml, /k === "hist"/, 'restored before first paint, like the other two');
-// Its own key, not `files`: every twist on the page is read back into the one
-// list, the hidden one included, and two under one name would undo each other.
-assert.match(pageHtml, /data-shut="folder"/, 'the folder shuts under its own key');
-assert.match(pageHtml, /k === "folder"/, 'restored before first paint as well');
-assert.ok(pageCss.includes('.shut-folder #folderSec'), 'and folded away by the stylesheet');
 assert.match(pageHtml, /id="tocSide"[^>]*class="side side-r"/, 'the contents are their own column');
 assert.ok(pageCss.includes('.toc-open #tocSide'), 'laid out down the right');
 assert.ok(pageCss.includes('.toc-open main'), 'with the document keeping clear of it');
@@ -1110,7 +1104,7 @@ assert.ok(
 );
 assert.match(
   pageJs,
-  /if \(native\) \{\s*\/\/[^\n]*\n(\s*\/\/[^\n]*\n)*\s*await firstTabShown;\s*\} else if/,
+  /if \(native\) \{\s*\/\/[^\n]*\n(\s*\/\/[^\n]*\n)*\s*await firstTabShown;\s*\} else \{/,
   'a native window waits for that answer instead of calling load() itself',
 );
 // Watched only if it painted: with the web app's welcome up there is no document to watch.
@@ -4587,54 +4581,108 @@ const memoryKv = () => {
       console.log('✓ a drop on a document: the welcome for a folder, a notice for a refusal');
     }
 
-    // --- the folder in the left column: what the web app has instead of tabs ---
+    // --- the open files: what the web app keeps where a window has its shell's tabs ---
     {
-      const page = await openPage(hostW);
-      assert.strictEqual(await page.backend.folder(), null, 'with nothing open, no folder');
-      const shelf = tree('shelf', {
-        'index.md': '# Index\n',
-        notes: { 'a.md': '# A\n\nAy.\n', 'b.txt': 'bee\n' },
-        'pic.png': '',
-        '.hidden': { 'x.md': '' },
-      });
-      const { rootId } = await page.backend.addRoot(shelf);
-      page.id = (await page.backend.open(webPath(rootId, 'notes/a.md'))).id;
-      const listed = await page.backend.folder();
-      assert.deepStrictEqual(
-        listed,
-        {
-          name: 'shelf',
-          current: 'notes/a.md',
-          capped: false,
-          files: ['index.md', 'notes/a.md', 'notes/b.txt'].map((rel) => ({
-            rel,
-            path: webPath(rootId, rel),
-          })),
-        },
-        'a document from a folder lists the folder it came from, as the welcome does, itself named',
+      const { createOpenFiles, storageOf, OPEN_KEY } = await import(
+        './src/hosts/web/open-files.js'
       );
-      page.id = (await page.backend.open(listed.files[0].path)).id;
-      assert.match((await page.backend.doc()).text, /# Index/, 'a path from the list opens');
-      assert.strictEqual((await page.backend.folder()).current, 'index.md', 'and is then current');
-
-      const lone = await page.backend.addRoot(fileOf('lone.md', '# Lone\n'));
-      page.id = (await page.backend.open(webPath(lone.rootId, 'lone.md'))).id;
-      assert.strictEqual(await page.backend.folder(), null, 'a file picked by itself has none');
-      const dropped = await page.backend.addDrop({
-        name: 'dropped.md',
-        text: async () => '# Dropped\n',
-        lastModified: 5,
+      const store = () => {
+        const m = new Map();
+        return {
+          m,
+          getItem: (k) => (m.has(k) ? m.get(k) : null),
+          setItem: (k, v) => void m.set(k, String(v)),
+        };
+      };
+      const entry = (id, rel) => ({
+        id,
+        path: `web:r/${rel}`,
+        name: rel.split('/').pop(),
+        dir: 'shelf',
+        label: `shelf/${rel}`,
       });
-      page.id = (await page.backend.open(dropped)).id;
-      assert.strictEqual(await page.backend.folder(), null, 'and nor has a drop');
-      page.id = 'never-opened';
-      assert.strictEqual(await page.backend.folder(), null, 'nor an id this browser never made');
+      const shared = store();
+      const tabA = store();
+      const a = createOpenFiles({ tab: tabA, shared });
+      assert.deepStrictEqual(
+        [a.list(), a.closedAll()],
+        [[], false],
+        'a first visit has nothing open, and has not closed everything either',
+      );
+      assert.ok(a.note(entry('1', 'a.md')) && a.note(entry('2', 'b.md')), 'files join the list');
+      assert.ok(a.note(entry('3', 'c.md')), 'in the order they were opened');
+      assert.strictEqual(a.note(entry('1', 'a.md')), false, 'one open already is not added twice');
+      assert.ok(
+        a.note({ ...entry('1', 'a.md'), dir: 'shelf2', label: 'shelf2/a.md' }),
+        'but is relabelled, in place',
+      );
+      assert.deepStrictEqual(
+        a.list().map((t) => [t.id, t.dir]),
+        [['1', 'shelf2'], ['2', 'shelf'], ['3', 'shelf']],
+        'so the list is what was opened, in order, each once',
+      );
+      a.list()[0].name = 'scribbled';
+      assert.strictEqual(a.list()[0].name, 'a.md', 'and what it hands out is a copy');
 
-      page.id = (await page.backend.open(webPath(rootId, 'index.md'))).id;
-      shelf.entries = unreadable;
-      await rejection(page.backend.folder(), 'NotAllowedError');
-      assert.deepStrictEqual(unhandled, [], 'and a folder that cannot be read is a rejection only');
-      console.log('✓ the web app lists the folder a document came from, and none for a lone file');
+      const again = createOpenFiles({ tab: tabA, shared });
+      assert.deepStrictEqual(again.list(), a.list(), 'a reload of the tab has its list back');
+      const tabB = store();
+      const b = createOpenFiles({ tab: tabB, shared });
+      assert.deepStrictEqual(
+        b.list(),
+        a.list(),
+        'a tab with none of its own starts from the last list any tab kept, as a bare visit does',
+      );
+      b.note(entry('4', 'd.md'));
+      assert.strictEqual(
+        createOpenFiles({ tab: tabA, shared }).list().length,
+        3,
+        'and after that each tab keeps its own',
+      );
+
+      assert.strictEqual(a.close('2').id, '3', 'closing one goes to the file after it');
+      assert.strictEqual(a.close('3').id, '1', 'or, closing the last, to the one before');
+      assert.strictEqual(a.close('nope'), null, 'a file not in the list closes nothing');
+      assert.strictEqual(a.closedAll(), false, 'one left is not none');
+      assert.strictEqual(a.close('1'), null, 'and the last of them leaves nothing to go to');
+      assert.strictEqual(a.closedAll(), true, 'which is every file closed');
+      assert.strictEqual(
+        createOpenFiles({ tab: tabA, shared }).closedAll(),
+        true,
+        'and stays so on a reload, so a bare address does not hand the closed one back',
+      );
+
+      tabA.m.set(OPEN_KEY, '{not json');
+      shared.m.set(OPEN_KEY, JSON.stringify([entry('5', 'e.md'), { id: 6 }, null]));
+      assert.deepStrictEqual(
+        createOpenFiles({ tab: tabA, shared }).list().map((t) => t.id),
+        ['5'],
+        'a list that will not parse is no list, and an entry that is not one is dropped',
+      );
+      const refusing = {
+        getItem: () => null,
+        setItem: () => {
+          throw new Error('quota');
+        },
+      };
+      const mem = createOpenFiles({ tab: refusing, shared: null });
+      assert.ok(mem.note(entry('7', 'g.md')), 'storage that refuses is not a reason to fail');
+      assert.strictEqual(mem.list().length, 1, 'the list lasts as long as the page');
+      const blocked = {
+        get sessionStorage() {
+          throw Object.assign(new Error('blocked'), { name: 'SecurityError' });
+        },
+      };
+      assert.strictEqual(storageOf(blocked, 'sessionStorage'), null, 'nor is storage blocked');
+
+      const page = await openPage(hostW);
+      assert.deepStrictEqual(
+        page.backend.openFiles.list(),
+        [],
+        'the web backend has a list, off its window\'s storage, which a test window has none of',
+      );
+      assert.deepStrictEqual(unhandled, [], 'and none of it left a rejection nobody handled');
+      console.log('✓ the web app keeps the files a tab has open, per tab, and what was closed');
     }
   }
 
@@ -4861,10 +4909,11 @@ const memoryKv = () => {
     );
     console.log('✓ the page shows #welcome with no document or a lapsed grant, and hides git');
 
-    // The left column: the web app's folder where the desktop app has its tabs, and none at all
-    // in a CLI tab, which has neither. Whether there is a column is known before first paint, so
-    // the head script asks it as app.js does; a CLI tab that saved `side` open in a desktop
-    // window's origin -- `npm run dev` is one -- would otherwise open on an empty strip.
+    // The left column: the files open, the web app's as the desktop app's, and none at all in a
+    // CLI tab, which is handed one file and keeps no list. Whether there is a column is known
+    // before first paint, so the head script asks it as app.js does; a CLI tab that saved `side`
+    // open in a desktop window's origin -- `npm run dev` is one -- would otherwise open on an
+    // empty strip.
     const webAt = pageHtml.indexOf('if (globalThis.__REDLINE_WEB) document.documentElement');
     assert.ok(
       webAt > 0 && webAt < pageHtml.indexOf('const sideOn ='),
@@ -4896,44 +4945,91 @@ const memoryKv = () => {
     );
     assert.match(
       leftAside,
-      new RegExp(
-        '<section id="folderSec" class="side-sec side-grow" data-web>' +
-          '[\\s\\S]*id="folderName"[\\s\\S]*<nav id="folderList"',
-      ),
-      'the folder is a section of the left column, named for the folder',
+      /<section id="filesSec" class="side-sec side-grow">/,
+      'Open files is the left column wherever there is one, not only in the desktop app',
+    );
+    assert.ok(
+      !/folderSec|paintFolder|backend\.folder|data-web/.test(pageHtml + appJs + pageCss) &&
+        !/async folder\(\)/.test(backendSrc),
+      'and the folder list it replaces is gone, all of it',
     );
     assert.match(
-      pageCss,
-      /html:not\(\.web\) \[data-web\] \{\s+display: none;/,
-      'and the web app\'s alone',
+      appJs,
+      /const openFiles = backend\.openFiles \?\? null;\nif \(openFiles\) state\.tabs = /,
+      'the page takes the web backend\'s list as its tabs',
     );
-    const setSideFn = appJs.match(/function setSide\([\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /openFiles: createOpenFiles\(\{\s+tab: storageOf\(win, 'sessionStorage'\),/.test(
+        backendSrc,
+      ) && /\s+shared: storageOf\(win, 'localStorage'\),\s+\}\),/.test(backendSrc),
+      'which keeps it per tab, and the last one for a bare visit',
+    );
+    const selectFn = appJs.match(/function selectTab\([\s\S]*?\n\}/)?.[0] ?? '';
+    const closeTabFn = appJs.match(/function closeTab\([\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /if \(native\) native\.selectTab\(id\);\s+else switchTo\(id\);/.test(selectFn) &&
+        /if \(native\) native\.closeTab\(id\);\s+else closeOpen\(id\);/.test(closeTabFn),
+      'a row switches and closes through the shell in a window, and through the page in a tab',
+    );
+    assert.deepStrictEqual(
+      [/native\.selectTab\(/g, /native\.closeTab\(/g].map((re) => appJs.match(re)?.length),
+      [1, 1],
+      'and nothing calls the shell for it but those two, the rows and the menu included',
+    );
     const loadFn = appJs.match(/async function load\([\s\S]*?\n\}/)?.[0] ?? '';
+    const noteFn = appJs.match(/function noteOpen\([\s\S]*?\n\}/)?.[0] ?? '';
     assert.ok(
-      /paintTabs\(\);\s+paintFolder\(\{ again: true \}\);/.test(setSideFn) &&
-        /clearSidebars\(\);\s+paintFolder\(\);/.test(loadFn) &&
-        /paint\(\);\s+paintFolder\(\);/.test(loadFn),
-      'listed as the column opens, as a document loads, and emptied when there is none',
-    );
-    const folderFn = appJs.match(/async function paintFolder\([\s\S]*?\n\}/)?.[0] ?? '';
-    assert.ok(
-      /if \(!backend\.folder \|\| !state\.side\) return;/.test(folderFn) &&
-        /row\.addEventListener\('click', \(\) => openFile\(path\)\)/.test(folderFn) &&
-        /if \(run !== folderRun\) return;/.test(folderFn),
-      'only where a backend has a folder, a row opening its file, the later of two lists kept',
-    );
-    assert.strictEqual(
-      (appJs.match(/backend\.folder\b/g) ?? []).length,
-      2,
-      'and the backend is asked for one nowhere else',
+      /paint\(\);\s+noteOpen\(\);/.test(loadFn) &&
+        /if \(err\.name === 'NoDocument'\) \{[\s\S]*?closeDocument\(\);/.test(loadFn),
+      'every document shown is noted, whatever opened it, and one that is gone is put down',
     );
     assert.ok(
-      /async folder\(\) \{/.test(backendSrc) &&
-        /rec\?\.kind !== 'directory'\) return null;/.test(backendSrc) &&
-        /await listMarkdown\(rec\.handle\)/.test(backendSrc),
-      'which is the web backend, listing a folder the way the welcome does',
+      /if \(!openFiles\) return;/.test(noteFn) &&
+        /openFiles\.note\(\{\s+id: state\.docId,\s+path: d\.path,/.test(noteFn) &&
+        /=== null && state\.tabs\.length > 1\) setSide\(true, false\);/.test(noteFn),
+      'into the list, which opens the column at the second file as the desktop app does',
     );
-    console.log('✓ the left column lists the folder in the web app, and is not in a CLI tab');
+    const switchFn = appJs.match(/async function switchTo\([\s\S]*?\n\}/)?.[0] ?? '';
+    const closeFn = appJs.match(/async function closeOpen\([\s\S]*?\n\}/)?.[0] ?? '';
+    assert.ok(
+      /scrollMemory\.set\(state\.docId, pane\.scrollTop\)/.test(switchFn) &&
+        /await openFile\(t\.path, \{ unopened: /.test(switchFn) &&
+        /pane\.scrollTo\(0, scrollMemory\.get\(id\) \?\? 0\)/.test(switchFn),
+      'a switch opens the file by its path, and keeps the place in each',
+    );
+    assert.match(appJs, /if \(unopened\) notify\(unopened\);/, 'and says so when it cannot');
+    assert.ok(
+      /const next = openFiles\.close\(id\);/.test(closeFn) &&
+        /if \(id !== state\.docId\) return;/.test(closeFn) &&
+        /if \(next && \(await switchTo\(next\.id\)\)\) return;/.test(closeFn) &&
+        /\s+closeDocument\(\{ reopen: pendingLink \? welcomeAsks : null \}\);\n\}/.test(closeFn),
+      'closing the one on screen goes to its neighbour, and closing the last to the welcome',
+    );
+    assert.ok(
+      /if \(!t\) return false;/.test(switchFn) &&
+        /\.name\}\.` \}\)\)\) return false;/.test(switchFn) &&
+        /\n  return true;\n\}$/.test(switchFn) &&
+        /showWelcome\(\{ reopen \}\);/.test(appJs),
+      'as does a neighbour that will not open, still asking for its folder if that is why',
+    );
+    assert.match(
+      appJs,
+      new RegExp(
+        String.raw`if \(welcome\) \{[\s\S]{0,300}` +
+          String.raw`\$\('newTab'\)\.addEventListener\('click', \(\) => showWelcome\(\)\);`,
+      ),
+      'Open file… at the foot of the list puts up the welcome',
+    );
+    assert.match(
+      appJs,
+      new RegExp(
+        String.raw`\} else \{[^}]*?paintTabs\(\);\s+` +
+          String.raw`if \(!state\.docId && openFiles\?\.closedAll\(\)\) \{` +
+          String.raw`[^}]*?showWelcome\(\);\s+\} else if \(await load\(`,
+      ),
+      'drawn before the first load, and a tab that closed everything is not handed one back',
+    );
+    console.log('✓ the left column lists the files open in the web app, and is not in a CLI tab');
   }
 }
 

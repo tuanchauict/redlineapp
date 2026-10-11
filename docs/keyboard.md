@@ -15,7 +15,7 @@ alike.
 | `m` | Mark read |
 | `⌘F` | [Find in the document](reading.md#find-in-a-document) |
 | `⌘P` | [Print](reading.md#printing) |
-| `⌘B` | Show / hide the left sidebar — the open files, or the web app's folder; not in a CLI tab |
+| `⌘B` | Show / hide the left sidebar — the open files; not in a CLI tab |
 | `⌥⌘B` | Show / hide the right sidebar — contents and history |
 | `⌘,` | Settings |
 | Space / ⇧Space, Page Up / Page Down, ↑ / ↓, Home / End | Scroll the document |
@@ -30,6 +30,10 @@ the edge, so on the right-hand one it is ← that makes the column wider.
 document — **Open folder…**, **Open file…**, or a drop — and Escape, or **Back to the
 document**, goes back to it. The folder button before the document's name does the same.
 A CLI tab has neither: it is handed its file, and `⌘O` there is the browser's.
+
+What you open joins the [open files](reading.md#the-sidebars) in the left column, and that
+is where you switch between them and close them: `⌃⇥` and `⌘W` are the browser's own, for
+its tabs, and a page is not given them.
 
 ## The app menu
 

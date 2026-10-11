@@ -92,7 +92,8 @@ const state = {
   // the sidebar what is in it each time.
   toc: [],
   tocAt: -1,
-  // The window's other documents, in a native window. A browser tab has none.
+  // The open files: a native window's tabs, as the shell pushes them, or the
+  // web app's, as it keeps them itself (`openFiles`). A CLI tab has none.
   tabs: [],
   // Whether each sidebar is showing — the files down the left, the contents and
   // versions down the right. Read back from the classes the inline script set
@@ -115,6 +116,12 @@ const scrollMemory = new Map();
 // held in the page is made. The id is read per call rather than passed in,
 // because it is assigned by the other side and can change under the page.
 const backend = await createBackend({ docId: () => state.docId });
+
+// A browser tab has no shell to keep its open files, so the web app keeps them itself, and the
+// left column lists them as the desktop app lists its tabs. A CLI tab is handed one file and
+// has no list at all.
+const openFiles = backend.openFiles ?? null;
+if (openFiles) state.tabs = openFiles.list();
 
 /** Keep the id in the address too, so a reload comes back to this document. */
 function setDocId(id) {
@@ -222,6 +229,9 @@ if (welcome) {
   openBtn.addEventListener('click', () => {
     if (!backToDocument()) showWelcome();
   });
+  // The foot of the open files is the same way in: what is picked there joins the list.
+  $('newTab').title = 'Open a folder or a file (⌘O)';
+  $('newTab').addEventListener('click', () => showWelcome());
   // A step away from the document, and Escape is the step back. Not while Settings is up: the
   // Escape is the dialog's, and closes it alone.
   document.addEventListener('keydown', (e) => {
@@ -296,14 +306,7 @@ async function load({ keepScroll = true } = {}) {
     if (err.name === 'NoDocument') {
       // The id in the address is for a document that cannot be shown, and a reload would only
       // be told so again. (A lapsed permission keeps it: asking again is what brings it back.)
-      clearDocId();
-      state.data = null;
-      doc.replaceChildren();
-      clearSidebars();
-      paintFolder();
-      unwatch?.();
-      unwatch = null;
-      showWelcome();
+      closeDocument();
     } else {
       showWelcome({ reopen: welcomeAsks ?? 'this folder' });
     }
@@ -315,9 +318,24 @@ async function load({ keepScroll = true } = {}) {
   adopt(data);
   hideWelcome();
   paint();
-  paintFolder();
+  noteOpen();
   if (keepScroll) pane.scrollTo(0, y);
   return true;
+}
+
+/**
+ * Nothing on screen, and the welcome over the space where it was. The web app's alone.
+ * `reopen` is the folder it is to go on asking for, if it is asking.
+ */
+function closeDocument({ reopen = null } = {}) {
+  clearDocId();
+  state.data = null;
+  doc.replaceChildren();
+  clearSidebars();
+  paintTabs();
+  unwatch?.();
+  unwatch = null;
+  showWelcome({ reopen });
 }
 
 /**
@@ -396,6 +414,11 @@ function paint() {
   }
 }
 
+// Which document the list was last drawn around, so that the web app's change
+// and history events, which load the same one again, do not redraw it under the
+// pointer each time.
+let tabsFor = null;
+
 /**
  * The open files, one row each. The list lives in the sidebar; with it closed
  * the chevron next to the filename opens the same list as a menu, and appears
@@ -405,15 +428,16 @@ function paintTabs() {
   $('tabMenu').hidden = state.side || state.tabs.length < 2;
   if ($('tabMenu').hidden) closeTabMenu();
   if (!state.side) return;
+  tabsFor = state.docId;
 
   $('fileList').replaceChildren(
     ...state.tabs.map((t) => {
       const el = document.createElement('button');
       el.className = t.id === state.docId ? 'tab on' : 'tab';
-      el.title = t.path;
+      el.title = t.label ?? t.path;
       el.ariaCurrent = t.id === state.docId ? 'true' : 'false';
-      el.addEventListener('click', () => native.selectTab(t.id));
-      el.addEventListener('auxclick', (e) => e.button === 1 && native.closeTab(t.id));
+      el.addEventListener('click', () => selectTab(t.id));
+      el.addEventListener('auxclick', (e) => e.button === 1 && closeTab(t.id));
 
       // Name over directory: two files called README.md are told apart by the
       // only thing that differs, and it is the line that can be clipped.
@@ -437,7 +461,7 @@ function paintTabs() {
       x.setAttribute('aria-label', x.title);
       x.addEventListener('click', (e) => {
         e.stopPropagation();
-        native.closeTab(t.id);
+        closeTab(t.id);
       });
 
       el.append(label, x);
@@ -446,91 +470,91 @@ function paintTabs() {
   );
 }
 
+/** What a row does. The desktop app's tabs are the shell's to switch and close. */
+function selectTab(id) {
+  if (native) native.selectTab(id);
+  else switchTo(id);
+}
+
+function closeTab(id) {
+  if (native) native.closeTab(id);
+  else closeOpen(id);
+}
+
 /**
- * Whether there is a left column at all. The desktop app fills it with the
- * window's tabs and the web app with the folder the document came from; a CLI
- * tab has one file and neither, so there its button is gone (styles.css) and
- * ⌘B does nothing, rather than open an empty strip. The head script asks the
- * same question before first paint.
+ * Whether there is a left column at all. Both apps fill it with the files
+ * open; a CLI tab is handed one file and has no list, so there its button is
+ * gone (styles.css) and ⌘B does nothing, rather than open an empty strip. The
+ * head script asks the same question before first paint.
  */
 const leftColumn = document.documentElement.matches('.native, .web');
 
-// Which document the folder list was last built for, so that the change and
-// history events that load the same one again do not walk the folder each time.
-// Set when the walk starts rather than when it ends: the first load and the
-// sidebar's own first paint arrive together, and one walk is enough for both.
-let folderFor;
-let folderRun = 0;
+/**
+ * The web app's open files, brought up to date with the document just shown.
+ * Every way one arrives comes through `load` -- a pick in the welcome, a drop,
+ * a link, a reload, the document a bare visit resumes -- so this is the one
+ * place that keeps the list true to what is on screen, and a file it does not
+ * have joins it at the end.
+ */
+function noteOpen() {
+  if (!openFiles) return;
+  const d = state.data;
+  const changed = openFiles.note({
+    id: state.docId,
+    path: d.path,
+    name: d.name,
+    dir: d.dirLabel,
+    label: d.pathLabel,
+  });
+  if (!changed && tabsFor === state.docId) return;
+  state.tabs = openFiles.list();
+  // As in the desktop app: the column shows itself once there is a second
+  // file to choose between, until the toggle has been used either way.
+  if (prefs.getItem('redline:side') === null && state.tabs.length > 1) setSide(true, false);
+  paintTabs();
+}
 
 /**
- * The web app's left column: the markdown in the folder the document was opened
- * from, the document itself filled in, any other a click away. Listed again on
- * a new document and whenever the column is opened (`again`), which is when a
- * file added to the folder since shows up — the browser says nothing when one
- * is. Not built while the column is shut, as the tabs are not.
+ * Go to another of the web app's open files: the file it was opened by, the
+ * place in each kept as switching tabs keeps it. The one on screen is already
+ * there, unless the welcome is over it. Answers whether it is on screen now.
  */
-async function paintFolder({ again = false } = {}) {
-  if (!backend.folder || !state.side) return;
-  if (!again && folderFor === state.docId) return;
-  folderFor = state.docId;
-  const run = ++folderRun;
-  const list = $('folderList');
-  let f;
-  try {
-    f = await backend.folder();
-  } catch (err) {
-    if (run !== folderRun) return;
-    // A grant that lapsed is one of these, and the document says so with a
-    // button of its own; the list only has to not pretend. The next load tries
-    // again.
-    console.error('could not list the folder', err);
-    folderFor = null;
-    $('folderName').textContent = 'Files';
-    list.replaceChildren(el('p', 'side-empty', 'Could not list this folder.'));
-    return;
+async function switchTo(id) {
+  const t = state.tabs.find((o) => o.id === id);
+  if (!t) return false;
+  if (id === state.docId && state.data) {
+    backToDocument();
+    return true;
   }
-  // Two documents opened faster than a folder is walked: the later one's list.
-  if (run !== folderRun) return;
-  $('folderName').textContent = f?.name ?? 'Files';
-  if (!f) {
-    list.replaceChildren(
-      el(
-        'p',
-        'side-empty',
-        state.docId
-          ? 'This file was opened by itself. Open its folder to list the files beside it.'
-          : 'Open a folder to list its files here.',
-      ),
-    );
-    return;
+  // Not with the welcome over it: the pane is scrolled through the welcome then.
+  if (state.data && welcomeEl.hidden) scrollMemory.set(state.docId, pane.scrollTop);
+  if (!(await openFile(t.path, { unopened: `Could not open ${t.name}.` }))) return false;
+  pane.scrollTo(0, scrollMemory.get(id) ?? 0);
+  // Picking a row redraws the list under the click, so focus would be left
+  // nowhere and the arrow keys would stop scrolling.
+  const held = document.activeElement;
+  if (held === document.body || held?.closest('.side, .menu')) {
+    pane.focus({ preventScroll: true });
   }
+  return true;
+}
 
-  let on = null;
-  const rows = f.files.map(({ rel, path }) => {
-    const row = document.createElement('button');
-    const here = rel === f.current;
-    row.className = here ? 'tab on' : 'tab';
-    row.title = rel;
-    row.ariaCurrent = here ? 'true' : 'false';
-    if (here) on = row;
-    // The one on screen is already open, and opening it again would only drop
-    // the place in it.
-    else row.addEventListener('click', () => openFile(path));
-    // Name over the folder it is in, as the tabs are: two README.md are told
-    // apart by the line that can be clipped.
-    const cut = rel.lastIndexOf('/');
-    const label = el('span', 'label');
-    label.append(
-      el('span', 'label-name', rel.slice(cut + 1)),
-      el('span', 'label-dir', ltrPath(cut < 0 ? '' : rel.slice(0, cut))),
-    );
-    row.append(label);
-    return row;
-  });
-  if (!rows.length) rows.push(el('p', 'side-empty', 'No markdown in this folder.'));
-  if (f.capped) rows.push(el('p', 'side-empty', `Only the first ${rows.length} are listed.`));
-  list.replaceChildren(...rows);
-  on?.scrollIntoView({ block: 'nearest' });
+/**
+ * Close one of the web app's open files. One behind the document just leaves
+ * the list; the one on screen gives way to its neighbour, as closing a tab
+ * does, and the last of them leaves the welcome with nothing behind it.
+ */
+async function closeOpen(id) {
+  const next = openFiles.close(id);
+  state.tabs = openFiles.list();
+  paintTabs();
+  if (id !== state.docId) return;
+  if (next && (await switchTo(next.id))) return;
+  // A neighbour that would not open leaves the welcome too, not the file just
+  // closed on screen with no row of its own -- still asking for the
+  // neighbour's folder if that is why (the link `openFile` keeps for it), so
+  // that granting it opens the file.
+  closeDocument({ reopen: pendingLink ? welcomeAsks : null });
 }
 
 /** Remembered, because it is the kind of thing you set once and keep. */
@@ -548,7 +572,6 @@ function setSide(on, remember = true) {
   // The list is not built while the column is shut — there is nothing to
   // build it into — so opening it is what fills it.
   paintTabs();
-  paintFolder({ again: true });
 }
 
 /**
@@ -859,7 +882,7 @@ function openTabMenu() {
       b.append(tick, label);
       b.addEventListener('click', () => {
         closeTabMenu();
-        native.selectTab(t.id);
+        selectTab(t.id);
       });
       return b;
     }),
@@ -1283,7 +1306,8 @@ doc.addEventListener('click', (e) => {
  * app has windows, so a referenced file gets one of its own and the document
  * you came from stays open behind it. A tab has no windows to give, so it goes
  * where a link goes in a browser: in place, with the address updated, so
- * Reload comes back to what is on screen.
+ * Reload comes back to what is on screen. The web app's tab adds it to the
+ * files it has open, so the one you came from is still a click away.
  */
 doc.addEventListener('click', (e) => {
   const a = e.target.closest?.('a[href]');
@@ -3201,9 +3225,11 @@ function connect() {
  *
  * A path that will not open throws before anything is released, so the old
  * document is still there: reconnecting in `finally` leaves the page exactly
- * as it was, reading what it was reading.
+ * as it was, reading what it was reading. `unopened` is what to tell the user
+ * when it does not: a link that goes nowhere is the document being out of
+ * date, but a file picked from the open files is one they asked for by name.
  */
-async function openFile(path) {
+async function openFile(path, { unopened = null } = {}) {
   pendingLink = null;
   unwatch?.();
   unwatch = null;
@@ -3224,6 +3250,7 @@ async function openFile(path) {
       // not the reader breaking. Staying put is the answer, and the console is
       // where the reason goes.
       console.error('could not open', path, err);
+      if (unopened) notify(unopened);
     }
     return false;
   } finally {
@@ -3239,8 +3266,17 @@ if (native) {
   // Which document that is comes from `onTabs`'s first event instead -- see
   // `firstTabShown` above.
   await firstTabShown;
-} else if (await load({ keepScroll: false })) {
-  connect();
+} else {
+  // The web app's list is there before its document: a folder that has to be
+  // asked for again holds the load up, and the other files need not wait on it.
+  paintTabs();
+  if (!state.docId && openFiles?.closedAll()) {
+    // Every file this tab had was closed, and a bare address would be handed the
+    // document a tab last showed -- the one just closed, back as if it had not been.
+    showWelcome();
+  } else if (await load({ keepScroll: false })) {
+    connect();
+  }
 }
 // There is a document on screen, so the window can be shown. It was built
 // hidden: a window that appears empty and fills in a moment later reads as a

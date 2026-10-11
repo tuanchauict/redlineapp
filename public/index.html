@@ -21,8 +21,8 @@
       if (new URLSearchParams(location.search).has("native")) {
         document.documentElement.classList.add("native");
       }
-      // The web app's host.js, which runs first, says so; the left column lists
-      // the folder there, and the CSS needs to know before anything is drawn.
+      // The web app's host.js, which runs first, says so; it keeps open files of
+      // its own there, and the CSS needs to know before anything is drawn.
       if (globalThis.__REDLINE_WEB) document.documentElement.classList.add("web");
       // Contents used to share the left column with History, one of them
       // showing at a time. Each has a sidebar of its own now, so whichever you
@@ -40,10 +40,11 @@
       // down the right — and the width each was dragged to. All four before
       // first paint: the document's own padding is computed from them, so a
       // value missing here is the whole document reflowing on every open.
-      // A CLI tab has nothing for the left column to hold — one file, no tabs,
-      // no folder — so there it stays shut whatever was saved, the same way
-      // `leftColumn` keeps it shut in app.js; open, it is an empty strip that
-      // takes width from the document and pushes the padding off.
+      // A CLI tab has nothing for the left column to hold — it is handed one
+      // file and keeps no list — so there it stays shut whatever was saved,
+      // the same way `leftColumn` keeps it shut in app.js; open, it is an
+      // empty strip that takes width from the document and pushes the padding
+      // off.
       const sideOn =
         document.documentElement.matches(".native, .web") &&
         prefs.getItem("redline:side") === "1";
@@ -86,12 +87,11 @@
       if (prefs.getItem("redline:diff") === "0") {
         document.documentElement.classList.add("no-diff");
       }
-      // Whether Open files, the web app's folder, Contents or History were put
-      // away, so they do not unfold and fold again on every open.
+      // Whether Open files, Contents or History were put away, so they do
+      // not unfold and fold again on every open.
       try {
         for (const k of JSON.parse(prefs.getItem("redline:shut") || "[]")) {
           if (k === "files") document.documentElement.classList.add("shut-files");
-          if (k === "folder") document.documentElement.classList.add("shut-folder");
           if (k === "toc") document.documentElement.classList.add("shut-toc");
           if (k === "hist") document.documentElement.classList.add("shut-hist");
         }
@@ -274,9 +274,8 @@
          is the one list you stop needing once you have picked a file. It gets
          the left column to itself, so that choice fades once it is made
          instead of sitting next to the document asking to be looked at again.
-         The web app has no tabs, so it answers the same question with the
-         folder the document came from, and a CLI tab, with neither, has no
-         left column at all.
+         The web app's tab keeps a list of its own, the same rows; a CLI tab
+         is handed one file and has no left column at all.
 
          Contents and History both answer a question about *this* file: where
          am I in it, and what has changed in it. Keeping them on the one
@@ -292,8 +291,8 @@
          leaves the other holding the whole column; shutting both leaves the
          column empty rather than guessing which of the two you meant. -->
     <aside id="files" class="side">
-      <!-- Only the desktop app has other files to list, or can open one. -->
-      <section id="filesSec" class="side-sec side-grow" data-shell>
+      <!-- A window's tabs, or the files a web app tab has open. -->
+      <section id="filesSec" class="side-sec side-grow">
         <h2 class="side-head">
           <button class="side-twist" type="button" data-shut="files" aria-expanded="true">
             <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
@@ -309,21 +308,6 @@
           </svg>
           Open file…
         </button>
-      </section>
-      <!-- The web app's answer to the section above: one tab, but a folder it
-           was granted, so the files beside this one are a click away. Its own
-           fold key rather than `files`, because the fold state is saved from
-           every twist on the page and the hidden one would overwrite it. -->
-      <section id="folderSec" class="side-sec side-grow" data-web>
-        <h2 class="side-head">
-          <button class="side-twist" type="button" data-shut="folder" aria-expanded="true">
-            <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="m6.25 4 4 4-4 4" />
-            </svg>
-            <span id="folderName">Files</span>
-          </button>
-        </h2>
-        <nav id="folderList" class="side-list" aria-label="Files in this folder"></nav>
       </section>
     </aside>
 
