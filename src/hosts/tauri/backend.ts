@@ -14,19 +14,28 @@
 // Bundled to public/vendor/backend-tauri.js by scripts/build-web.mjs, and
 // loaded only when the shell has left its facts on the window, so a browser tab
 // never downloads a line of it.
+import type { Backend } from '../../contract/seam.js';
 import { createReader } from '../../reader/reader.js';
 import { DocStore } from '../../reader/store.js';
 import { installNative } from './native.js';
 import { tauriPlatform } from './platform.js';
+import type { Handoff } from './platform.js';
 
 /**
  * Open what the window was given and answer the page's questions about it.
  *
- * @param {object} opts
- * @param {() => string|null} opts.docId  The document being shown, read per call.
+ * `docId` is the document being shown, read per call.
+ *
+ * Returns `Backend`, so the compiler holds this end of the seam to the contract. It has no
+ * `open`, and `Backend.open` is optional for exactly that: the desktop app opens files through
+ * the shell's tabs.
  */
-export async function createTauriBackend({ docId }) {
-  const host = globalThis.__REDLINE_HOST ?? {};
+export async function createTauriBackend({
+  docId,
+}: {
+  docId: () => string | null;
+}): Promise<Backend> {
+  const host: Partial<Handoff> = globalThis.__REDLINE_HOST ?? {};
   const reader = await createReader({ platform: tauriPlatform });
 
   // The window's own half of the shell, installed before the page looks for it.

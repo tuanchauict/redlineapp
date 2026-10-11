@@ -1307,7 +1307,7 @@ console.log('✓ History paints, opens and is reached through the right column')
 // added by copying the first, which is exactly how one of the three gets
 // missed. The browser tab has no menu, so the key is the page's to catch.
 const menuRs = fs.readFileSync(rootUrl('shell/src/menu.rs'), 'utf8');
-const seamJs = fs.readFileSync(rootUrl('src/hosts/tauri/native.js'), 'utf8');
+const seamJs = fs.readFileSync(rootUrl('src/hosts/tauri/native.ts'), 'utf8');
 for (const [item, accel, event, hook] of [
   ['side', 'CmdOrCtrl+B', 'md:toggle-side', 'onToggleSide'],
   ['sidetoc', 'Alt+CmdOrCtrl+B', 'md:toggle-toc', 'onToggleToc'],
@@ -1316,7 +1316,9 @@ for (const [item, accel, event, hook] of [
   assert.ok(menuRs.includes(`with_id("${item}"`), `View has an item for ${item}`);
   assert.ok(menuRs.includes(`accelerator("${accel}")`), `under ${accel}`);
   assert.ok(menuRs.includes(`"${item}" => win::to_front(app, "${event}"`), `sending ${event}`);
-  assert.ok(seamJs.includes(`${hook}: (cb) => on('${event}'`), `the seam hears it as ${hook}`);
+  // Whatever `cb` is typed as: this is about which event reaches which hook, not about the type.
+  const hears = new RegExp(`${hook}: \\(cb\\b.*?\\) => on(?:<[^>]*>)?\\('${event}'`);
+  assert.match(seamJs, hears, `the seam hears it as ${hook}`);
   assert.ok(pageJs.includes(`native.${hook}(`), `and the page acts on ${hook}`);
 }
 assert.match(pageJs, /!native && e\.code === 'KeyB'/, 'a browser tab catches the key itself');
@@ -1414,7 +1416,8 @@ console.log('✓ find in document wired end to end');
 const hostRs = fs.readFileSync(rootUrl('shell/src/host.rs'), 'utf8');
 const winRs = fs.readFileSync(rootUrl('shell/src/win.rs'), 'utf8');
 assert.strictEqual(
-  (seamJs.match(/\blisten\(/g) ?? []).length,
+  // `listen<T>(` too: the type argument must not hide a registration from the count.
+  (seamJs.match(/\blisten(?:<[^>]*>)?\(/g) ?? []).length,
   1,
   'the seam registers for the shell in exactly one place',
 );
@@ -3156,7 +3159,7 @@ sixth.server.close();
   // Every backend the page can be handed takes the version along.
   for (const [f, through] of [
     ['./src/rpc/client.ts', /markRead: \(at\) => call(?:<\w+>)?\('markRead', docId\(\), at\),/],
-    ['./src/hosts/tauri/backend.js', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
+    ['./src/hosts/tauri/backend.ts', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
     ['./public/backend.js', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
     ['./src/hosts/web/worker.js', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
   ]) {
@@ -5301,7 +5304,7 @@ const memoryKv = () => {
     assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");
     assert.ok(
       /welcome: \(el, hooks\)/.test(backendSrc) &&
-        ['./src/hosts/tauri/backend.js', './public/backend.js', './src/rpc/client.ts'].every(
+        ['./src/hosts/tauri/backend.ts', './public/backend.js', './src/rpc/client.ts'].every(
           (f) => !/welcome|linkNote/.test(read(f)),
         ),
       'only the web backend has a welcome, so the page never shows one in a shell or a server',
@@ -6511,7 +6514,7 @@ assert.match(mainRs, /cmds::check_update,/, 'and registered, or the page is refu
 assert.match(menuRs, /with_id\("checkupdate", "Check for Updates…"\)/, 'the menu offers it');
 assert.match(menuRs, /"checkupdate" => win::to_front\(app, "md:check-update"/,
   'and hands it to the window in front');
-assert.match(seamJs, /onCheckUpdate: \(cb\) => on\('md:check-update'/, 'which listens for it');
+assert.match(seamJs, /onCheckUpdate: \(cb\b.*?\) => on\('md:check-update'/, 'which listens for it');
 assert.match(pageJs, /native\.onCheckUpdate\(/, 'and answers it');
 assert.match(pageHtml, /<section id="aboutSec" data-shell>/,
   'in a section only the desktop app shows');

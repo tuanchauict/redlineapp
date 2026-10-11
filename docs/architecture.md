@@ -51,13 +51,13 @@ src/rpc/                the page and the reader over messages; imports only rpc/
   serve.ts              the reader's end: answer a page's calls from a session
   client.ts             the page's end: the seam's shape, over `post` and `onMessage`
 src/hosts/node/         the CLI's shell
-  server.js             HTTP + SSE over the reader
-  platform.js           the platform over node
-  root.js               where the repository is, from any file, in source or compiled
+  server.ts             HTTP + SSE over the reader
+  platform.ts           the platform over node
+  root.ts               where the repository is, from any file, in source or compiled
 src/hosts/tauri/        the app's shell, in the page
-  platform.js           the platform over the shell's IPC, on core/paths.ts
-  native.js             `window.mdNative` over the shell's IPC
-  backend.js            the entry point the app's page imports
+  platform.ts           the platform over the shell's IPC, on core/paths.ts
+  native.ts             `window.mdNative` over the shell's IPC
+  backend.ts            the entry point the app's page imports
 src/hosts/web/          the web app's shell: no server, no node, files in IndexedDB
   kv-files.js           the store's file operations over a key-value store
   idb.js                that key-value store, over IndexedDB; the one file no test runs
@@ -465,7 +465,11 @@ an initialisation script: `globalThis.__REDLINE_HOST` (the platform, `$HOME`, th
 few environment variables that matter, the files this window opened on, the
 window's own label, and the app's version for the About row) and `window.mdNative`.
 Nothing is probed or fallen back from — by the time anything asks, the answer is
-already on the window.
+already on the window. Both are typed on the page's side: `Handoff` in
+`src/hosts/tauri/platform.ts` is `Handoff` in `shell/src/host.rs` field for field, and
+`MdNative` in `src/hosts/tauri/native.ts` is whatever `installNative` builds. The compiler
+cannot see across the language boundary, so a field added to the Rust struct is added to the
+interface by hand.
 
 The label is there so the page can say which window's events it wants; see the third
 of the [three Rust things](#the-desktop-shell) below for why that is not the default.
@@ -477,7 +481,7 @@ has neither a server nor the reader in the page, and the third is built on it):
 | | |
 | --- | --- |
 | No `__REDLINE_HOST` | `fetch` and an `EventSource` against the server the page came from. Reconnecting a dropped stream lives here, because that is a fact about http and means nothing further up |
-| `__REDLINE_HOST` | A dynamic import of `vendor/backend-tauri.js`, which builds the reader **in the page** over `hosts/tauri/platform.js` and calls it directly. A browser tab never downloads it |
+| `__REDLINE_HOST` | A dynamic import of `vendor/backend-tauri.js`, which builds the reader **in the page** over `hosts/tauri/platform.ts` and calls it directly. A browser tab never downloads it |
 | `__REDLINE_WEB` | A dynamic import of `vendor/backend-web.js`, which reaches the reader **in a SharedWorker** (`vendor/reader-worker.js`, over `hosts/web/platform.js`) through `createRpcBackend`, and adds what a tab has that the others do not. See below |
 
 All three expose the same methods with the same arguments, which is the whole point: the
@@ -681,7 +685,7 @@ disk, and nothing about what a document is. The reader is JavaScript in the webv
 either way, so porting the shell was porting the window management and none of the
 product.
 
-- **`host.rs`** is the disk, as `src/hosts/tauri/platform.js` asks for it: read, write,
+- **`host.rs`** is the disk, as `src/hosts/tauri/platform.ts` asks for it: read, write,
   mkdirp, read_dir, remove, rename, exists, modified, spawn. Writing and spawning
   are held to what the reader does; see
   [What a document can do](#what-a-document-can-do). Plus `__REDLINE_HOST` —
@@ -760,7 +764,7 @@ Four things about writing Rust here that cost time to learn:
   window went fullscreen. Left unscoped it showed up as one window's **Open files**
   listing another window's documents, or listing nothing under a document that was
   still on screen, and as the menu driving all the windows at once. One window
-  behaves perfectly, which is why it took a while to find. `src/hosts/tauri/native.js`
+  behaves perfectly, which is why it took a while to find. `src/hosts/tauri/native.ts`
   names its own label on every registration; an app-wide `emit` (`md:settings`)
   still arrives, because that one carries no filter to fail.
 

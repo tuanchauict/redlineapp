@@ -14,12 +14,43 @@
 // releases the ones the shell stops naming.
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 
+import type { Reader } from '../../reader/reader.js';
 import { storeRoot } from '../../reader/store.js';
 import { tauriPlatform } from './platform.js';
+import type { Handoff } from './platform.js';
+
+/** One tab as the page is given it: the shell's path, and the id the reader made of it. */
+export interface TabRow {
+  id: string;
+  path: string;
+  name: string;
+  /** Where the file is, with `~` for home. */
+  dir: string;
+}
+
+/** A window's tabs and the one on screen: as paths from the shell, as rows for the page. */
+interface TabList<Tab> {
+  tabs: Tab[];
+  active: string | null;
+}
+
+/** The preferences, as the shell keeps them: JSON, and the page knows which keys it wrote. */
+export type Settings = Record<string, unknown>;
+
+/** What `check_update` answers: `Update` in shell/src/cmds.rs. */
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  newer: boolean;
+  url: string;
+  /** Installed by Homebrew, so the upgrade has to go through Homebrew too. */
+  brew: boolean;
+}
 
 /** `~/Projects/atlas/docs`, the way a person would say it. */
-function homeRelative(abs, home) {
+function homeRelative(abs: string | null | undefined, home: string | undefined): string {
   if (!home || !abs) return abs ?? '';
   if (abs === home) return '~';
   return abs.startsWith(home + '/') ? '~' + abs.slice(home.length) : abs;
@@ -29,15 +60,14 @@ function homeRelative(abs, home) {
  * Install the shell bridge on the window, and answer with the one part of it
  * the caller needs to drive: the tab list.
  *
- * @param {object} opts
- * @param {import('../../reader/reader.js').Reader} opts.reader  Already created, and ours to hold documents in.
+ * `reader` is already created, and ours to hold documents in.
  */
-export function installNative({ reader }) {
-  const host = globalThis.__REDLINE_HOST ?? {};
+export function installNative({ reader }: { reader: Reader }) {
+  const host: Partial<Handoff> = globalThis.__REDLINE_HOST ?? {};
 
   /** The documents this window holds, path -> id, one reference each. */
-  const held = new Map();
-  const pathOf = (id) => [...held].find(([, of]) => of === id)?.[0] ?? null;
+  const held = new Map<string, string>();
+  const pathOf = (id: string): string | null => [...held].find(([, of]) => of === id)?.[0] ?? null;
 
   /**
    * Make the documents this page holds match the list the shell names.
@@ -47,7 +77,7 @@ export function installNative({ reader }) {
    * file that arrives twice does not need two closes to be let go of, and a
    * window that loses a tab actually stops polling it.
    */
-  async function sync(paths) {
+  async function sync(paths: string[]): Promise<TabRow[]> {
     // One `retain` apiece, at once rather than in a line: each opens its own
     // file, store and git subprocess, so a window restoring four tabs was
     // paying for them one after another -- the sidebar sitting empty for the
@@ -85,7 +115,7 @@ export function installNative({ reader }) {
   // Every registration so far. A registration is itself a message to the other
   // side, so asking for something immediately after registering for the answer
   // is a race -- `requestTabs` waits these out rather than assuming an order.
-  const listening = [];
+  const listening: Promise<UnlistenFn>[] = [];
 
   /**
    * Register for one of the shell's announcements -- the ones meant for *this*
@@ -105,8 +135,8 @@ export function installNative({ reader }) {
    * listener with no filter to fail matches everything. So `md:settings`, which
    * really is for every window, keeps working.
    */
-  const on = (event, cb) => {
-    const off = listen(event, ({ payload }) => cb(payload), { target: host.label });
+  const on = <T>(event: string, cb: (payload: T) => void): (() => void) => {
+    const off = listen<T>(event, ({ payload }) => cb(payload), { target: host.label });
     listening.push(off);
     return () => off.then((f) => f()).catch(() => {});
   };
@@ -117,17 +147,17 @@ export function installNative({ reader }) {
     platform: host.os ?? 'darwin',
 
     // --- documents ---------------------------------------------------------
-    openPaths: (paths) => invoke('open_paths', { paths }),
-    pickFile: () => invoke('pick_file'),
+    openPaths: (paths: string[]) => invoke<void>('open_paths', { paths }),
+    pickFile: () => invoke<void>('pick_file'),
     requestTabs: async () => {
       await Promise.allSettled(listening);
-      return invoke('tabs');
+      return invoke<void>('tabs');
     },
-    selectTab: (id) => invoke('select_tab', { path: pathOf(id) }),
-    closeTab: (id) => invoke('close_tab', { path: pathOf(id) }),
+    selectTab: (id: string) => invoke<void>('select_tab', { path: pathOf(id) }),
+    closeTab: (id: string) => invoke<void>('close_tab', { path: pathOf(id) }),
 
-    onTabs(cb) {
-      const off = on('md:tabs', async ({ tabs, active }) => {
+    onTabs(cb: (state: TabList<TabRow>) => void) {
+      const off = on<TabList<string>>('md:tabs', async ({ tabs, active }) => {
         const rows = await sync(tabs);
         // Answered in ids, because that is what the page asks the backend for.
         cb({ tabs: rows, active: held.get(active) ?? rows[0]?.id ?? null });
@@ -136,29 +166,29 @@ export function installNative({ reader }) {
     },
 
     // --- preferences -------------------------------------------------------
-    settings: () => invoke('settings'),
-    setSettings: (patch) => invoke('set_settings', { patch }),
-    onSettings: (cb) => on('md:settings', cb),
+    settings: () => invoke<Settings>('settings'),
+    setSettings: (patch: Settings) => invoke<Settings>('set_settings', { patch }),
+    onSettings: (cb: (settings: Settings) => void) => on('md:settings', cb),
     storeRoot: () => storeRoot(tauriPlatform),
-    revealStore: async () => invoke('reveal', { path: await storeRoot(tauriPlatform) }),
+    revealStore: async () => invoke<void>('reveal', { path: await storeRoot(tauriPlatform) }),
 
     // --- this copy ---------------------------------------------------------
     version: host.version ?? '',
     /** The one request this app makes off the machine; see cmds::check_update. */
-    checkUpdate: () => invoke('check_update'),
-    onCheckUpdate: (cb) => on('md:check-update', () => cb()),
+    checkUpdate: () => invoke<UpdateInfo>('check_update'),
+    onCheckUpdate: (cb: () => void) => on('md:check-update', () => cb()),
 
     // --- the menu, and the window ------------------------------------------
-    onOpenSettings: (cb) => on('md:open-settings', () => cb()),
-    onFullscreen: (cb) => on('md:fullscreen', cb),
-    onToggleSide: (cb) => on('md:toggle-side', () => cb()),
-    onToggleToc: (cb) => on('md:toggle-toc', () => cb()),
-    onToggleView: (cb) => on('md:toggle-view', () => cb()),
-    onToggleDiff: (cb) => on('md:toggle-diff', () => cb()),
-    onMarkRead: (cb) => on('md:mark-read', () => cb()),
-    onNextChange: (cb) => on('md:next-change', () => cb()),
-    onPrevChange: (cb) => on('md:prev-change', () => cb()),
-    onFind: (cb) => on('md:find', () => cb()),
+    onOpenSettings: (cb: () => void) => on('md:open-settings', () => cb()),
+    onFullscreen: (cb: (on: boolean) => void) => on('md:fullscreen', cb),
+    onToggleSide: (cb: () => void) => on('md:toggle-side', () => cb()),
+    onToggleToc: (cb: () => void) => on('md:toggle-toc', () => cb()),
+    onToggleView: (cb: () => void) => on('md:toggle-view', () => cb()),
+    onToggleDiff: (cb: () => void) => on('md:toggle-diff', () => cb()),
+    onMarkRead: (cb: () => void) => on('md:mark-read', () => cb()),
+    onNextChange: (cb: () => void) => on('md:next-change', () => cb()),
+    onPrevChange: (cb: () => void) => on('md:prev-change', () => cb()),
+    onFind: (cb: () => void) => on('md:find', () => cb()),
 
     /**
      * A file is being dragged over the window, or is not any more.
@@ -167,15 +197,25 @@ export function installNative({ reader }) {
      * handed the paths only once they land -- which is also why there is no
      * `pathForFile` here. A dropped `File` in a webview has no path at all.
      */
-    onDrag: (cb) => on('md:drag', cb),
+    onDrag: (cb: (over: boolean) => void) => on('md:drag', cb),
 
     /** A link out of the document, opened where links belong. */
-    openExternal: (url) => invoke('open_external', { url }),
+    openExternal: (url: string) => invoke<void>('open_external', { url }),
 
     /** Something is on screen, so the window can stop being hidden. */
-    ready: () => invoke('ready'),
+    ready: () => invoke<void>('ready'),
   };
 
   window.mdNative = mdNative;
-  return { sync };
+  return { sync, mdNative };
+}
+
+/** The window's half of the shell, which is all the page knows of which shell it is on. */
+export type MdNative = ReturnType<typeof installNative>['mdNative'];
+
+declare global {
+  interface Window {
+    /** Left by `installNative`, for the page to find. Absent in a browser tab. */
+    mdNative?: MdNative;
+  }
 }
