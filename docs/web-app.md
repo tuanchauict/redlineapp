@@ -33,10 +33,19 @@ front of it, so the first visit opens on a welcome with three ways in:
 
 A file that is not markdown is refused before anything is granted.
 
-There is no menu. With a document open, the **folder button** before its name and **⌘O**
-(Ctrl+O elsewhere) put the welcome up over it, with the same three ways in and a **Back to the
-document**. The button again, that link or Escape takes it down. Dropping a file or folder on
-the window opens it too, and so does a new tab ([the keys](keyboard.md#in-the-web-app)).
+There is no menu. With a document open, **⌘O** (Ctrl+O elsewhere) and **Open file…** at the
+foot of the left column are the browser's file picker, and the file you pick joins the open
+files ([the keys](keyboard.md#in-the-web-app)). A file dropped on the window joins them too. A
+folder dropped puts the welcome up over the document, listing the folder's files, with **Back
+to the document**; Escape takes it down as well.
+
+### Open files
+
+The left column lists the files the tab has open, as the Mac app's tabs do
+([The sidebars](reading.md#the-sidebars)). Whatever you open joins the end: a file picked or
+dropped, a link followed, a document a bare visit reopens. Click a row to go back to a file,
+where you left it; × or a middle click closes one, and closing the file on screen shows its
+neighbour, or the welcome if it was the last. The list is the tab's own and a reload keeps it.
 
 ### Which browsers
 
@@ -71,7 +80,9 @@ The address carries the document's id, `?id=…`, so a reload opens the same doc
 visit to the bare address, a bookmark or a new tab, opens the last document a tab showed, and
 goes the way a reload does. There is one such document for the browser profile, not one per
 tab: a new tab is not the one that was closed. A document opened from a granted folder or file
-is remembered. A copy is not, because it lives only in the reader's memory.
+is remembered. A copy is not, because it lives only in the reader's memory. A new tab starts its
+open files from the list a tab last had, and a tab whose files you all closed starts at the
+welcome instead of reopening the last of them.
 
 A browser decides how long a folder you granted stays granted. If it has lapsed, the page says
 *Redline needs your permission to read* the folder *again*, with a **Reopen** button named for
@@ -107,7 +118,9 @@ In the browser's **IndexedDB**, in a database called `redline`, which belongs to
 | `roots` | The folders and files you have granted, as the handles the browser gave |
 | `opened` | Which granted folder each document came from, so that a reload can find it, and the last document a tab showed, so that a bare visit can |
 
-Your settings are in the origin's `localStorage`.
+Your settings are in the origin's `localStorage`. A tab's open files are in its own
+`sessionStorage`, under `redline:open`, and the last list any tab wrote is in `localStorage`
+too, for a new tab to start from.
 
 What follows from that:
 

@@ -5410,6 +5410,13 @@ const memoryKv = () => {
   assert.match(read('./scripts/serve-webapp.mjs'), /^const DEFAULT_PORT = 8081;$/m);
   assert.ok(doc.includes('http://127.0.0.1:8081'), 'and the address the server answers on');
 
+  // The open files, under the key the code keeps them by. And the way to another file as the page
+  // has it: the bar once had a folder button for the welcome, and a doc that still offers it sends
+  // a person looking for something that is not there.
+  const { OPEN_KEY } = await import('./src/hosts/web/open-files.js');
+  assert.ok(doc.includes(`under \`${OPEN_KEY}\``), 'the open files are kept where it says');
+  assert.ok(!/folder button/.test(doc), 'and no button in the bar puts the welcome up');
+
   // The plan this was built to was kept out of the repository, so anything here that cites it
   // cites a document a reader of the repository cannot open. What it decided is in docs/. The
   // needle is built in two so that this file is not the match.
