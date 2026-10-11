@@ -1663,7 +1663,7 @@ html:not(.native) [data-shell] {
 }
 
 /* Every shell that can be dropped on: the desktop app's drag is a message from the shell, and
-   the web app's is the page's own `dragenter` (src/hosts/web/welcome.js). */
+   the web app's is the page's own `dragenter` (src/hosts/web/welcome.ts). */
 .dropping main::after {
   content: "Drop markdown files to open them";
   position: fixed;

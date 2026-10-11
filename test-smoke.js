@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -159,7 +160,7 @@ assert.ok(out.error && !out.svg, `a failing jar yields an error, not a crash: ${
 // stdin stream ends the process -- no rejection to catch, the whole run gone.
 // A bogus jar finds it only on a machine where java loses the race, so it is
 // provoked here directly: more than a pipe buffer of input, into a command that
-// is already finished. Without the handler in platform-node.js this line does
+// is already finished. Without the handler in src/hosts/node/platform.ts this line does
 // not fail the suite, it kills it.
 const unread = await nodePlatform.spawn('true', [], { input: 'x'.repeat(1024 * 1024) });
 assert.strictEqual(unread.code, 0, 'a child that never reads its input is not a crash');
@@ -512,6 +513,67 @@ for (const [re, bad, good] of [
   assert.strictEqual([...good.matchAll(re)].length, 0, `${re} lets ${good} through`);
 }
 console.log('✓ contract/ is types only, and imported as such');
+
+// The contract is checked by tsc, so what a test can say is that it is wired -- each host names
+// it in its signature, and a host that stopped saying so would stop being checked without a
+// word -- and that it can fail: a Backend with a method left out, and one whose `fonts` answers
+// the session's shape and not the page's, must both be refused by the compiler the build runs.
+for (const [file, sig] of [
+  ['src/hosts/tauri/backend.ts', /\): Promise<Backend>/],
+  ['src/rpc/client.ts', /\): RpcBackend\b/],
+  ['src/hosts/web/backend.ts', /\): Promise<WebBackend>/],
+  ['src/reader/session.ts', /\): Session\b/],
+  ['src/hosts/web/worker.ts', /function sessionFor\(.*\): Session\b/],
+  ['src/reader/reader.ts', /Promise<DocPayload>/],
+  ['src/hosts/node/platform.ts', /: Platform = /],
+  ['src/hosts/tauri/platform.ts', /: Platform = /],
+  ['src/hosts/web/platform.ts', /\): Platform\b/],
+]) {
+  const text = fs.readFileSync(fileURLToPath(rootUrl(file)), 'utf8');
+  assert.match(text, sig, `${file} names the type it implements`);
+}
+const fixtures = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-contract-'));
+try {
+  const seam = path
+    .relative(fixtures, fileURLToPath(rootUrl('src/contract/seam.js')))
+    .split(path.sep)
+    .join('/');
+  // One compile for all three, so it costs one tsc start. `good.ts` is the control: if the
+  // import could not be resolved it would fail too, and the other two would pass for the wrong
+  // reason.
+  const backend = (omit, fonts) =>
+    `import type { Backend } from '${seam}';\n` +
+    'export const b: Backend = {\n' +
+    '  doc: async () => null,\n' +
+    (omit === 'markRead' ? '' : '  markRead: async () => null,\n') +
+    '  ack: async () => [],\n' +
+    '  prune: async () => null,\n' +
+    '  plantumlSvg: async () => ({ svg: "" }),\n' +
+    `  fonts: async () => ${fonts},\n` +
+    '  watch: () => () => {},\n' +
+    '};\n';
+  fs.writeFileSync(path.join(fixtures, 'good.ts'), backend(null, '[]'));
+  fs.writeFileSync(path.join(fixtures, 'missing.ts'), backend('markRead', '[]'));
+  fs.writeFileSync(path.join(fixtures, 'shape.ts'), backend(null, '({ fonts: [] })'));
+  const tsc = spawnSync(
+    fileURLToPath(rootUrl('node_modules/.bin/tsc')),
+    ['--noEmit', '--pretty', 'false', '--strict', 'false', '--skipLibCheck', '--target', 'es2022',
+      '--module', 'esnext', '--moduleResolution', 'bundler',
+      ...['good', 'missing', 'shape'].map((f) => path.join(fixtures, `${f}.ts`))],
+    { encoding: 'utf8' },
+  );
+  // tsc prints paths relative to where it was run, so the file is found by its name.
+  const errors = (f) => tsc.stdout.split('\n').filter((l) => l.includes(`/${f}(`));
+  assert.deepStrictEqual(errors('good.ts'), [], `a correct Backend compiles: ${tsc.stdout}`);
+  assert.match(errors('missing.ts').join('\n'), /markRead/,
+    `tsc refuses a Backend with a method missing, and says which: ${tsc.stdout}`);
+  assert.match(errors('shape.ts').join('\n'), /fonts/,
+    `tsc refuses a fonts() in the session's shape: ${tsc.stdout}`);
+  assert.notStrictEqual(tsc.status, 0, 'so tsc exits non-zero');
+} finally {
+  fs.rmSync(fixtures, { recursive: true, force: true });
+}
+console.log('✓ the contract is wired into every host, and can fail');
 
 // core/paths.js agrees with node:path on the cases it claims. Not claimed: a trailing
 // separator on dirname, and the root of a drive (`C:\a` has dirname `C:`, node says `C:\`).
@@ -1307,7 +1369,7 @@ console.log('✓ History paints, opens and is reached through the right column')
 // added by copying the first, which is exactly how one of the three gets
 // missed. The browser tab has no menu, so the key is the page's to catch.
 const menuRs = fs.readFileSync(rootUrl('shell/src/menu.rs'), 'utf8');
-const seamJs = fs.readFileSync(rootUrl('src/hosts/tauri/native.js'), 'utf8');
+const seamJs = fs.readFileSync(rootUrl('src/hosts/tauri/native.ts'), 'utf8');
 for (const [item, accel, event, hook] of [
   ['side', 'CmdOrCtrl+B', 'md:toggle-side', 'onToggleSide'],
   ['sidetoc', 'Alt+CmdOrCtrl+B', 'md:toggle-toc', 'onToggleToc'],
@@ -1316,7 +1378,9 @@ for (const [item, accel, event, hook] of [
   assert.ok(menuRs.includes(`with_id("${item}"`), `View has an item for ${item}`);
   assert.ok(menuRs.includes(`accelerator("${accel}")`), `under ${accel}`);
   assert.ok(menuRs.includes(`"${item}" => win::to_front(app, "${event}"`), `sending ${event}`);
-  assert.ok(seamJs.includes(`${hook}: (cb) => on('${event}'`), `the seam hears it as ${hook}`);
+  // Whatever `cb` is typed as: this is about which event reaches which hook, not about the type.
+  const hears = new RegExp(`${hook}: \\(cb\\b.*?\\) => on(?:<[^>]*>)?\\('${event}'`);
+  assert.match(seamJs, hears, `the seam hears it as ${hook}`);
   assert.ok(pageJs.includes(`native.${hook}(`), `and the page acts on ${hook}`);
 }
 assert.match(pageJs, /!native && e\.code === 'KeyB'/, 'a browser tab catches the key itself');
@@ -1414,7 +1478,8 @@ console.log('✓ find in document wired end to end');
 const hostRs = fs.readFileSync(rootUrl('shell/src/host.rs'), 'utf8');
 const winRs = fs.readFileSync(rootUrl('shell/src/win.rs'), 'utf8');
 assert.strictEqual(
-  (seamJs.match(/\blisten\(/g) ?? []).length,
+  // `listen<T>(` too: the type argument must not hide a registration from the count.
+  (seamJs.match(/\blisten(?:<[^>]*>)?\(/g) ?? []).length,
   1,
   'the seam registers for the shell in exactly one place',
 );
@@ -2232,7 +2297,7 @@ console.log('✓ check a change off');
     'old ones survive a new check-off, and a version that is not one of ours is not kept',
   );
 }
-const serverJsSrc = fs.readFileSync(rootUrl('src/hosts/node/server.js'), 'utf8');
+const serverJsSrc = fs.readFileSync(rootUrl('src/hosts/node/server.ts'), 'utf8');
 assert.match(serverJsSrc, /at: param\('at'\)/, 'the server passes the version a change was checked in');
 assert.match(pageJs, /backend\.ack\(\{ key, on, at: state\.data\?\.hash, block \}\)/, 'and the page sends it');
 assert.match(pageJs, /from: data\.ackedFrom/, 'and renders against what came back');
@@ -3156,9 +3221,9 @@ sixth.server.close();
   // Every backend the page can be handed takes the version along.
   for (const [f, through] of [
     ['./src/rpc/client.ts', /markRead: \(at\) => call(?:<\w+>)?\('markRead', docId\(\), at\),/],
-    ['./src/hosts/tauri/backend.js', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
+    ['./src/hosts/tauri/backend.ts', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
     ['./public/backend.js', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
-    ['./src/hosts/web/worker.js', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
+    ['./src/hosts/web/worker.ts', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
   ]) {
     assert.match(fs.readFileSync(rootUrl(f), 'utf8'), through, `${f} passes the version on`);
   }
@@ -3192,7 +3257,7 @@ sixth.server.close();
 
   // And the layer between is wired: the server answers through the session, not around it.
   assert.match(
-    fs.readFileSync(rootUrl('src/hosts/node/server.js'), 'utf8'),
+    fs.readFileSync(rootUrl('src/hosts/node/server.ts'), 'utf8'),
     /createSession\(reader\)/,
     'the http routes are the session',
   );
@@ -3291,7 +3356,7 @@ sixth.server.close();
   );
   await assert.rejects(nodePlatform.writeText(path.join(tmp, 'no', 'such', 'dir.json'), 'x'));
   assert.match(
-    fs.readFileSync(rootUrl('src/hosts/node/platform.js'), 'utf8'),
+    fs.readFileSync(rootUrl('src/hosts/node/platform.ts'), 'utf8'),
     /\.writing/,
     'the node platform writes through a temporary file',
   );
@@ -3376,7 +3441,7 @@ sixth.server.close();
 
 // IndexedDB as a Map, for 12c and 12d. `tx` stages what `fn` does and keeps it only if `fn`
 // finishes, one transaction at a time: the two things a readwrite transaction gives. What a Map
-// cannot do is end a transaction early, which is the thing `idb.js` has to be built not to need.
+// cannot do is end a transaction early, which is the thing `idb.ts` has to be built not to need.
 const memoryKv = () => {
   const data = new Map();
   const seen = { puts: 0 };
@@ -3411,7 +3476,7 @@ const memoryKv = () => {
 };
 
 // --- 12c. the store over a key-value store, and the web platform -------------------------
-// What the web app runs on, with a Map where IndexedDB will be. `idb.js` is the one file here
+// What the web app runs on, with a Map where IndexedDB will be. `idb.ts` is the one file here
 // that is only imported and never run: node has no IndexedDB and this repository has no browser,
 // so how it handles a transaction is held by how it is written, and checked by reading it.
 // (docs/architecture.md, The web app's reader)
@@ -3788,7 +3853,7 @@ const memoryKv = () => {
   assert.strictEqual(JSON.stringify([...kv2.data]), stored, 'and the store is as it was');
   assert.deepStrictEqual(touched, [], 'no handle was asked to write, create or remove anything');
   assert.doesNotMatch(
-    fs.readFileSync(rootUrl('src/hosts/web/platform.js'), 'utf8'),
+    fs.readFileSync(rootUrl('src/hosts/web/platform.ts'), 'utf8'),
     /createWritable|removeEntry|create:\s*true/,
     'the web platform has no way to write a document',
   );
@@ -3826,7 +3891,7 @@ const memoryKv = () => {
   );
   rdr.closeAll();
 
-  // idb.js is imported, never run. It is not allowed to reach for `indexedDB` before it is
+  // idb.ts is imported, never run. It is not allowed to reach for `indexedDB` before it is
   // called, or node could not import it; and the two lines below are what the traps in it come
   // down to, so they are held by a grep for want of a browser.
   const hadIdb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
@@ -3840,7 +3905,7 @@ const memoryKv = () => {
   try {
     const { createIdbKv, STORES } = await import('./src/hosts/web/idb.js');
     const idb = createIdbKv('files');
-    assert.strictEqual(reached, 0, 'idb.js is imported, and a kv made, without touching indexedDB');
+    assert.strictEqual(reached, 0, 'idb.ts is imported, and a kv made, without touching indexedDB');
     assert.deepStrictEqual(
       STORES,
       ['files', 'roots', 'opened'],
@@ -3849,7 +3914,7 @@ const memoryKv = () => {
     assert.deepStrictEqual(
       Object.keys(idb).sort(),
       ['del', 'get', 'keys', 'put', 'tx'],
-      'and the five calls kv-files.js asks of a kv',
+      'and the five calls kv-files.ts asks of a kv',
     );
     await assert.rejects(
       () => idb.get('k'),
@@ -3861,7 +3926,7 @@ const memoryKv = () => {
     if (hadIdb) Object.defineProperty(globalThis, 'indexedDB', hadIdb);
     else delete globalThis.indexedDB;
   }
-  const idbSrc = fs.readFileSync(rootUrl('src/hosts/web/idb.js'), 'utf8');
+  const idbSrc = fs.readFileSync(rootUrl('src/hosts/web/idb.ts'), 'utf8');
   assert.match(
     idbSrc,
     /IDBKeyRange\.bound\(prefix, prefix \+ '\\uffff'\)/,
@@ -4041,7 +4106,7 @@ const memoryKv = () => {
     console.log('✓ a poll that cannot read the file says so once, and says when it can again');
   }
 
-  // --- handles.js ----------------------------------------------------------------------
+  // --- handles.ts ----------------------------------------------------------------------
   {
     const stores = newStores();
     let n = 0;
@@ -5153,20 +5218,20 @@ const memoryKv = () => {
     'createBackend picks the web backend, after the shell and before http',
   );
   const buildWeb = read('./scripts/build-web.mjs');
-  assert.match(buildWeb, /hosts\/web\/backend\.js.*backend-web\.js/, 'backend-web.js is built');
-  assert.match(buildWeb, /hosts\/web\/worker\.js.*reader-worker\.js/, 'reader-worker.js is built');
+  assert.match(buildWeb, /hosts\/web\/backend\.ts.*backend-web\.js/, 'backend-web.js is built');
+  assert.match(buildWeb, /hosts\/web\/worker\.ts.*reader-worker\.js/, 'reader-worker.js is built');
   assert.match(
     read('./scripts/stage-page.mjs'),
     /web: \{\s*bundles: \['backend-web\.js', 'reader-worker\.js'\]/,
     'and they are the web host\'s, which is what keeps them out of the desktop app (12e)',
   );
-  const workerSrc = read('./src/hosts/web/worker.js');
+  const workerSrc = read('./src/hosts/web/worker.ts');
   assert.match(
     workerSrc,
     /SharedWorkerGlobalScope[\s\S]*onconnect = \(e\) => host\.connect\(e\.ports\[0\]\)/,
     'a SharedWorker connects each port to the host, and only a SharedWorker does',
   );
-  const backendSrc = read('./src/hosts/web/backend.js');
+  const backendSrc = read('./src/hosts/web/backend.ts');
   assert.match(
     backendSrc,
     /new globalThis\.SharedWorker\(WORKER_URL, \{ type: 'module', name: workerName\(\) \}\)/,
@@ -5273,7 +5338,7 @@ const memoryKv = () => {
     );
     assert.ok(
       /\n\.welcome-limits a \{\s*color: var\(--mod\);/.test(pageCss) &&
-        !/\.welcome-(list|folder|files?)\b/.test(pageCss + read('./src/hosts/web/welcome.js')),
+        !/\.welcome-(list|folder|files?)\b/.test(pageCss + read('./src/hosts/web/welcome.ts')),
       'the way to the Mac app is drawn as a link, and the folder list the welcome had is gone',
     );
     assert.match(
@@ -5301,7 +5366,7 @@ const memoryKv = () => {
     assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");
     assert.ok(
       /welcome: \(el, hooks\)/.test(backendSrc) &&
-        ['./src/hosts/tauri/backend.js', './public/backend.js', './src/rpc/client.ts'].every(
+        ['./src/hosts/tauri/backend.ts', './public/backend.js', './src/rpc/client.ts'].every(
           (f) => !/welcome|linkNote/.test(read(f)),
         ),
       'only the web backend has a welcome, so the page never shows one in a shell or a server',
@@ -5902,7 +5967,7 @@ const memoryKv = () => {
     );
     assert.match(staged('vendor/backend-web.js'), /\.search=new URL\(\w+\)\.search/,
       'the shipped bundle does it');
-    assert.match(read('./src/hosts/web/backend.js'),
+    assert.match(read('./src/hosts/web/backend.ts'),
       /const WORKER_URL = sibling\('\.\/reader-worker\.js'\)/,
       'and the SharedWorker and the fallback are both made from that URL');
     console.log('✓ the web app asks for every file by its build: page, imports and worker');
@@ -6015,7 +6080,7 @@ const memoryKv = () => {
 
   // Where the data lives: the database, and every store in it, by the name the code gives it.
   const { STORES } = await import('./src/hosts/web/idb.js');
-  assert.match(read('./src/hosts/web/idb.js'), /^const DB_NAME = 'redline';$/m);
+  assert.match(read('./src/hosts/web/idb.ts'), /^const DB_NAME = 'redline';$/m);
   assert.match(doc, /database called `redline`/, 'the database is named as the code names it');
   assert.deepStrictEqual(
     [...doc.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1]),
@@ -6511,7 +6576,7 @@ assert.match(mainRs, /cmds::check_update,/, 'and registered, or the page is refu
 assert.match(menuRs, /with_id\("checkupdate", "Check for Updates…"\)/, 'the menu offers it');
 assert.match(menuRs, /"checkupdate" => win::to_front\(app, "md:check-update"/,
   'and hands it to the window in front');
-assert.match(seamJs, /onCheckUpdate: \(cb\) => on\('md:check-update'/, 'which listens for it');
+assert.match(seamJs, /onCheckUpdate: \(cb\b.*?\) => on\('md:check-update'/, 'which listens for it');
 assert.match(pageJs, /native\.onCheckUpdate\(/, 'and answers it');
 assert.match(pageHtml, /<section id="aboutSec" data-shell>/,
   'in a section only the desktop app shows');

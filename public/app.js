@@ -470,7 +470,7 @@ function paint({ reuse = false } = {}) {
     // was done to that text, and another file's elements are not these however they are named.
     const saved = painted.id === state.docId ? readKept() : null;
     // The document's own HTML is let through by the renderer, so this is where
-    // what would run in it is taken out -- see src/page/sanitize.js.
+    // what would run in it is taken out -- see src/page/sanitize.ts.
     doc.innerHTML = sanitizeDocument(source);
     painted = { id: state.docId, source };
     // Put back before anything is measured or drawn: a Mermaid block inside a "before" is drawn
@@ -2863,7 +2863,7 @@ document.addEventListener('keydown', (e) => {
 
 // ---------- native shell ----------
 // Everything here is a no-op in a plain browser tab: `window.mdNative` is put
-// up by the desktop build (src/hosts/tauri/native.js) and by nothing else, so the
+// up by the desktop build (src/hosts/tauri/native.ts) and by nothing else, so the
 // same file is the whole app in a window and the whole app in a tab.
 
 const native = window.mdNative;
@@ -2999,7 +2999,7 @@ function fontInstalled(name) {
  *
  * Guesswork, which is why it is second. It cannot know about a font it was not
  * written with — but it is better than an empty popup on a machine where
- * asking the OS is not a thing you can do (src/reader/fonts.js is macOS only).
+ * asking the OS is not a thing you can do (src/reader/fonts.ts is macOS only).
  */
 const FONT_CHOICES = Object.entries({
   'Sans-serif': `Avenir Next, Charter, Futura, Geist, Gill Sans, Helvetica Neue, IBM Plex Sans,
@@ -3090,7 +3090,7 @@ const defaultBaseline = () => (settings.baseline === 'git' ? 'git:HEAD' : 'read'
  * for a document that has never been compared against anything.
  *
  * The reader resolves the pair, because only it knows the file's history — see
- * `validBaseline` in src/reader/reader.js. Asking it that way instead of looking the
+ * `validBaseline` in src/reader/reader.ts. Asking it that way instead of looking the
  * answer up here is what keeps the first paint right: this page does not learn
  * which file it is showing until the document arrives.
  */

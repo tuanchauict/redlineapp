@@ -5,12 +5,12 @@ three hosts at compile time**: the payload, the `Platform` contract, the rpc mes
 the session surface that Node, Tauri and the web app each implement or consume. The `.ts`
 extension is not the goal; a compile that fails when two hosts disagree is.
 
-Step 1 landed the build. Step 2 is converting `src/` from the bottom up, and is under way:
-`src/contract/`, `src/core/`, `src/page/sanitize.ts`, `src/rpc/` and `src/reader/` are
-TypeScript; the three hosts are not yet. A `.js` file is not type-checked (`allowJs` on,
-`checkJs` off), and a `.ts` file is checked leniently (`strict: false`): for what it
-declares and what the compiler can infer, with an untyped parameter left as `any` until the
-`noImplicitAny` ratchet.
+Step 1 landed the build. Step 2 converted `src/`: every file in it is TypeScript but
+`src/hosts/web/host.js`, and the hosts are checked against the contract below. `bin/`,
+`scripts/`, the test and the page are still JavaScript. A `.js` file is not type-checked
+(`allowJs` on, `checkJs` off), and a `.ts` file is checked leniently (`strict: false`): for
+what it declares and what the compiler can infer, with an untyped parameter left as `any`
+until the `noImplicitAny` ratchet.
 
 ## Two homes for compiled code
 
@@ -53,25 +53,69 @@ holds. It is types only, and a test holds it to that: it imports only itself, an
 import of it is an `import type`. That is what lets a layer that may import almost nothing
 (`rpc/`, `reader/`) use it, and keeps it out of every bundle.
 
-What it buys is a compile that fails when two sides disagree. `createRpcBackend` returns an
-`RpcBackend`, which is a `Backend` and has to stay one, and `SESSION_METHODS` in
-`rpc/protocol.ts` is asserted equal to `Session`'s methods in both directions, so a method
-added to one and not the other stops `tsc` and does not wait for the first page that asks.
-The reader and the hosts are checked against the same types as they are converted.
+What it buys is a compile that fails when two sides disagree. Each side names the type it
+implements in its signature, which is the whole check, and the test greps that it still does:
+
+| Type | Held to it |
+| --- | --- |
+| `Platform` (`reader/platform.ts`) | `nodePlatform`, `tauriPlatform` and `createWebPlatform` |
+| `Session` | `createSession` over the reader; the web worker's `sessionFor` for each connection; the `session` that `serveRpc` is handed |
+| `Backend` | `createTauriBackend`; `createRpcBackend`, as `RpcBackend`; `createWebBackend`, as `WebBackend`, which is `RpcBackend` and the browser's own methods |
+| `ReaderEvent`, `DocPayload` and the rest of `payload.ts` | what the reader produces, what `serveRpc` posts, and the `change` that the web worker posts when a connection it had let go of is used again |
+| `PageMessage`, `ReaderMessage` | both ends of the rpc, and `SESSION_METHODS`, asserted equal to `Session`'s methods in both directions |
+
+A method added to one side and not the other stops `tsc`, and does not wait for the first
+page that asks. A test proves it can: a fixture `Backend` with `markRead` left out, and
+another whose `fonts` answers the session's shape, must be refused by the same compiler,
+and a correct one beside them must not be. Without that the contract would be a comment.
+
+Not under it yet: `public/backend.js`, the third `Backend`, which is a page file and
+arrives with step 4.
 
 ## What stays JavaScript
 
 `src/hosts/web/host.js` is a classic script: the first thing in the web app's page, loaded
-without `type="module"`, and copied verbatim by `scripts/stage-page.mjs`. Under
+without `type="module"`, and copied by `scripts/stage-page.mjs`, which appends the one line
+that sets `__REDLINE_VERSION`. Under
 `"type": "module"` and `NodeNext`, `tsc` appends `export {};` to the output of a file that
 has no import or export, and a classic script that says `export` does not parse. So it stays
-JavaScript, and it is the one `.js` file that will be left in `src/` when step 2 is done.
+JavaScript, and it is the one `.js` file left in `src/`. `workerName` in `web/backend.ts` is
+what reads the `__REDLINE_VERSION` that the staged copy sets, and declares it as a global.
+
+## What the conversion needed
+
+Renaming every file at once and running `tsc` gave 116 errors in 19 files, measured before
+anything was annotated. 95 were TS2339, a property read from something inferred as `{}`
+(`references` off an `{}` in `core/diff.ts` is the first): the code was right and nothing
+said what the object was. The rest were nine arity errors on parameters the callers leave
+off, four object literals with a key that an inferred options type did not have, and a handful
+of one-offs.
+
+So the annotations that the final conversion needed were mostly of one kind: an `interface`
+for the object that a closure holds (`Conn` in the worker, `WebBackendOptions`,
+`WebPlatformDeps`, `Handoff` in the Tauri host), and `?` on a parameter that its callers
+omit. The rest:
+
+- `declare global { var X }` where two modules agree on a global through nothing but its name
+  (`__REDLINE_HOST`, `__REDLINE_VERSION`, `window.mdNative`).
+- `declare const` for what `lib.dom` has no name for (`SharedWorkerGlobalScope`).
+- Four casts in all of `src/`. Two are a timer's `unref`, which Node's `Timeout` has and a
+  browser's number does not, and one is the worker's own scope (`onconnect`), which `lib.dom`
+  does not describe. The fourth is `serveRpc` calling a `Session` method by name with the
+  arguments that arrived in a message: `SESSION_METHODS` is what checks the name, and nothing
+  checks the arguments, because a message is not typed.
+- `invoke<T>` where the page reads what a Tauri command answers (`tauri/platform.ts`, and the
+  settings and update calls in `native.ts`), because `invoke` cannot know the Rust command's
+  return type and answers `unknown` without it.
+
+`SpawnResult.code` is `number | string | null`: Node reports a program that could not be run
+as the system's error code (`'ENOENT'`), and the type used to say it was a number.
 
 ## Finding the repository root
 
 Do not count `..` from `import.meta.url`. Compiled code sits one directory deeper than its
 source, so a count that is right in `src/` is wrong in `out/`. Import `ROOT`, `repoRoot`
-and `rootUrl` from `src/hosts/node/root.js`, which walks up to the first `package.json` —
+and `rootUrl` from `src/hosts/node/root.ts`, which walks up to the first `package.json` —
 `out/` has none, because `tsc` does not emit one — and so answers the same from both.
 `rootUrl('public/app.js')` is the replacement for `new URL('./public/app.js',
 import.meta.url)` in a file that sat at the root.
@@ -96,9 +140,9 @@ Each step is its own PR, with `npm test` and `npm run bundle` green.
 
 1. **Scaffolding** (done): the projects, `out/`, `root.js`, the scripts and the suite running
    from `out/`, the `pages.yml` split.
-2. `src/`, with the shared payload and rpc types, bottom up: `contract/`, `core/`, `page/`
-   `rpc/` and `reader/` (done: `Platform` is an interface in `reader/platform.ts`, and
-   `createSession` is checked against `Session`); then the three hosts.
+2. `src/` (done), with the shared payload and rpc types, bottom up: `contract/`, `core/`,
+   `page/`, `rpc/` and `reader/`, then the three hosts. Three stacked PRs: the contract
+   with `core/`, `page/` and `rpc/`; `reader/`; the hosts.
 3. `scripts/` and `bin/`.
 4. The `page` project: `app.ts`, `backend.ts`, `landing.ts`, each a single rename, plus
    `tsc -b --watch` in `scripts/dev.mjs` and the vendor shims in `types/vendor/`.
@@ -110,15 +154,16 @@ design document itself is not in the repository.
 
 ## What `tsc -b` costs
 
-Measured with `tsc` 5.9.3 on an arm64 Mac at the end of step 1, over the 50 files compiled
-then, none of them type-checked:
+Measured with `tsc` 5.9.3 on an arm64 Mac at the end of step 2, over the 37 `.ts` files in
+`src/` and the JavaScript that is compiled beside them, checked leniently:
 
-| | Time |
-| --- | --- |
-| Cold, from no `out/` | about 0.9 s |
-| Up to date, `tsc -b` itself | about 0.06 s |
-| Up to date, as `npm run build:ts` | about 0.16 s |
+| | Step 1 (50 files, none checked) | Step 2 |
+| --- | --- | --- |
+| Rebuild everything (`tsc -b --force`; step 1 was from no `out/`) | about 0.9 s | about 1.0 s |
+| Up to date, `tsc -b` itself | about 0.06 s | about 0.06 s |
+| Up to date, as `npm run build:ts` | about 0.16 s | about 0.18 s |
 
 The last row is what `npm test`, `npm start` and the other scripts pay on every run, most
-of it npm's own start-up. Both numbers grow once the files are `.ts` and are checked; the
-last PR of step 2 measures them again.
+of it npm's own start-up. Checking the `.ts` files did not move a full rebuild by more than
+the noise of the measurement, and does not touch a no-op. `strict` will cost more; step 6
+measures it.

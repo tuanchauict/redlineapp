@@ -6,7 +6,7 @@
 // is a call rather than a request.
 //
 // Which is the point of the whole exercise. The browser build talks to
-// src/hosts/node/server.js and the desktop build talks to this, and both are the same
+// src/hosts/node/server.ts and the desktop build talks to this, and both are the same
 // reader (src/reader/reader.ts) over the same store (src/reader/store.ts) -- the only thing
 // that differs is how the page reaches it and which platform is underneath.
 // Two implementations of the diff would be two products.
@@ -14,19 +14,28 @@
 // Bundled to public/vendor/backend-tauri.js by scripts/build-web.mjs, and
 // loaded only when the shell has left its facts on the window, so a browser tab
 // never downloads a line of it.
+import type { Backend } from '../../contract/seam.js';
 import { createReader } from '../../reader/reader.js';
 import { DocStore } from '../../reader/store.js';
 import { installNative } from './native.js';
 import { tauriPlatform } from './platform.js';
+import type { Handoff } from './platform.js';
 
 /**
  * Open what the window was given and answer the page's questions about it.
  *
- * @param {object} opts
- * @param {() => string|null} opts.docId  The document being shown, read per call.
+ * `docId` is the document being shown, read per call.
+ *
+ * Returns `Backend`, so the compiler holds this end of the seam to the contract. It has no
+ * `open`, and `Backend.open` is optional for exactly that: the desktop app opens files through
+ * the shell's tabs.
  */
-export async function createTauriBackend({ docId }) {
-  const host = globalThis.__REDLINE_HOST ?? {};
+export async function createTauriBackend({
+  docId,
+}: {
+  docId: () => string | null;
+}): Promise<Backend> {
+  const host: Partial<Handoff> = globalThis.__REDLINE_HOST ?? {};
   const reader = await createReader({ platform: tauriPlatform });
 
   // The window's own half of the shell, installed before the page looks for it.

@@ -6,7 +6,7 @@
 //
 // The desktop app and the web app both serve the page as a plain directory, and what is in
 // that directory is the same except for two things: which backend bundle the page loads, and
-// the shim that says which host it is. In the CLI, src/hosts/node/server.js answers the page's
+// the shim that says which host it is. In the CLI, src/hosts/node/server.ts answers the page's
 // requests by reading out of node_modules and assets/ wherever they happen to be; here the same
 // files are copied next to the page.
 //
@@ -156,7 +156,7 @@ export function pageHash(dir, extra = '') {
  *
  * Not the bundles (`vendor/*.js`), which import nothing by a path of their own: one that does
  * is for the test (12e) to say, and not for a pattern to rewrite inside minified code. The one
- * place a bundle builds a URL, the worker's, takes its query from its own (`hosts/web/backend.js`).
+ * place a bundle builds a URL, the worker's, takes its query from its own (`hosts/web/backend.ts`).
  * And not Mermaid's chunks, whose names are a hash of their content already.
  */
 const MODULES = ['app.js', 'backend.js'];
@@ -270,7 +270,7 @@ export function stagePage(dest, { host }) {
 
   // The host's own shim goes over the empty one, with the build's name after it: the version and
   // a hash of the bundles. This is what writes the page, and a SharedWorker is found by its URL
-  // and its name, so the web app names its worker for the build (hosts/web/backend.js) and learns
+  // and its name, so the web app names its worker for the build (hosts/web/backend.ts) and learns
   // which build it is from the file that says it is the web app. The version alone is the same
   // across every rebuild at one version -- each round of `npm run webapp`, any redeploy -- and a
   // tab left open would keep the old reader for the new tabs to join. The hash is of the bundles

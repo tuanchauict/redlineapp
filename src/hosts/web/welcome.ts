@@ -26,6 +26,12 @@
 import { MD_LINK } from '../../core/links.js';
 import { webPath } from './handles.js';
 
+// Not in lib.dom yet: the File System Access API's handle for a dropped item (Chromium only, which
+// is why it is tried and the `File` is the fallback).
+type DroppableItem = DataTransferItem & {
+  getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
+};
+
 /** Where the Mac app is to be had: the landing page's download, which follows each release. */
 export const MAC_APP_URL = 'https://redline.iamtuna.org/#get';
 
@@ -55,31 +61,39 @@ const NOT_MARKDOWN =
 const NOT_A_FOLDER =
   'The web app opens files, not folders: drop a markdown file, or open the folder in the Mac app.';
 
-/**
- * Fill `el` and listen for drops.
- *
- * @param {HTMLElement} el  The `#welcome` section. Emptied.
- * @param {object} deps
- * @param {{ addRoot: Function, addDrop: Function, reopen: () => Promise<boolean> }} deps.backend
- * @param {(path: string) => Promise<boolean>} deps.open  Show that path; whether it could.
- * @param {() => Promise<void>} deps.granted  `reopen` was granted: load again, or open the file
- *   that was refused.
- * @param {() => void} deps.back  Leave the welcome for the document that is still on screen.
- * @param {(text: string) => void} [deps.notify]  Say something where the user is looking. What
- *   the welcome has to say while it is hidden -- a drop refused, onto a document -- goes here,
- *   since revealing it for that would take the user off the document for a file they were told
- *   they cannot open.
- * @param {typeof globalThis} [deps.win]  Pickers, `navigator`, and what fires `dragover`.
- * @param {Document} [deps.doc]
- * @returns {{
- *   sync: (state: { reopen?: string|null, back?: boolean }) => void,
- *   pickFile: () => void,
- * }}
- */
+export interface WelcomeDeps {
+  backend: {
+    addRoot(handle: any): Promise<{ rootId: string }>;
+    addDrop(file: File): Promise<string>;
+    reopen(): Promise<boolean>;
+  };
+  /** Show that path; whether it could. */
+  open: (path: string) => Promise<boolean>;
+  /** `reopen` was granted: load again, or open the file that was refused. */
+  granted: () => Promise<void>;
+  /** Leave the welcome for the document that is still on screen. */
+  back: () => void;
+  /**
+   * Say something where the user is looking. What the welcome has to say while it is hidden -- a
+   * drop refused, onto a document -- goes here, since revealing it for that would take the user
+   * off the document for a file they were told they cannot open.
+   */
+  notify?: ((text: string) => void) | null;
+  /** Pickers, `navigator`, and what fires `dragover`. */
+  win?: typeof globalThis;
+  doc?: Document;
+}
+
+export interface Welcome {
+  sync(state?: { reopen?: string | null; back?: boolean }): void;
+  pickFile: () => void;
+}
+
+/** Fill `el` -- the `#welcome` section, emptied -- and listen for drops. */
 export function mountWelcome(
-  el,
-  { backend, open, granted, back, notify = null, win = globalThis, doc },
-) {
+  el: HTMLElement,
+  { backend, open, granted, back, notify = null, win = globalThis, doc }: WelcomeDeps,
+): Welcome {
   doc ??= el.ownerDocument ?? win.document;
   const canFile = typeof win.showOpenFilePicker === 'function';
 
@@ -293,7 +307,9 @@ export function mountWelcome(
     // handler returns. The handle is the better answer and the `File` is the fallback for a
     // source that has none. A browser with no handles hands a folder over as a `File` too, named
     // for the folder, and only the entry says what it is.
-    const item = [...(e.dataTransfer.items ?? [])].find((i) => i.kind === 'file');
+    const item = [...(e.dataTransfer.items ?? [])].find(
+      (i): i is DroppableItem => i.kind === 'file',
+    );
     const handle = Promise.resolve(item?.getAsFileSystemHandle?.() ?? null).catch(() => null);
     const folder = item?.webkitGetAsEntry?.()?.isDirectory === true;
     const file = item?.getAsFile?.() ?? e.dataTransfer.files?.[0] ?? null;

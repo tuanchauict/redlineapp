@@ -8,14 +8,14 @@
 //   render.js         src/core/document.ts -- the diff and the markdown rendering.
 //   sanitize.js       src/page/sanitize.ts -- DOMPurify, and what a document may put
 //                     on the page. Not in render.js, which Node imports too.
-//   backend-tauri.js  src/hosts/tauri/backend.js -- the reader, the store and the
+//   backend-tauri.js  src/hosts/tauri/backend.ts -- the reader, the store and the
 //                     Tauri platform, for the desktop build where there is no
 //                     server to ask. Loaded only when the shell has left its
 //                     facts on the window, so a browser never fetches it.
-//   backend-web.js    src/hosts/web/backend.js -- the page's end of the web app: the
+//   backend-web.js    src/hosts/web/backend.ts -- the page's end of the web app: the
 //                     rpc client, the permission prompt, the page's lifecycle. Small,
 //                     because the reader is not in it.
-//   reader-worker.js  src/hosts/web/worker.js -- the reader, the store and the web
+//   reader-worker.js  src/hosts/web/worker.ts -- the reader, the store and the web
 //                     platform, as the SharedWorker's script, and as the module a
 //                     page without SharedWorker imports to be its own worker.
 //
@@ -53,9 +53,9 @@ const VENDOR = path.join(ROOT, 'public', 'vendor');
 const BUNDLES = [
   { entry: 'src/core/document.ts', out: 'render.js' },
   { entry: 'src/page/sanitize.ts', out: 'sanitize.js' },
-  { entry: 'src/hosts/tauri/backend.js', out: 'backend-tauri.js' },
-  { entry: 'src/hosts/web/backend.js', out: 'backend-web.js' },
-  { entry: 'src/hosts/web/worker.js', out: 'reader-worker.js' },
+  { entry: 'src/hosts/tauri/backend.ts', out: 'backend-tauri.js' },
+  { entry: 'src/hosts/web/backend.ts', out: 'backend-web.js' },
+  { entry: 'src/hosts/web/worker.ts', out: 'reader-worker.js' },
 ];
 
 const dev = process.argv.includes('--dev');

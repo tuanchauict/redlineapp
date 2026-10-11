@@ -4,7 +4,7 @@
 // This is the whole back end. It knows nothing about http, and nothing about
 // windows — it is the same object whether it is being driven by a browser over
 // a socket or by a page that is holding it directly, which is the point. The
-// CLI wraps it in a server (src/hosts/node/server.js) because a browser tab needs a URL
+// CLI wraps it in a server (src/hosts/node/server.ts) because a browser tab needs a URL
 // to talk to; the desktop app does not, and a second implementation of "what
 // changed in this file" is the one bug this design rules out rather than tests
 // for.
