@@ -175,7 +175,8 @@ shown, plus `pollMs`. With none given, a platform that has `spawn` gets git, Pla
 discovery and the font list as it always did; a platform without it gets `NO_GIT`, no
 PlantUML and no fonts, and its reader still opens, diffs and prunes. `spawn` is optional in
 the contract (`src/reader/platform.ts`) for that reason — a host that has none leaves it
-out rather than providing a function that throws.
+out rather than providing a function that throws. The options are `ReaderOptions` in
+`src/reader/reader.ts`, and the contract is the `Platform` interface there.
 
 Entries are **reference counted**. Two windows on the same file share one watcher
 and one store; the last one to let go is the one that stops watching. This is what
