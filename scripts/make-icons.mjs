@@ -6,13 +6,12 @@
 // The outputs are committed, so this only runs when the SVG changes — nobody
 // needs librsvg installed to run or package the reader.
 //
-//   node scripts/make-icons.mjs
+//   npm run icons
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { ROOT } from '../src/hosts/node/root.js';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SVG = path.join(ROOT, 'assets', 'icon.svg');
 
 // Every size .icns carries, as the four-character type macOS files it under.

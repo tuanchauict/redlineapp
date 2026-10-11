@@ -26,11 +26,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { ROOT } from '../src/hosts/node/root.js';
 
 const require = createRequire(import.meta.url);
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * What differs between hosts.

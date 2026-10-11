@@ -30,8 +30,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ROOT } from '../src/hosts/node/root.js';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'THIRD-PARTY-NOTICES.md');
 const TARGETS = ['aarch64-apple-darwin', 'x86_64-apple-darwin'];
 const LICENSE_FILE = /^(licen[cs]e|copying|notice|unlicense)/i;

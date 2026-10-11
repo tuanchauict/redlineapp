@@ -42,13 +42,12 @@
 //                        page's scheme and not the system's (markdown-css.mjs)
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import * as esbuild from 'esbuild';
 import { keyToScheme } from './markdown-css.mjs';
+import { ROOT } from '../src/hosts/node/root.js';
 
 const require = createRequire(import.meta.url);
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VENDOR = path.join(ROOT, 'public', 'vendor');
 
 const BUNDLES = [

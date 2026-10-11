@@ -28,10 +28,9 @@
 // that is what decides what the recipient has to do on first launch.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { ROOT } from '../src/hosts/node/root.js';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHELL = path.join(ROOT, 'shell');
 const OUT = path.join(ROOT, 'dist');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));

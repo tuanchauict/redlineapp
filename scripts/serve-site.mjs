@@ -21,8 +21,9 @@ import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { ROOT } from '../src/hosts/node/root.js';
 
-const SITE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'site');
+const SITE = path.join(ROOT, 'site');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',

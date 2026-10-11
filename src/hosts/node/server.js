@@ -8,16 +8,15 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
 import { createReader, Closed } from '../../reader/reader.js';
 import { createSession, BadRequest, MAX_DIAGRAM_SOURCE } from '../../reader/session.js';
 import { nodePlatform } from './platform.js';
+import { ROOT } from './root.js';
 import { directives, inlineScriptHashes, serialize } from '../../core/csp.js';
 
 const require = createRequire(import.meta.url);
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const PUBLIC = path.join(ROOT, 'public');
 
 // The app icon doubles as the browser tab's favicon; it lives with the other

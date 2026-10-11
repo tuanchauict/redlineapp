@@ -24,8 +24,8 @@ import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { ROOT } from '../src/hosts/node/root.js';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WEB = path.join(ROOT, 'dist', 'web');
 const DEFAULT_PORT = 8081;
 
