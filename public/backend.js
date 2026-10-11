@@ -4,7 +4,7 @@
 // and the page reaches it over fetch and an event stream. In the desktop app
 // there is no server and nothing to reach: the reader (src/reader/reader.js) is in the
 // page already, holding the store and the file watch directly. In the web app the reader is in
-// a worker, reached over messages (src/hosts/web/backend.js). This module is
+// a worker, reached over messages (src/hosts/web/backend.ts). This module is
 // the seam between those, so that everything above it -- the whole of
 // app.js -- is written once, and no host gets its own copy of what marking
 // a document read does to the screen.

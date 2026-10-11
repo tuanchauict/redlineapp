@@ -101,7 +101,7 @@ count as one without a certificate.
     exactly that, with no query. So the staged `app.js` and `backend.js` have it written into
     their imports (`MODULES` in `stage-page.mjs`; a build that finds none to write fails, since
     the file has changed shape), and the worker's URL takes its query from its own bundle's
-    (`sibling` in `hosts/web/backend.js`). The bundles import nothing by a path of their own,
+    (`sibling` in `hosts/web/backend.ts`). The bundles import nothing by a path of their own,
     and a test (12e) reads every staged module and fails on one that does.
   - **Mermaid's chunks have no query**, and are held all the same: each is named for a hash of
     what is in it (`chunk-S4TE5DX6.mjs`), so its name is already its version.

@@ -63,8 +63,8 @@ src/hosts/web/          the web app's shell: no server, no node, files in Indexe
   idb.ts                that key-value store, over IndexedDB; the one file no test runs
   platform.ts           the platform over `web:` handles, `drop:` files and the store
   handles.ts            the files the user granted, what a doc id was, what may be read now
-  worker.js             the reader, in a SharedWorker: one per origin, a document per tab
-  backend.js            the page's end of it: finds the worker, names it for the build, pings it,
+  worker.ts             the reader, in a SharedWorker: one per origin, a document per tab
+  backend.ts            the page's end of it: finds the worker, names it for the build, pings it,
                         asks for permission
   welcome.ts            the empty state: a file, a drop, the limits, a grant to ask for again
   host.js               the shim that makes a page the web app's; `stage-page.mjs` puts it over
@@ -491,7 +491,7 @@ cannot disagree about what changed.
 ### The web app's reader
 
 One reader for every tab of the origin, so two tabs on one file share a poll and a snapshot
-store. It is `createWebHost` in `src/hosts/web/worker.js`, run as a SharedWorker named
+store. It is `createWebHost` in `src/hosts/web/worker.ts`, run as a SharedWorker named
 `redline@<version>+<hash>`; a browser with none gets the same code in the page behind a
 `MessageChannel`, one reader a tab over the one IndexedDB store. A SharedWorker is found by its
 URL and its name, so one that did not change would, after a deploy, hand a new tab the old
@@ -655,7 +655,7 @@ shim over `public/host.js`. `build:web` writes every host's bundles into `public
   staged `index.html` names its scripts, styles and icon as `name?v=<id>`; the staged `app.js` and
   `backend.js` have it in their imports, which would otherwise be the one place a query is lost
   (a relative import takes none from its importer); and the worker's URL copies it from its own
-  bundle's (`hosts/web/backend.js`, `sibling`). `<id>` is `pageHash`: 12 hex of a sha256 over every
+  bundle's (`hosts/web/backend.ts`, `sibling`). `<id>` is `pageHash`: 12 hex of a sha256 over every
   staged file, the version and the shim, taken before anything is rewritten, so that one id covers
   the page and a cycle of imports has no order to be resolved in. `_headers` then says
   `Cache-Control: public, max-age=31536000, immutable` for every top-level path but `index.html`

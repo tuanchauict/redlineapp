@@ -3161,7 +3161,7 @@ sixth.server.close();
     ['./src/rpc/client.ts', /markRead: \(at\) => call(?:<\w+>)?\('markRead', docId\(\), at\),/],
     ['./src/hosts/tauri/backend.ts', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
     ['./public/backend.js', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
-    ['./src/hosts/web/worker.js', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
+    ['./src/hosts/web/worker.ts', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
   ]) {
     assert.match(fs.readFileSync(rootUrl(f), 'utf8'), through, `${f} passes the version on`);
   }
@@ -5156,20 +5156,20 @@ const memoryKv = () => {
     'createBackend picks the web backend, after the shell and before http',
   );
   const buildWeb = read('./scripts/build-web.mjs');
-  assert.match(buildWeb, /hosts\/web\/backend\.js.*backend-web\.js/, 'backend-web.js is built');
-  assert.match(buildWeb, /hosts\/web\/worker\.js.*reader-worker\.js/, 'reader-worker.js is built');
+  assert.match(buildWeb, /hosts\/web\/backend\.ts.*backend-web\.js/, 'backend-web.js is built');
+  assert.match(buildWeb, /hosts\/web\/worker\.ts.*reader-worker\.js/, 'reader-worker.js is built');
   assert.match(
     read('./scripts/stage-page.mjs'),
     /web: \{\s*bundles: \['backend-web\.js', 'reader-worker\.js'\]/,
     'and they are the web host\'s, which is what keeps them out of the desktop app (12e)',
   );
-  const workerSrc = read('./src/hosts/web/worker.js');
+  const workerSrc = read('./src/hosts/web/worker.ts');
   assert.match(
     workerSrc,
     /SharedWorkerGlobalScope[\s\S]*onconnect = \(e\) => host\.connect\(e\.ports\[0\]\)/,
     'a SharedWorker connects each port to the host, and only a SharedWorker does',
   );
-  const backendSrc = read('./src/hosts/web/backend.js');
+  const backendSrc = read('./src/hosts/web/backend.ts');
   assert.match(
     backendSrc,
     /new globalThis\.SharedWorker\(WORKER_URL, \{ type: 'module', name: workerName\(\) \}\)/,
@@ -5905,7 +5905,7 @@ const memoryKv = () => {
     );
     assert.match(staged('vendor/backend-web.js'), /\.search=new URL\(\w+\)\.search/,
       'the shipped bundle does it');
-    assert.match(read('./src/hosts/web/backend.js'),
+    assert.match(read('./src/hosts/web/backend.ts'),
       /const WORKER_URL = sibling\('\.\/reader-worker\.js'\)/,
       'and the SharedWorker and the fallback are both made from that URL');
     console.log('✓ the web app asks for every file by its build: page, imports and worker');
