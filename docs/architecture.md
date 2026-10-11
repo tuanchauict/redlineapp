@@ -425,12 +425,15 @@ One reader for every tab of the origin, so two tabs on one file share a poll and
 store. It is `createWebHost` in `src/hosts/web/worker.js`, run as a SharedWorker named
 `redline@<version>+<hash>`; a browser with none gets the same code in the page behind a
 `MessageChannel`, one reader a tab over the one IndexedDB store. A SharedWorker is found by its
-URL and its name, so a name that did not change would, after a deploy, hand a new tab the old
-reader that a tab left open on the old build keeps alive. The build is in the name for that:
-the version and a hash of the two bundles the reader is made of, because the version alone is
-the same across every rebuild at one version. Two builds get a worker each, over the one store,
-which is the case the fallback already depends on and which `idb.js` allows by closing its
-connection on `versionchange`. The page learns the build from the shim the build stages (below).
+URL and its name, so one that did not change would, after a deploy, hand a new tab the old
+reader that a tab left open on the old build keeps alive. The build is in both: the URL has the
+page's `?v=` (`sibling` in `backend.js` copies the query of its own bundle's URL, since a
+relative URL does not inherit one), and the name has the version and a hash of the two bundles
+the reader is made of, because the version alone is the same across every rebuild at one
+version. Each alone would do; neither is leaned on alone. Two builds get a worker each, over the
+one store, which is the case the fallback already depends on and which `idb.js` allows by closing
+its connection on `versionchange`. The page learns the build from the shim the build stages
+(below).
 
 - **A tab holds a document from `hello` to `bye` or to silence.** `hello` retains the document
   the page names, `bye` releases it, and a page that has said neither for 30 s is let go of,
@@ -579,13 +582,32 @@ shim over `public/host.js`. `build:web` writes every host's bundles into `public
   The rule covers every path, which is how the worker's own script gets a policy: a worker is held
   to the one on its response, not its page's. The hash is read from the staged page, after the
   shim is in, because the head script's hash changes with the script.
-- **`npm run webapp`** serves `dist/web/` on `127.0.0.1` and answers with `_headers`' rule, so the
-  policy has been run before the first deploy. It does not walk to the next port when one is taken
-  (the landing page's server does): another port is another origin, with its own IndexedDB and
-  its own granted files, and the app would open with no history and look as if it had lost it.
+- **The web app asks for every file by its build, and a browser keeps each for a year.** The
+  staged `index.html` names its scripts, styles and icon as `name?v=<id>`; the staged `app.js` and
+  `backend.js` have it in their imports, which would otherwise be the one place a query is lost
+  (a relative import takes none from its importer); and the worker's URL copies it from its own
+  bundle's (`hosts/web/backend.js`, `sibling`). `<id>` is `pageHash`: 12 hex of a sha256 over every
+  staged file, the version and the shim, taken before anything is rewritten, so that one id covers
+  the page and a cycle of imports has no order to be resolved in. `_headers` then says
+  `Cache-Control: public, max-age=31536000, immutable` for every top-level path but `index.html`
+  (`heldPaths` in `build-webapp.mjs`), and `no-cache` for `/` and `/index.html`, which is what a
+  release is found through. Mermaid's chunks are asked for with no query and held by name, which
+  is safe because each name is a hash of its content (a test reads the staged tree and fails on
+  one that is not). The desktop app, whose page is in the binary, and the CLI, whose server
+  sends no-cache, are not given a `?v=` (`versioned` in `stage-page.mjs`'s host table). The
+  cost of the scheme is a rule: a file in `public/` asked for under a name with no `?v=` would
+  be held for a year under a name that never changes.
+- **`npm run webapp`** serves `dist/web/` on `127.0.0.1` and answers with `_headers`' `/*` rule
+  (it ignores the query, and every response is `no-store`, so the held headers are not run
+  there), so the policy has been run before the first deploy. It does not walk to the next port
+  when one is taken (the landing page's server does): another port is another origin, with its
+  own IndexedDB and its own granted files, and the app would open with no history and look as if
+  it had lost it.
 - **Not verified from here:** that Cloudflare Pages serves Mermaid's `.mjs` chunks as
   `text/javascript`, which a module script needs and `nosniff` will not forgive. The local
-  server sets it, so the first deploy is the first time it is a fact about Pages.
+  server sets it, so the first deploy is the first time it is a fact about Pages. Nor how Pages
+  combines the `/*` rule with the path rules below it for `Cache-Control`, nor that a zone's
+  *Browser Cache TTL* leaves it alone; `curl -sI` against the deployed site says.
 
 ## The desktop shell
 
