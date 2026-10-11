@@ -2018,9 +2018,32 @@ for (const [on, when] of [
   });
 }
 
-/** The changes still asking to be looked at — a checked one is not one of them. */
+/** What a marked node is, which the raw view's removed lines — marked by a class — do not say. */
+const changeKind = (n) => n.dataset.chg || 'del';
+
+/**
+ * A raw line that carries on from the marked line above it. The raw view marks lines, not
+ * blocks, so a rewritten paragraph is a run of them — one change to the eye and to the count,
+ * which `n` and the arrows would otherwise take a press per line to get through.
+ */
+const continuesRun = (n) => {
+  const above = n.previousElementSibling;
+  return (
+    n.classList.contains('raw-line') &&
+    !!above?.matches('[data-chg], .raw-del') &&
+    changeKind(above) === changeKind(n)
+  );
+};
+
+/**
+ * The changes still asking to be looked at — a checked one is not one of them — one node each.
+ * Removed lines in the raw view are among them: they are counted, and the ruler marks them,
+ * so stepping past them would be stepping past something the bar says is there.
+ */
 function changeNodes() {
-  return [...doc.querySelectorAll('[data-chg]')].filter((n) => !n.classList.contains('chg-ok'));
+  return [...doc.querySelectorAll('[data-chg], .raw-del')].filter(
+    (n) => !n.classList.contains('chg-ok') && !continuesRun(n),
+  );
 }
 
 function paintCount() {
@@ -2040,9 +2063,11 @@ function paintCount() {
   count.hidden = live.length === 0 || !state.diff;
   count.innerHTML = live.length
     ? [
-        added && `<span class="c-add" title="${added} added">+${added}</span>`,
-        modified && `<span class="c-mod" title="${modified} changed">~${modified}</span>`,
-        removed && `<span class="c-del" title="${removed} removed">−${removed}</span>`,
+        added && `<span class="c-add" data-kind="add" title="${added} added">+${added}</span>`,
+        modified &&
+          `<span class="c-mod" data-kind="mod" title="${modified} changed">~${modified}</span>`,
+        removed &&
+          `<span class="c-del" data-kind="del" title="${removed} removed">−${removed}</span>`,
       ]
         .filter(Boolean)
         .join('')
@@ -2355,6 +2380,7 @@ $('ackCount').addEventListener('click', () => clearAcks());
  * for it.
  */
 function goToNode(node) {
+  landedAt = performance.now();
   node.scrollIntoView({ behavior: 'smooth', block: 'center' });
   for (const n of doc.querySelectorAll('.flash')) n.classList.remove('flash');
   node.classList.add('flash');
@@ -2367,12 +2393,52 @@ function goToNode(node) {
   highlightRulerCurrent();
 }
 
-function goToChange(step) {
+// A landing starts a smooth scroll, and for the length of it the change is not yet on screen. A
+// second press in that time has to go on from the change just chosen, not from wherever the
+// scroll has got to — which is how rapid presses used to land back on the one before.
+const LANDING_MS = 1500;
+let landedAt = -Infinity;
+
+/**
+ * Which of `stops` a step lands on. It goes on from the change you were last taken to for as
+ * long as the reader is still there — it is on screen, or the scroll to it is still under way.
+ * Otherwise the reader has moved: a scroll, the ruler, a reload that put the page back to
+ * nothing chosen. Then it is the first change from the top of the window, or the last one
+ * before it, so that a step is a step from where you are and not from where you were.
+ */
+function stepIndex(stops, current, step) {
+  const view = pane.getBoundingClientRect();
+  const from = stops.indexOf(current);
+  if (from >= 0) {
+    const rect = current.getBoundingClientRect();
+    const here = rect.bottom > view.top && rect.top < view.bottom;
+    if (here || performance.now() - landedAt < LANDING_MS) {
+      return (from + step + stops.length) % stops.length;
+    }
+  }
+  const top = (n) => n.getBoundingClientRect().top;
+  if (step > 0) {
+    const next = stops.findIndex((n) => top(n) >= view.top);
+    return next < 0 ? 0 : next;
+  }
+  const before = stops.findLastIndex((n) => top(n) < view.top);
+  return before < 0 ? stops.length - 1 : before;
+}
+
+/**
+ * `kind` is for the count on the bar, which is a count of one kind at a time. A view with none
+ * of that kind — the raw view has no *changed*, only lines added and removed — goes through
+ * all of them rather than nowhere, since a figure that does nothing when pressed reads as broken.
+ */
+function goToChange(step, kind = null) {
   if (!state.diff) return;
   const nodes = changeNodes();
   if (!nodes.length) return;
-  state.changeIndex = (state.changeIndex + step + nodes.length * 2) % nodes.length;
-  goToNode(nodes[state.changeIndex]);
+  const ofKind = kind ? nodes.filter((n) => changeKind(n) === kind) : nodes;
+  const stops = ofKind.length ? ofKind : nodes;
+  const node = stops[stepIndex(stops, nodes[state.changeIndex], step)];
+  state.changeIndex = nodes.indexOf(node);
+  goToNode(node);
 }
 
 // ---------- find ----------
@@ -2561,10 +2627,13 @@ document.addEventListener('keydown', (e) => e.key === 'Escape' && closeFind());
 
 // ---------- events ----------
 
-// "+4 ~1" raises the question "since what?", and the versions are the answer,
-// so the count is also the way to them rather than a number you can only read.
-// Clicking it again puts the column away: it is one button, one question.
-$('count').addEventListener('click', () => setTocSide(!state.tocSide));
+// A number of changes is something to go and look at, so the count is a way to them rather than
+// a number you can only read: click the figure for one kind to go to the next of that kind, the
+// gap between them for the next of any, with ⇧ to go back. The versions it was counted against
+// are in the right column, which has a button and a key of its own.
+$('count').addEventListener('click', (e) => {
+  goToChange(e.shiftKey ? -1 : 1, e.target.closest('[data-kind]')?.dataset.kind);
+});
 
 $('next').addEventListener('click', () => goToChange(1));
 $('prev').addEventListener('click', () => goToChange(-1));

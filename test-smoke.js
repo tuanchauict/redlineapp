@@ -859,10 +859,157 @@ assert.match(
 );
 assert.match(
   pageJs,
-  /function goToChange\(step\)[\s\S]*?goToNode\(/,
+  /function goToChange\(step, kind = null\)[\s\S]*?goToNode\(/,
   'the key path lands through the same function a ruler click will',
 );
 assert.match(pageCss, /\.ruler-current \{/, 'and the stylesheet gives that mark its own look');
+
+// Stepping through the changes, run over fakes the way `applyScheme` is below: the arrows, `n`,
+// `p` and the count on the bar all go through `goToChange`, and what it has to get right is
+// *which* change, which needs only rectangles and a list.
+{
+  const vm = await import('node:vm');
+  const { renderRawDiff } = await import('./src/core/diff.js');
+  const fn = (name) => pageJs.match(new RegExp(`\\nfunction ${name}\\(.*?\\n\\}\\n`, 's'))?.[0];
+  // One line ending in `;`, or an arrow function that closes with `};` in the first column.
+  const konst = (name) =>
+    pageJs.match(new RegExp(`\\nconst ${name} = (?:[^\\n]*;|[\\s\\S]*?\\n\\};)\\n`))?.[0];
+  for (const name of ['stepIndex', 'goToChange', 'changeNodes']) {
+    assert.ok(fn(name), `app.js has ${name}`);
+  }
+  for (const name of ['changeKind', 'continuesRun', 'LANDING_MS']) {
+    assert.ok(konst(name), `app.js has ${name}`);
+  }
+
+  // The count and the arrows reach it, and the count says which kind it was pressed on.
+  assert.match(
+    pageJs,
+    /\$\('count'\)\.addEventListener\('click', \(e\) => \{\s+goToChange\(e\.shiftKey \? -1 : 1, e\.target\.closest\('\[data-kind\]'\)\?\.dataset\.kind\);/,
+    'pressing the count steps through the changes, ⇧ backwards, of the kind pressed on',
+  );
+  assert.ok(!/\$\('count'\)\.addEventListener\('click', \(\) => setTocSide/.test(pageJs),
+    'and no longer opens the right column');
+  for (const kind of ['add', 'mod', 'del']) {
+    assert.match(pageJs, new RegExp(`class="c-${kind}" data-kind="${kind}"`), `${kind} knows its kind`);
+  }
+  assert.match(pageHtml, /id="count"[^>]*title="Next change/, 'the count says what it does');
+
+  // `stepIndex` and `goToChange`, over nodes that are only a kind and a rectangle.
+  let clock = 100000;
+  const view = { top: 50, bottom: 650 };
+  const build = (kinds, tops, current = -1) => {
+    const nodes = kinds.map((k, i) => ({
+      dataset: { chg: k },
+      getBoundingClientRect: () => ({ top: tops[i], bottom: tops[i] + 40 }),
+    }));
+    const landed = [];
+    const ctx = vm.createContext({
+      state: { changeIndex: current },
+      pane: { getBoundingClientRect: () => view },
+      performance: { now: () => clock },
+      changeNodes: () => nodes,
+      goToNode: (n) => landed.push(n),
+    });
+    vm.runInContext(
+      [konst('LANDING_MS'), 'let landedAt = -Infinity;', konst('changeKind'), fn('stepIndex'),
+        fn('goToChange'), 'state.diff = true;'].join('\n'),
+      ctx,
+    );
+    const press = (step, kind) => {
+      vm.runInContext(`goToChange(${step}, ${JSON.stringify(kind ?? null)})`, ctx);
+      return nodes.indexOf(landed.at(-1));
+    };
+    return { press, ctx, state: ctx.state };
+  };
+  const K = ['add', 'mod', 'add', 'del', 'mod'];
+
+  // Nothing chosen yet, at the top of the page: down is the first change, and up wraps to the
+  // last one -- it used to land on the one before it.
+  let t = build(K, [100, 700, 1300, 1900, 2500]);
+  assert.strictEqual(t.press(1), 0, 'down from nothing chosen is the first change');
+  t = build(K, [100, 700, 1300, 1900, 2500]);
+  assert.strictEqual(t.press(-1), 4, 'and up from nothing chosen is the last, not the one before');
+
+  // Pressed again and again with the page scrolled to wherever the last one put it, it walks the
+  // lot and wraps, in order, in both directions.
+  t = build(K, [300, 700, 1300, 1900, 2500], 0);
+  const walked = [];
+  for (let i = 0; i < K.length; i++) {
+    walked.push(t.press(1));
+    // The scroll lands the change on screen; fake it by moving the window to it.
+    const at = t.state.changeIndex;
+    view.top = [300, 700, 1300, 1900, 2500][at] - 100;
+    view.bottom = view.top + 600;
+  }
+  assert.deepStrictEqual(walked, [1, 2, 3, 4, 0], 'down visits every change once, then wraps');
+  Object.assign(view, { top: 50, bottom: 650 });
+
+  // Scrolled away from the last one by hand: a step is from where the reader is.
+  t = build(K, [-900, -400, 700, 1200, 1700], 0);
+  assert.strictEqual(t.press(1), 2, 'down goes to the first change below, not back up the page');
+  t = build(K, [-900, -400, 700, 1200, 1700], 0);
+  assert.strictEqual(t.press(-1), 1, 'and up to the last change above the window');
+
+  // A reload puts the page back to nothing chosen, with the reader well down it: same rule.
+  t = build(K, [-3000, -2500, -2000, 400, 900], -1);
+  assert.strictEqual(t.press(1), 3, 'after a reload, down starts from the window');
+
+  // Pressed twice before the smooth scroll of the first has got anywhere: the second goes on
+  // from the change just chosen, and not from the window, which is still back where it was.
+  t = build(K, [-900, 2000, 2600, 3200, 3800], 1);
+  vm.runInContext(`landedAt = ${clock - 100}`, t.ctx);
+  assert.strictEqual(t.press(1), 2, 'a second press while the scroll is under way goes on');
+  // Not so once it is long over and the change is nowhere near: the window rules again.
+  t = build(K, [-900, 2000, 2600, 3200, 3800], 1);
+  assert.strictEqual(t.press(1), 1, 'and later, with the reader elsewhere, it is from the window');
+
+  // The count presses it by kind: the next *changed* from the window, going round only those.
+  t = build(K, [100, 700, 1300, 1900, 2500]);
+  assert.strictEqual(t.press(1, 'mod'), 1, 'the first of the kind pressed on');
+  vm.runInContext(`landedAt = ${clock}`, t.ctx);
+  assert.strictEqual(t.press(1, 'mod'), 4, 'then the next of that kind, skipping the others');
+  assert.strictEqual(t.press(1, 'mod'), 1, 'and round again');
+  assert.strictEqual(t.press(-1, 'mod'), 4, 'with ⇧ the other way');
+  t = build(['add', 'add'], [100, 700]);
+  assert.strictEqual(t.press(1, 'mod'), 0, 'a kind this view has none of goes through them all');
+
+  // The raw view marks lines: a rewritten paragraph is a run of them, and a removal is marked by
+  // a class rather than a `data-chg`. One stop for each run, removals included.
+  const raw = renderRawDiff(
+    'intro\n\nalpha one\nalpha two\nalpha three\n\noutro\n',
+    'intro\n\nbeta one\nbeta two\nbeta three\n\noutro\n\nadded para\n',
+  );
+  const lines = [];
+  for (const m of raw.matchAll(/<span class="raw-line((?: raw-(?:add|del))?)"[^>]*?(?: data-chg="(\w+)")?>/g)) {
+    const classes = ['raw-line', ...m[1].split(' ').filter(Boolean)];
+    lines.push({
+      classes,
+      dataset: m[2] ? { chg: m[2] } : {},
+      previousElementSibling: lines.at(-1) ?? null,
+      classList: { contains: (c) => classes.includes(c) },
+      matches: (sel) => sel === '[data-chg], .raw-del' && (!!m[2] || classes.includes('raw-del')),
+    });
+  }
+  const rawCtx = vm.createContext({
+    doc: {
+      querySelectorAll: (sel) => {
+        assert.strictEqual(sel, '[data-chg], .raw-del', 'one selector for everything marked');
+        return lines.filter((l) => l.matches(sel));
+      },
+    },
+  });
+  vm.runInContext([konst('changeKind'), konst('continuesRun'), fn('changeNodes')].join('\n'), rawCtx);
+  const stops = vm.runInContext('changeNodes()', rawCtx);
+  assert.deepStrictEqual(
+    // `from`, so the array is this realm's and not the context's, which never compares equal.
+    Array.from(stops, (n) => (n.classList.contains('raw-del') ? 'del' : n.dataset.chg)),
+    ['del', 'add', 'add'],
+    'the raw view has a stop per change, removals too, and not one per line',
+  );
+  assert.ok(lines.filter((l) => l.matches('[data-chg], .raw-del')).length > stops.length,
+    'though it marks more lines than that');
+  console.log('✓ the arrows and the count step from where the reader is, one stop per change');
+}
 // `highlightRulerCurrent` flips the class on marks already drawn instead of
 // asking `paintRuler` to rebuild them, since a freshly rebuilt element has no
 // "before" state for `.ruler-mark`'s opacity transition to fade from.
@@ -1039,10 +1186,10 @@ assert.match(
 );
 assert.match(
   pageJs,
-  /\$\('count'\)\.addEventListener\('click', \(\) => setTocSide/,
-  'and the counter opens the column history is in, not the one it left',
+  /\$\('tocBtn'\)\.addEventListener\('click', \(\) => setTocSide/,
+  'and the column history is in has a button of its own, which the counter no longer is',
 );
-assert.match(pageHtml, /id="count"[^>]*title="[^"]*⌥⌘B/, 'its tooltip agrees');
+assert.match(pageHtml, /id="tocBtn"[^>]*title="[^"]*⌥⌘B/, 'whose tooltip names the key');
 console.log('✓ History paints, opens and is reached through the right column');
 
 // A menu item reaches the page over an event, through the seam, and every one
