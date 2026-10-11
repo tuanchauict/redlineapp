@@ -81,7 +81,9 @@ The filename is never lost, only put behind the title rather than under it: **ho
 the name to see where the file is** — its directory, or, when there is a title, the
 full path with the filename on the end. That line clips from the left, so the name
 is the part that stays visible when the path is too long for the bar. The swap is in
-place, so the bar stays one line tall whether or not a document has a title.
+place, so the bar stays one line tall whether or not a document has a title. Where
+there is no path to show — nothing open, or in the web app a file granted by itself,
+which has no folder around it — hovering leaves the name as it is.
 
 Only the bar reads this. The open-files rows and the native window title still go by
 filename — naming those means reading the header, and counting the headings, of every

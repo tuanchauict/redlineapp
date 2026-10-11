@@ -151,8 +151,9 @@
       </button>
 
       <!-- Name over directory, the way a Finder window titles itself: with
-           files open from several places the name alone does not say which. -->
-      <span id="nameBox" class="name">
+           files open from several places the name alone does not say which.
+           `no-path` until a document gives it one (`setNameDir` in app.js). -->
+      <span id="nameBox" class="name no-path">
         <span id="name" class="name-file">…</span>
         <span id="nameDir" class="name-dir"></span>
       </span>

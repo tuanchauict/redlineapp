@@ -234,6 +234,11 @@ body {
   opacity: 1;
 }
 
+/* No path to show, and so nothing to swap the name for: hovering would only empty the bar. */
+.name.no-path:hover .name-file {
+  opacity: 1;
+}
+
 /* The one thing the bar has to be able to say about the connection: that there
    isn't one. Kept in the layout rather than displayed away, so the button next
    to it does not shift sideways the moment the watch drops. */

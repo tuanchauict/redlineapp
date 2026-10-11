@@ -1949,6 +1949,17 @@ assert.match(pageCss, /\.name-dir \{[^}]*position: absolute/, 'the path overlays
 assert.match(pageCss, /\.name-dir \{[^}]*opacity: 0/, 'and starts out hidden behind it');
 assert.ok(pageCss.includes('.name:hover .name-file'), 'pointing at it fades the name');
 assert.ok(pageCss.includes('.name:hover .name-dir'), 'and brings the path forward in its place');
+// Not when there is no path to bring forward -- nothing open, or a file granted by itself in the
+// web app -- where the swap would empty the bar under the pointer. One function sets the path, so
+// nothing can set it and leave the mark as it was.
+assert.match(pageCss, /\.name\.no-path:hover \.name-file \{\s*opacity: 1;/,
+  'a box with no path keeps its name');
+assert.match(pageHtml, /<span id="nameBox" class="name no-path">/, 'which it has none of to start');
+assert.ok(
+  /\$\('nameBox'\)\.classList\.toggle\('no-path', !text\);/.test(appJs) &&
+    appJs.match(/\$\('nameDir'\)/g)?.length === 1,
+  'and is marked as it is set, by the one function that sets it',
+);
 
 // `.name` grows to fill the bar's spare width, so a button placed after it in
 // the markup sits wherever that grown box happens to end, not next to the

@@ -190,9 +190,19 @@ function showWelcome({ reopen = null } = {}) {
   if (!back) {
     document.title = 'Redline';
     $('name').textContent = 'Redline';
-    $('nameDir').textContent = '';
+    setNameDir('');
     $('nameBox').title = '';
   }
+}
+
+/**
+ * The path behind the bar's name, `ltrPath`'d. Hovering the name swaps it for this, and with no
+ * path -- nothing open, or a file granted by itself, which has no folder to name -- the swap
+ * would only blank the bar, so the box is marked as having none.
+ */
+function setNameDir(text) {
+  $('nameDir').textContent = text;
+  $('nameBox').classList.toggle('no-path', !text);
 }
 
 function hideWelcome() {
@@ -373,7 +383,7 @@ function paint() {
   // Only when there is a title to show, or the bar would say the filename twice.
   document.title = d.title || d.name;
   $('name').textContent = d.title || d.name;
-  $('nameDir').textContent = ltrPath(d.title ? d.pathLabel : d.dirLabel);
+  setNameDir(ltrPath(d.title ? d.pathLabel : d.dirLabel));
   $('nameBox').title = d.path;
 
   const raw = state.view === 'raw';
