@@ -3379,7 +3379,7 @@ sixth.server.close();
 
 // IndexedDB as a Map, for 12c and 12d. `tx` stages what `fn` does and keeps it only if `fn`
 // finishes, one transaction at a time: the two things a readwrite transaction gives. What a Map
-// cannot do is end a transaction early, which is the thing `idb.js` has to be built not to need.
+// cannot do is end a transaction early, which is the thing `idb.ts` has to be built not to need.
 const memoryKv = () => {
   const data = new Map();
   const seen = { puts: 0 };
@@ -3414,7 +3414,7 @@ const memoryKv = () => {
 };
 
 // --- 12c. the store over a key-value store, and the web platform -------------------------
-// What the web app runs on, with a Map where IndexedDB will be. `idb.js` is the one file here
+// What the web app runs on, with a Map where IndexedDB will be. `idb.ts` is the one file here
 // that is only imported and never run: node has no IndexedDB and this repository has no browser,
 // so how it handles a transaction is held by how it is written, and checked by reading it.
 // (docs/architecture.md, The web app's reader)
@@ -3791,7 +3791,7 @@ const memoryKv = () => {
   assert.strictEqual(JSON.stringify([...kv2.data]), stored, 'and the store is as it was');
   assert.deepStrictEqual(touched, [], 'no handle was asked to write, create or remove anything');
   assert.doesNotMatch(
-    fs.readFileSync(rootUrl('src/hosts/web/platform.js'), 'utf8'),
+    fs.readFileSync(rootUrl('src/hosts/web/platform.ts'), 'utf8'),
     /createWritable|removeEntry|create:\s*true/,
     'the web platform has no way to write a document',
   );
@@ -3829,7 +3829,7 @@ const memoryKv = () => {
   );
   rdr.closeAll();
 
-  // idb.js is imported, never run. It is not allowed to reach for `indexedDB` before it is
+  // idb.ts is imported, never run. It is not allowed to reach for `indexedDB` before it is
   // called, or node could not import it; and the two lines below are what the traps in it come
   // down to, so they are held by a grep for want of a browser.
   const hadIdb = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
@@ -3843,7 +3843,7 @@ const memoryKv = () => {
   try {
     const { createIdbKv, STORES } = await import('./src/hosts/web/idb.js');
     const idb = createIdbKv('files');
-    assert.strictEqual(reached, 0, 'idb.js is imported, and a kv made, without touching indexedDB');
+    assert.strictEqual(reached, 0, 'idb.ts is imported, and a kv made, without touching indexedDB');
     assert.deepStrictEqual(
       STORES,
       ['files', 'roots', 'opened'],
@@ -3852,7 +3852,7 @@ const memoryKv = () => {
     assert.deepStrictEqual(
       Object.keys(idb).sort(),
       ['del', 'get', 'keys', 'put', 'tx'],
-      'and the five calls kv-files.js asks of a kv',
+      'and the five calls kv-files.ts asks of a kv',
     );
     await assert.rejects(
       () => idb.get('k'),
@@ -3864,7 +3864,7 @@ const memoryKv = () => {
     if (hadIdb) Object.defineProperty(globalThis, 'indexedDB', hadIdb);
     else delete globalThis.indexedDB;
   }
-  const idbSrc = fs.readFileSync(rootUrl('src/hosts/web/idb.js'), 'utf8');
+  const idbSrc = fs.readFileSync(rootUrl('src/hosts/web/idb.ts'), 'utf8');
   assert.match(
     idbSrc,
     /IDBKeyRange\.bound\(prefix, prefix \+ '\\uffff'\)/,
@@ -4044,7 +4044,7 @@ const memoryKv = () => {
     console.log('✓ a poll that cannot read the file says so once, and says when it can again');
   }
 
-  // --- handles.js ----------------------------------------------------------------------
+  // --- handles.ts ----------------------------------------------------------------------
   {
     const stores = newStores();
     let n = 0;
@@ -5276,7 +5276,7 @@ const memoryKv = () => {
     );
     assert.ok(
       /\n\.welcome-limits a \{\s*color: var\(--mod\);/.test(pageCss) &&
-        !/\.welcome-(list|folder|files?)\b/.test(pageCss + read('./src/hosts/web/welcome.js')),
+        !/\.welcome-(list|folder|files?)\b/.test(pageCss + read('./src/hosts/web/welcome.ts')),
       'the way to the Mac app is drawn as a link, and the folder list the welcome had is gone',
     );
     assert.match(
@@ -6018,7 +6018,7 @@ const memoryKv = () => {
 
   // Where the data lives: the database, and every store in it, by the name the code gives it.
   const { STORES } = await import('./src/hosts/web/idb.js');
-  assert.match(read('./src/hosts/web/idb.js'), /^const DB_NAME = 'redline';$/m);
+  assert.match(read('./src/hosts/web/idb.ts'), /^const DB_NAME = 'redline';$/m);
   assert.match(doc, /database called `redline`/, 'the database is named as the code names it');
   assert.deepStrictEqual(
     [...doc.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1]),

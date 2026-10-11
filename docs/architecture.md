@@ -59,14 +59,14 @@ src/hosts/tauri/        the app's shell, in the page
   native.ts             `window.mdNative` over the shell's IPC
   backend.ts            the entry point the app's page imports
 src/hosts/web/          the web app's shell: no server, no node, files in IndexedDB
-  kv-files.js           the store's file operations over a key-value store
-  idb.js                that key-value store, over IndexedDB; the one file no test runs
-  platform.js           the platform over `web:` handles, `drop:` files and the store
-  handles.js            the files the user granted, what a doc id was, what may be read now
+  kv-files.ts           the store's file operations over a key-value store
+  idb.ts                that key-value store, over IndexedDB; the one file no test runs
+  platform.ts           the platform over `web:` handles, `drop:` files and the store
+  handles.ts            the files the user granted, what a doc id was, what may be read now
   worker.js             the reader, in a SharedWorker: one per origin, a document per tab
   backend.js            the page's end of it: finds the worker, names it for the build, pings it,
                         asks for permission
-  welcome.js            the empty state: a file, a drop, the limits, a grant to ask for again
+  welcome.ts            the empty state: a file, a drop, the limits, a grant to ask for again
   host.js               the shim that makes a page the web app's; `stage-page.mjs` puts it over
                         `public/host.js`, with the build's version after it
 
@@ -482,7 +482,7 @@ has neither a server nor the reader in the page, and the third is built on it):
 | --- | --- |
 | No `__REDLINE_HOST` | `fetch` and an `EventSource` against the server the page came from. Reconnecting a dropped stream lives here, because that is a fact about http and means nothing further up |
 | `__REDLINE_HOST` | A dynamic import of `vendor/backend-tauri.js`, which builds the reader **in the page** over `hosts/tauri/platform.ts` and calls it directly. A browser tab never downloads it |
-| `__REDLINE_WEB` | A dynamic import of `vendor/backend-web.js`, which reaches the reader **in a SharedWorker** (`vendor/reader-worker.js`, over `hosts/web/platform.js`) through `createRpcBackend`, and adds what a tab has that the others do not. See below |
+| `__REDLINE_WEB` | A dynamic import of `vendor/backend-web.js`, which reaches the reader **in a SharedWorker** (`vendor/reader-worker.js`, over `hosts/web/platform.ts`) through `createRpcBackend`, and adds what a tab has that the others do not. See below |
 
 All three expose the same methods with the same arguments, which is the whole point: the
 one implementation of the diff runs wherever the page is, so a tab and the app
@@ -500,7 +500,7 @@ page's `?v=` (`sibling` in `backend.js` copies the query of its own bundle's URL
 relative URL does not inherit one), and the name has the version and a hash of the two bundles
 the reader is made of, because the version alone is the same across every rebuild at one
 version. Each alone would do; neither is leaned on alone. Two builds get a worker each, over the
-one store, which is the case the fallback already depends on and which `idb.js` allows by closing
+one store, which is the case the fallback already depends on and which `idb.ts` allows by closing
 its connection on `versionchange`. The page learns the build from the shim the build stages
 (below).
 
@@ -543,7 +543,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
 - A document from a drop has no handle to keep: `drop:<name>` lives in the worker's memory, and
   does not outlive it.
 - **The welcome is the only door.** A desktop reader is handed a file and a server is told one; a
-  page is handed nothing, so `welcome.js` (mounted by `backend.welcome(el, hooks)` into
+  page is handed nothing, so `welcome.ts` (mounted by `backend.welcome(el, hooks)` into
   `<section id="welcome">`) is how anything gets opened. The page owns *whether* it shows
   (`showWelcome` and `hideWelcome` in `app.js`: they hide `#doc` and set `html.welcoming`) and
   the module owns what is inside; it builds it with `createElement` and `textContent`, because a
@@ -590,7 +590,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
     used, and Firefox asks the user, which it may do only for a click.
 - **The left column is the open files, kept by the page.** A desktop window's are its tabs,
   which the shell keeps and pushes over `md:tabs`; a browser tab has no shell, so
-  `backend.openFiles` (`open-files.js`) keeps the list, `{ id, path, name, dir, label }` in the
+  `backend.openFiles` (`open-files.ts`) keeps the list, `{ id, path, name, dir, label }` in the
   order opened, and `app.js` puts it in `state.tabs` for `paintTabs` to draw with the same
   rows. Every way a document arrives — a pick, a drop, a link, a reload, the one a bare visit
   resumes — ends in `load()`, which calls `noteOpen()`: the document joins the end of the list,

@@ -7,7 +7,7 @@
 //                        handle, one segment at a time. Never written.
 //   drop:<name>          a file that was dropped or picked with no handle, read once. Never
 //                        written.
-//   /redline/...         the snapshot store, in IndexedDB through kv-files.js. The only place
+//   /redline/...         the snapshot store, in IndexedDB through kv-files.ts. The only place
 //                        anything is written, and the only place anything can be.
 //
 // That last sentence is invariant 4 -- the file being read is never written, and neither is
@@ -17,7 +17,9 @@
 // Where handles and dropped files are kept is not this file's business (the registry is a
 // module of its own), so what looks them up is handed in.
 import { makePaths } from '../../core/paths.js';
+import type { Platform } from '../../reader/platform.js';
 import { createKvFiles } from './kv-files.js';
+import type { Kv } from './kv-files.js';
 
 /** Where the store lives. `REDLINE_HOME` answers it, so `storeRoot` lands here and nowhere else. */
 export const STORE_ROOT = '/redline';
@@ -39,16 +41,31 @@ const notThere = async (fn) => {
   }
 };
 
+/** Which of the three kinds a path is, and the parts of it that kind needs. */
+type Route =
+  | { kind: 'drop'; name: string }
+  | { kind: 'web'; rootId: string; rel: string }
+  | { kind: 'store'; path: string }
+  | { kind: 'none' };
+
+export interface WebPlatformDeps {
+  /** The `files` store, as `idb.ts` makes it. */
+  kv: Kv;
+  /**
+   * The granted directory or file handle for a root, or null for one that is not known. May wait.
+   * Not typed beyond `any`: the File System Access handles are not in `lib.dom` yet.
+   */
+  root: (rootId: string) => any | Promise<any>;
+  /** Dropped files by name, which is what follows `drop:`. A `File` is one. */
+  drops: Map<string, { text(): Promise<string>; lastModified: number }>;
+}
+
 /**
- * @param {object} deps
- * @param {import('./kv-files.js').Kv} deps.kv  The `files` store, as `idb.js` makes it.
- * @param {(rootId: string) => object | null | Promise<object | null>} deps.root
- *   The granted directory or file handle for a root, or null for one that is not known. May wait.
- * @param {Map<string, { text: () => Promise<string>, lastModified: number }>} deps.drops
- *   Dropped files by name, which is what follows `drop:`. A `File` is one.
- * @returns {import('../../reader/platform.js').Platform}
+ * The reader's platform in a browser. Declared to return `Platform`, so that a member the reader
+ * calls and this does not have, or has with another shape, is an error here and not a page that
+ * throws at the first poll.
  */
-export function createWebPlatform({ kv, root, drops }) {
+export function createWebPlatform({ kv, root, drops }: WebPlatformDeps): Platform {
   const store = createKvFiles(kv, STORE_ROOT);
 
   /**
@@ -66,8 +83,7 @@ export function createWebPlatform({ kv, root, drops }) {
     return tail ? `${prefix[0]}/${tail}` : prefix[0];
   }
 
-  /** Which of the three kinds a path is, and the parts of it that kind needs. */
-  function route(p) {
+  function route(p: string): Route {
     const q = resolve(p);
     if (q.startsWith('drop:')) return { kind: 'drop', name: q.slice('drop:'.length) };
     if (q.startsWith('web:')) {

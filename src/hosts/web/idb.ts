@@ -1,4 +1,4 @@
-// The key-value store `kv-files.js` asks for, over IndexedDB.
+// The key-value store `kv-files.ts` asks for, over IndexedDB.
 //
 // Kept small on purpose, because nothing here can be run without a browser: the tests import
 // this file and never call it. It is meant to be checked by reading.
@@ -6,23 +6,24 @@
 // One database, `redline`, with every object store the web app will use, made now so that the
 // handle registry added later needs no schema upgrade:
 //
-//   files    path     -> { text, mtime }      the snapshot store, through kv-files.js
+//   files    path     -> { text, mtime }      the snapshot store, through kv-files.ts
 //   roots    rootId   -> { handle, name, kind }
 //   opened   doc id   -> { rootId, rel }
 //
 // `indexedDB` is reached only when a call is made, never when this file is imported, so node
 // can import it (the layering walk and the tests do) and a page with no IndexedDB fails at the
 // first call, with a message, rather than at load.
+import type { Kv } from './kv-files.js';
 
 const DB_NAME = 'redline';
 const DB_VERSION = 1;
-export const STORES = ['files', 'roots', 'opened'];
+export const STORES = ['files', 'roots', 'opened'] as const;
 
-let opening = null;
+let opening: Promise<IDBDatabase> | null = null;
 
-function openDb() {
+function openDb(): Promise<IDBDatabase> {
   if (opening) return opening;
-  opening = new Promise((resolve, reject) => {
+  opening = new Promise<IDBDatabase>((resolve, reject) => {
     if (!globalThis.indexedDB) throw new Error('IndexedDB is not available here');
     const req = globalThis.indexedDB.open(DB_NAME, DB_VERSION);
     // Out-of-line keys: the path or the id is the key, and the value is stored as it is.
@@ -52,20 +53,22 @@ function openDb() {
 
 // A request as a promise. Settled in the request's own callback, where the transaction is
 // still active, so whatever waits on it can issue the next request on the same transaction.
-const reply = (req) =>
-  new Promise((resolve, reject) => {
+const reply = <T>(req: IDBRequest<T>): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
 
 // The four calls on one object store, inside one transaction.
-const bind = (store) => ({
+const bind = (store: IDBObjectStore): Omit<Kv, 'tx'> => ({
   get: (key) => reply(store.get(key)),
   put: async (key, value) => void (await reply(store.put(value, key))),
   del: async (key) => void (await reply(store.delete(key))),
   // Every key that starts with `prefix`: the range from it to the same string with the highest
-  // code unit after it. Keys are compared by code unit, as `startsWith` does.
-  keys: (prefix) => reply(store.getAllKeys(IDBKeyRange.bound(prefix, prefix + '\uffff'))),
+  // code unit after it. Keys are compared by code unit, as `startsWith` does. Every key in these
+  // stores is a string, which is what `IDBValidKey` cannot say.
+  keys: async (prefix) =>
+    (await reply(store.getAllKeys(IDBKeyRange.bound(prefix, prefix + '\uffff')))) as string[],
 });
 
 /**
@@ -73,13 +76,17 @@ const bind = (store) => ({
  *
  * Not once the last request has succeeded: a write that the browser cannot keep (the quota, a
  * disk) fails at commit, after every request has said yes, and the store must not be told it was
- * written. `fn` is handed the store's calls and may wait only on them -- see kv-files.js.
+ * written. `fn` is handed the store's calls and may wait only on them -- see kv-files.ts.
  */
-function transact(storeName, mode, fn) {
+function transact<T>(
+  storeName: string,
+  mode: IDBTransactionMode,
+  fn: (store: Omit<Kv, 'tx'>) => T | Promise<T>,
+): Promise<T> {
   return openDb().then((db) => {
     const t = db.transaction(storeName, mode);
-    const committed = new Promise((resolve, reject) => {
-      t.oncomplete = resolve;
+    const committed = new Promise<void>((resolve, reject) => {
+      t.oncomplete = () => resolve();
       t.onabort = () => reject(t.error ?? new Error('transaction aborted'));
     });
     // Called now, in this turn, while the transaction is new. An async wrapper so that a throw
@@ -97,12 +104,8 @@ function transact(storeName, mode, fn) {
   });
 }
 
-/**
- * A key-value store over one of the object stores above.
- * @param {'files' | 'roots' | 'opened'} storeName
- * @returns {import('./kv-files.js').Kv}
- */
-export function createIdbKv(storeName) {
+/** A key-value store over one of the object stores above. */
+export function createIdbKv(storeName: (typeof STORES)[number]): Kv {
   return {
     get: (key) => transact(storeName, 'readonly', (s) => s.get(key)),
     put: (key, value) => transact(storeName, 'readwrite', (s) => s.put(key, value)),

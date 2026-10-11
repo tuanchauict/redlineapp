@@ -9,7 +9,7 @@
 // `/redline/objects/ab12.md` is enough to make `objects` exist, so there is nothing to create
 // and nothing to leave behind when the last file in one goes.
 //
-// The kv it is given has five calls, and `idb.js` is the one that matters:
+// The kv it is given has five calls, and `idb.ts` is the one that matters:
 //
 //   get(key)            the value, or undefined
 //   put(key, value)     replaces the value whole
@@ -25,22 +25,24 @@
 // waits on anything else. The `Map` the tests use would not notice if something did, so that is
 // held by how each `fn` below is written -- a get or two, a put, a del -- and not by a test.
 
-/**
- * @typedef {object} Kv
- * @property {(key: string) => Promise<any>} get
- * @property {(key: string, value: any) => Promise<void>} put
- * @property {(key: string) => Promise<void>} del
- * @property {(prefix: string) => Promise<string[]>} keys
- * @property {<T>(fn: (kv: Omit<Kv, 'tx'>) => Promise<T>) => Promise<T>} tx
- */
+import type { Platform } from '../../reader/platform.js';
 
-/**
- * @param {Kv} kv
- * @param {string} root  Where the store lives, as the platform answers `REDLINE_HOME`.
- * @returns {Pick<import('../../reader/platform.js').Platform,
- *   'readText' | 'writeText' | 'mkdirp' | 'readDir' | 'remove' | 'rename' | 'exists' | 'modified'>}
- */
-export function createKvFiles(kv, root) {
+export interface Kv {
+  get(key: string): Promise<any>;
+  put(key: string, value: unknown): Promise<void>;
+  del(key: string): Promise<void>;
+  keys(prefix: string): Promise<string[]>;
+  tx<T>(fn: (kv: Omit<Kv, 'tx'>) => Promise<T>): Promise<T>;
+}
+
+/** The part of the platform a key-value store can give: the files, with no spawning or watching. */
+export type KvFiles = Pick<
+  Platform,
+  'readText' | 'writeText' | 'mkdirp' | 'readDir' | 'remove' | 'rename' | 'exists' | 'modified'
+>;
+
+/** `root` is where the store lives, as the platform answers `REDLINE_HOME`. */
+export function createKvFiles(kv: Kv, root: string): KvFiles {
   const base = root.replace(/\/+$/, '');
 
   // A path the store may name: `root` and what is under it. Not a prefix match on the string,
