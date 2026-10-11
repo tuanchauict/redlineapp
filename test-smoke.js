@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -512,6 +513,67 @@ for (const [re, bad, good] of [
   assert.strictEqual([...good.matchAll(re)].length, 0, `${re} lets ${good} through`);
 }
 console.log('✓ contract/ is types only, and imported as such');
+
+// The contract is checked by tsc, so what a test can say is that it is wired -- each host names
+// it in its signature, and a host that stopped saying so would stop being checked without a
+// word -- and that it can fail: a Backend with a method left out, and one whose `fonts` answers
+// the session's shape and not the page's, must both be refused by the compiler the build runs.
+for (const [file, sig] of [
+  ['src/hosts/tauri/backend.ts', /\): Promise<Backend>/],
+  ['src/rpc/client.ts', /\): RpcBackend\b/],
+  ['src/hosts/web/backend.ts', /\): Promise<WebBackend>/],
+  ['src/reader/session.ts', /\): Session\b/],
+  ['src/hosts/web/worker.ts', /function sessionFor\(.*\): Session\b/],
+  ['src/reader/reader.ts', /Promise<DocPayload>/],
+  ['src/hosts/node/platform.ts', /: Platform = /],
+  ['src/hosts/tauri/platform.ts', /: Platform = /],
+  ['src/hosts/web/platform.ts', /\): Platform\b/],
+]) {
+  const text = fs.readFileSync(fileURLToPath(rootUrl(file)), 'utf8');
+  assert.match(text, sig, `${file} names the type it implements`);
+}
+const fixtures = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-contract-'));
+try {
+  const seam = path
+    .relative(fixtures, fileURLToPath(rootUrl('src/contract/seam.js')))
+    .split(path.sep)
+    .join('/');
+  // One compile for all three, so it costs one tsc start. `good.ts` is the control: if the
+  // import could not be resolved it would fail too, and the other two would pass for the wrong
+  // reason.
+  const backend = (omit, fonts) =>
+    `import type { Backend } from '${seam}';\n` +
+    'export const b: Backend = {\n' +
+    '  doc: async () => null,\n' +
+    (omit === 'markRead' ? '' : '  markRead: async () => null,\n') +
+    '  ack: async () => [],\n' +
+    '  prune: async () => null,\n' +
+    '  plantumlSvg: async () => ({ svg: "" }),\n' +
+    `  fonts: async () => ${fonts},\n` +
+    '  watch: () => () => {},\n' +
+    '};\n';
+  fs.writeFileSync(path.join(fixtures, 'good.ts'), backend(null, '[]'));
+  fs.writeFileSync(path.join(fixtures, 'missing.ts'), backend('markRead', '[]'));
+  fs.writeFileSync(path.join(fixtures, 'shape.ts'), backend(null, '({ fonts: [] })'));
+  const tsc = spawnSync(
+    fileURLToPath(rootUrl('node_modules/.bin/tsc')),
+    ['--noEmit', '--pretty', 'false', '--strict', 'false', '--skipLibCheck', '--target', 'es2022',
+      '--module', 'esnext', '--moduleResolution', 'bundler',
+      ...['good', 'missing', 'shape'].map((f) => path.join(fixtures, `${f}.ts`))],
+    { encoding: 'utf8' },
+  );
+  // tsc prints paths relative to where it was run, so the file is found by its name.
+  const errors = (f) => tsc.stdout.split('\n').filter((l) => l.includes(`/${f}(`));
+  assert.deepStrictEqual(errors('good.ts'), [], `a correct Backend compiles: ${tsc.stdout}`);
+  assert.match(errors('missing.ts').join('\n'), /markRead/,
+    `tsc refuses a Backend with a method missing, and says which: ${tsc.stdout}`);
+  assert.match(errors('shape.ts').join('\n'), /fonts/,
+    `tsc refuses a fonts() in the session's shape: ${tsc.stdout}`);
+  assert.notStrictEqual(tsc.status, 0, 'so tsc exits non-zero');
+} finally {
+  fs.rmSync(fixtures, { recursive: true, force: true });
+}
+console.log('✓ the contract is wired into every host, and can fail');
 
 // core/paths.js agrees with node:path on the cases it claims. Not claimed: a trailing
 // separator on dirname, and the root of a drive (`C:\a` has dirname `C:`, node says `C:\`).

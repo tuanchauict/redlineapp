@@ -1,10 +1,11 @@
 # Architecture
 
-Node ESM and hand-written CSS, no framework. The code Node runs (`bin/`, `scripts/`,
-`src/hosts/node/`, the test) goes through `tsc` into `out/` first; what esbuild
-bundles is `src/` as written, and what the page runs is `public/` as written. All of it
-is still JavaScript while the conversion is under way ([typescript.md](typescript.md));
-the only dependencies that reach the page are
+Node ESM and hand-written CSS, no framework. `src/` is TypeScript, apart from the one
+classic script that has to stay JavaScript; `bin/`, `scripts/`, the test and the page
+(`public/`, `site/`) are still JavaScript while the conversion is under way
+([typescript.md](typescript.md)). The code Node runs (`bin/`, `scripts/`, `src/hosts/node/`,
+the test) goes through `tsc` into `out/` first; what esbuild bundles is `src/` as written,
+and what the page runs is `public/` as written. The only dependencies that reach the page are
 vendored as they ship (`highlight.js` themes, `mermaid`), and `github-markdown-css` with
 its two palettes re-keyed from the system's scheme to the page's by `build:web`
 (`scripts/markdown-css.mjs`) and nothing else changed.
@@ -496,7 +497,7 @@ store. It is `createWebHost` in `src/hosts/web/worker.ts`, run as a SharedWorker
 `MessageChannel`, one reader a tab over the one IndexedDB store. A SharedWorker is found by its
 URL and its name, so one that did not change would, after a deploy, hand a new tab the old
 reader that a tab left open on the old build keeps alive. The build is in both: the URL has the
-page's `?v=` (`sibling` in `backend.js` copies the query of its own bundle's URL, since a
+page's `?v=` (`sibling` in `web/backend.ts` copies the query of its own bundle's URL, since a
 relative URL does not inherit one), and the name has the version and a hash of the two bundles
 the reader is made of, because the version alone is the same across every rebuild at one
 version. Each alone would do; neither is leaned on alone. Two builds get a worker each, over the
@@ -510,7 +511,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
   silent releases it; its next message of any kind takes the document again and answers with a
   `change`, so a hidden tab whose timers were throttled catches up instead of going stale. The
   back/forward cache is `pagehide` → `bye` and `pageshow` (persisted) → `hello`, a new watch
-  and a `change`; that wiring is in `backend.js`, where a test can reach it.
+  and a `change`; that wiring is in `web/backend.ts`, where a test can reach it.
 - **A reload is `?id=`.** The worker remembers `docId → { rootId, rel }` in the `opened` store,
   so a fresh worker can find the file again. The root's permission decides what happens:
   `granted` opens it, `prompt` is `NeedsPermission`, and `denied` or a root the registry does

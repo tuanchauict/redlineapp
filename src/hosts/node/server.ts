@@ -48,7 +48,7 @@ const MIME = {
 /**
  * The page's content security policy, as a header on index.html.
  *
- * The document is sanitized before it reaches the DOM (src/page/sanitize.js); this
+ * The document is sanitized before it reaches the DOM (src/page/sanitize.ts); this
  * is the floor under that, so that a document which got something past it
  * still could not run it. Script only from this server, plus the one inline
  * script in the head -- by hash, because it has to run before first paint and

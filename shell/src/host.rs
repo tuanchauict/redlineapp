@@ -1,7 +1,7 @@
 // The disk and the process table, for a page that has neither.
 //
 // This is the Rust half of the Platform contract in src/reader/platform.ts. The other
-// half is src/hosts/tauri/platform.js, which calls straight through to these. There
+// half is src/hosts/tauri/platform.ts, which calls straight through to these. There
 // is deliberately nothing else in here: no notion of a document, a version or a
 // diff, because all of that is the reader's, and the reader runs in the webview.
 //
@@ -14,7 +14,7 @@
 // follows the name rather than the inode.
 //
 // What is here is also everything a page can do to this machine, and the page
-// draws documents written by other people. src/page/sanitize.js and the CSP in
+// draws documents written by other people. src/page/sanitize.ts and the CSP in
 // tauri.conf.json are what stop a document running script in it; the checks
 // below are what a script would find if one ever did. Reading is left open --
 // a reader has to follow a link to any file, and the CSP is what keeps what it
@@ -343,7 +343,7 @@ pub struct Handoff {
     /// it wants to hear: a `listen` with no target registers for every event in
     /// the app, including the ones another window was addressed by name, so
     /// without this a second window's tab list lands in this one. See the
-    /// `label` note in src/hosts/tauri/native.js.
+    /// `label` note in src/hosts/tauri/native.ts.
     pub label: String,
     /// What this copy is, for the About row in Settings. Off the bundle the
     /// app was built as -- tauri.conf.json -- which is also what Finder's Get
