@@ -6626,6 +6626,59 @@ assert.match(pages, /npm run build:site/, 'the deploy stages the icon and the og
 assert.match(pages, /command: pages deploy/, 'before uploading anything');
 assert.match(wrangler, /pages_build_output_dir = "site"/, 'from the directory wrangler.toml names');
 assert.match(wrangler, /^name = "redline"$/m, 'into the project it names');
+// Two jobs, for the reason the web app's deploy is two: building the page compiles a script, so
+// it needs `npm ci`, which runs every dependency's install scripts, and the job that has done
+// that must not hold the Cloudflare token.
+{
+  assert.deepStrictEqual(
+    pagesCode.slice(pagesCode.indexOf('\njobs:')).match(/^ {2}[a-z]+:$/gm),
+    ['  build:', '  deploy:'],
+    'a job that builds the page, and a job that deploys what it built',
+  );
+  const buildJob = pagesCode.slice(
+    pagesCode.indexOf('\n  build:'),
+    pagesCode.indexOf('\n  deploy:'),
+  );
+  const deployJob = pagesCode.slice(pagesCode.indexOf('\n  deploy:'));
+  assert.match(deployJob, /needs: build/, 'the deploy waits for the build');
+  assert.match(
+    buildJob,
+    /run: npm ci\b[\s\S]*run: npm run build:site\b/,
+    'built from a clean install',
+  );
+  assert.doesNotMatch(buildJob, /secrets\./, 'the job that runs npm ci holds no secret');
+  assert.match(deployJob, /apiToken: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/, 'the token');
+  assert.match(deployJob, /accountId: \$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \}\}/, 'the account');
+  assert.doesNotMatch(deployJob, /actions\/checkout/, 'with no checkout, so no wrangler.toml');
+  assert.doesNotMatch(deployJob, /\bnpm\b|\bnpx\b/, 'and no npm to run a dependency with');
+  assert.strictEqual(deployJob.match(/^ {6}- /gm).length, 3, 'a node, the artifact, the deploy');
+  // wrangler.toml is not there to be read, so the project and the directory are named here, and
+  // they are the ones wrangler.toml names.
+  assert.strictEqual(
+    deployJob.match(/--project-name=(\S+)/)?.[1],
+    wrangler.match(/^name = "(.+)"$/m)[1],
+    "into the landing page's project",
+  );
+  assert.strictEqual(
+    deployJob.match(/pages deploy (\S+) /)?.[1],
+    wrangler.match(/^pages_build_output_dir = "(.+)"$/m)[1],
+    'and the directory wrangler.toml names',
+  );
+  assert.match(deployJob, /command: pages deploy site --project-name=redline --branch=main/);
+  // What is uploaded is what was built: the one directory, by the one name, and an empty one is
+  // an error.
+  assert.match(
+    buildJob,
+    /name: redline-site\n\s+path: site\n\s+if-no-files-found: error/,
+    'site/ or nothing',
+  );
+  assert.match(
+    deployJob,
+    /name: redline-site\n\s+path: site/,
+    'which the deploy downloads to site/',
+  );
+  console.log('✓ pages.yml builds in one job and deploys from another, token in one');
+}
 assert.match(ignore, /^site\/icon\.svg$/m, 'the copied icon is build output, not source');
 assert.match(ignore, /^site\/icon\.png$/m, 'and so is the png of it');
 // Absolute, because a link preview does not resolve a relative og:image against

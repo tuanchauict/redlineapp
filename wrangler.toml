@@ -14,11 +14,12 @@
 #   npx wrangler login
 #   npx wrangler pages project create redline --production-branch=main
 #
-# `pages_build_output_dir` is what gets uploaded, so `wrangler pages deploy`
-# needs no argument and the workflow and a local run cannot disagree about which
-# directory is the site. Run `npm run build:site` first either way: the
-# screenshots and the icon are copied in rather than committed, so an unbuilt
-# site/ is the page with no images.
+# `pages_build_output_dir` is what a local `wrangler pages deploy` uploads, with
+# no argument. The workflow has no checkout to read this file from, so it names
+# the same project and directory on its command line, and test-smoke.js fails if
+# they ever differ. Run `npm run build:site` first either way: the screenshots
+# and the icon are copied in rather than committed, so an unbuilt site/ is the
+# page with no images.
 name = "redline"
 pages_build_output_dir = "site"
 compatibility_date = "2026-10-03"
