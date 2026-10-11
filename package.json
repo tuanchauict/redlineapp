@@ -12,27 +12,28 @@
   "bugs": "https://github.com/tuanchauict/redlineapp/issues",
   "type": "module",
   "bin": {
-    "redline": "bin/redline.js"
+    "redline": "out/bin/redline.js"
   },
   "scripts": {
-    "build:web": "node scripts/build-web.mjs",
-    "build:dist": "node scripts/build-dist.mjs",
-    "build:webapp": "node scripts/build-webapp.mjs",
-    "build:site": "node scripts/build-site.mjs",
+    "build:ts": "tsc -b",
+    "build:web": "npm run build:ts && node out/scripts/build-web.mjs",
+    "build:dist": "npm run build:ts && node out/scripts/build-dist.mjs",
+    "build:webapp": "npm run build:ts && node out/scripts/build-webapp.mjs",
+    "build:site": "npm run build:ts && node out/scripts/build-site.mjs",
     "prestart": "npm run build:web",
-    "start": "node bin/redline.js",
+    "start": "node out/bin/redline.js",
     "prewebapp": "npm run build:web && npm run build:webapp",
-    "webapp": "node scripts/serve-webapp.mjs",
+    "webapp": "node out/scripts/serve-webapp.mjs",
     "presite": "npm run build:site",
-    "site": "node scripts/serve-site.mjs",
+    "site": "node out/scripts/serve-site.mjs",
     "preapp": "npm run build:web && npm run build:dist",
     "app": "cargo run --manifest-path shell/Cargo.toml --",
-    "dev": "node scripts/dev.mjs",
-    "icons": "node scripts/make-icons.mjs",
-    "notices": "node scripts/notices.mjs",
-    "bundle": "node scripts/bundle.mjs",
+    "dev": "npm run build:ts && node out/scripts/dev.mjs",
+    "icons": "npm run build:ts && node out/scripts/make-icons.mjs",
+    "notices": "npm run build:ts && node out/scripts/notices.mjs",
+    "bundle": "npm run build:ts && node out/scripts/bundle.mjs",
     "pretest": "npm run build:web",
-    "test": "node test-smoke.js"
+    "test": "node out/test-smoke.js"
   },
   "engines": {
     "node": ">=18"
@@ -49,6 +50,9 @@
   "devDependencies": {
     "@tauri-apps/api": "^2.12.0",
     "@tauri-apps/cli": "^2.12.0",
-    "esbuild": "^0.28.2"
+    "@types/markdown-it": "^14.2.0",
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.9.3"
   }
 }

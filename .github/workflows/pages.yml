@@ -1,8 +1,9 @@
 # Publish the landing page in site/ to Cloudflare Pages.
 #
 # Its own workflow rather than a job in ci.yml, because it shares nothing with
-# it: the site is hand-written HTML with no toolchain to install, and a change
-# to it is no reason to run the reader's suite and compile a dmg.
+# it: a change to the page is no reason to run the reader's suite and compile a
+# dmg. It does share the compiler, since build:site is a compiled script, so it
+# installs what the repository does and is two jobs for the reason webapp.yml is.
 #
 # Before the first run this needs two repository secrets -- Settings, Secrets
 # and variables, Actions:
@@ -36,8 +37,9 @@ permissions:
   contents: read
 
 jobs:
-  deploy:
-    name: deploy to Cloudflare Pages
+  # Everything that runs this repository's code and its dependencies' code, and no secret.
+  build:
+    name: build the landing page
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -47,21 +49,48 @@ jobs:
           node-version: 22
           cache: npm
 
-      # No `npm ci`: build:site is node's own fs and nothing else, and the
-      # landing page has no dependencies to install. The dependency tree in this
-      # repository belongs to the reader, not to this page.
-      #
-      # It also fails the run if the page points at a file that is not there,
-      # which is the only check available for a page with no browser to open it
-      # in -- see the comment at the top of the script.
+      - run: npm ci
+
+      # Compiles the script, then runs it. It also fails the run if the page
+      # points at a file that is not there, which is the only check available for
+      # a page with no browser to open it in -- see the comment at the top of the
+      # script.
       - name: Stage the icon and the og:image
         run: npm run build:site
 
-      # The directory and the project name both come from wrangler.toml, so
-      # there is one place that says what is being deployed and where.
+      # What is uploaded is what was built here, to the byte, and the deploy job
+      # is not given a checkout to build it again from.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: redline-site
+          path: site
+          if-no-files-found: error
+
+  # The one job that holds the Cloudflare token. It runs nothing from this
+  # repository and nothing from node_modules, only a directory of static files
+  # and wrangler: `npm ci` runs every dependency's install scripts, and a job
+  # that has done that should not also be handed the key to the account.
+  #
+  # It has no checkout, so there is no wrangler.toml for `wrangler pages deploy`
+  # to find, and the project and the directory are what is written on the command
+  # line below -- the same two wrangler.toml names, which the test suite compares.
+  deploy:
+    name: deploy to Cloudflare Pages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: redline-site
+          path: site
+
       - name: Deploy
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy --branch=main
+          command: pages deploy site --project-name=redline --branch=main

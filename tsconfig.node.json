@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "tsBuildInfoFile": "out/tsconfig.node.tsbuildinfo"
+  },
+  "include": ["src/hosts/node", "bin", "scripts", "test-smoke.js"],
+  "references": [{ "path": "./tsconfig.src.json" }]
+}

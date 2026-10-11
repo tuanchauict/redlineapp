@@ -25,9 +25,8 @@
 // uploads one directory and a link out of it does not survive that.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { ROOT } from '../src/hosts/node/root.js';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SITE = path.join(ROOT, 'site');
 const html = fs.readFileSync(path.join(SITE, 'index.html'), 'utf8');
 

@@ -1,7 +1,10 @@
 # Architecture
 
-Node ESM and hand-written CSS, no framework. Nothing is transpiled, so what you read
-in `src/` and `public/` is what runs; the only dependencies that reach the page are
+Node ESM and hand-written CSS, no framework. The code Node runs (`bin/`, `scripts/`,
+`src/hosts/node/`, the test) goes through `tsc` into `out/` first; what esbuild
+bundles is `src/` as written, and what the page runs is `public/` as written. All of it
+is still JavaScript while the conversion is under way ([typescript.md](typescript.md));
+the only dependencies that reach the page are
 vendored as they ship (`highlight.js` themes, `mermaid`), and `github-markdown-css` with
 its two palettes re-keyed from the system's scheme to the page's by `build:web`
 (`scripts/markdown-css.mjs`) and nothing else changed.
@@ -18,6 +21,7 @@ one it has.
 
 ```
 bin/redline.js          CLI: parse flags, start the server, open a browser
+out/                    tsc's output: what every npm script runs. Gitignored
 
 src/core/               pure: no I/O and no platform, so it runs anywhere
   document.js           two versions of a text -> HTML, marks, contents
@@ -46,6 +50,7 @@ src/rpc/                the page and the reader over messages; imports only rpc/
 src/hosts/node/         the CLI's shell
   server.js             HTTP + SSE over the reader
   platform.js           the platform over node
+  root.js               where the repository is, from any file, in source or compiled
 src/hosts/tauri/        the app's shell, in the page
   platform.js           the platform over the shell's IPC, on core/paths.js
   native.js             `window.mdNative` over the shell's IPC
@@ -829,11 +834,14 @@ file.
 ## Conventions
 
 - Comments say **why**, not what. The code says what.
-- No framework and no transpiler — the cost of reading a file is reading that file.
-  The two build steps exist because the app's page has no node to import from and
-  no server to fetch from, not because anything here is compiled to something else:
-  `build-web.mjs` bundles `src/` as it is, and `stage-page.mjs` only copies. The one
-  rewrite is github-markdown-css's palette, keyed to the page's scheme (`markdown-css.mjs`).
+- No framework. One compiler, `tsc`, and it is here for one reason: the three hosts
+  (node, Tauri, web) share a payload, a `Platform`, an rpc protocol and a session, and
+  the compiler is what fails when they disagree. It compiles what node runs into `out/`
+  and never into `src/`. The two page build steps exist because the app's page has no
+  node to import from and no server to fetch from, and they are not a second compile of
+  anything: `build-web.mjs` bundles `src/` as it is, and `stage-page.mjs` only copies.
+  The one rewrite is github-markdown-css's palette, keyed to the page's scheme
+  (`markdown-css.mjs`). [typescript.md](typescript.md) has the layout.
 - One stylesheet, custom properties at the top, sections in the same order as
   `index.html`.
 - An author `display` beats the browser's own `[hidden] { display: none }` whatever

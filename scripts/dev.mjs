@@ -45,10 +45,9 @@
 // wiring, the drop overlay.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
+import { ROOT } from '../src/hosts/node/root.js';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHELL = path.join(ROOT, 'shell');
 
 /** How long to let edits settle before restaging. A save is often several. */
@@ -69,7 +68,7 @@ const appArgs = argv.filter((a) => a !== '--no-watch');
  *   one on disk, so the answer is whether ⌘R is worth pressing.
  */
 const build = (script, quiet) => {
-  const r = spawnSync('node', [path.join('scripts', script)], {
+  const r = spawnSync('node', [path.join('out', 'scripts', script)], {
     cwd: ROOT,
     stdio: quiet ? ['ignore', 'ignore', 'inherit'] : 'inherit',
   });
