@@ -67,8 +67,8 @@ const signing = identity
 
 const sh = (cmd, args, cwd = ROOT) => execFileSync(cmd, args, { stdio: 'inherit', cwd });
 
-sh('node', [path.join('scripts', 'build-web.mjs')]);
-sh('node', [path.join('scripts', 'build-dist.mjs')]);
+sh('node', [path.join('out', 'scripts', 'build-web.mjs')]);
+sh('node', [path.join('out', 'scripts', 'build-dist.mjs')]);
 
 // Run from shell/, which is where tauri.conf.json and Cargo.toml are. A
 // universal build is two compiles and a lipo, so it is asked for rather than

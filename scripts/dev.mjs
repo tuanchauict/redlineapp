@@ -68,7 +68,7 @@ const appArgs = argv.filter((a) => a !== '--no-watch');
  *   one on disk, so the answer is whether ⌘R is worth pressing.
  */
 const build = (script, quiet) => {
-  const r = spawnSync('node', [path.join('scripts', script)], {
+  const r = spawnSync('node', [path.join('out', 'scripts', script)], {
     cwd: ROOT,
     stdio: quiet ? ['ignore', 'ignore', 'inherit'] : 'inherit',
   });

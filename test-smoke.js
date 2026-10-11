@@ -45,11 +45,38 @@ import { createRpcBackend } from './src/rpc/client.js';
   console.log('✓ the repository root is found from a file, in source or compiled');
 }
 
+// The suite runs what ships. `npm test` compiles first (pretest) and this file is the compiled
+// copy; pointed back at the source, every assertion below would be about code no npm script
+// runs, and nothing would say so.
+{
+  assert.ok(
+    fileURLToPath(import.meta.url).startsWith(path.join(ROOT, 'out') + path.sep),
+    'the suite runs from out/, the compiled copy',
+  );
+  const pkg = JSON.parse(fs.readFileSync(rootUrl('package.json'), 'utf8'));
+  assert.strictEqual(pkg.bin.redline, 'out/bin/redline.js', 'the CLI is the compiled one');
+  assert.strictEqual(pkg.scripts['build:ts'], 'tsc -b', 'one command compiles every project');
+  // A script with a pre hook gets its compile from the hook, which ends in build:web or
+  // build:site, and both of those start with build:ts.
+  const compiledBy = { start: 'prestart', webapp: 'prewebapp', site: 'presite', test: 'pretest' };
+  for (const [name, cmd] of Object.entries(pkg.scripts)) {
+    assert.doesNotMatch(
+      cmd,
+      /\bnode (scripts|bin)\/|\bnode test-smoke/,
+      `${name} runs compiled code`,
+    );
+    if (!/\bnode out\//.test(cmd)) continue;
+    const gate = compiledBy[name] ? pkg.scripts[compiledBy[name]] : cmd;
+    assert.match(gate, /^npm run build:(ts|web|site)\b/, `${name} compiles before it runs`);
+  }
+  console.log('✓ the suite and every npm script run the compiled copy, compiled first');
+}
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-'));
 process.env.REDLINE_HOME = path.join(tmp, 'home');
 
 const file = path.join(tmp, 'sample.md');
-fs.copyFileSync(new URL('./sample.md', import.meta.url), file);
+fs.copyFileSync(rootUrl('sample.md'), file);
 
 const { server } = await createServer({ file });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -224,7 +251,7 @@ assert.strictEqual(
 assert.strictEqual(await raw('/', { host: own, 'sec-fetch-site': 'none' }), 200,
   'and so does an address typed in, or opened by the CLI');
 
-const indexHtml = fs.readFileSync(new URL('./public/index.html', import.meta.url), 'utf8');
+const indexHtml = fs.readFileSync(rootUrl('public/index.html'), 'utf8');
 const inline = [...indexHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 assert.strictEqual(inline.length, 1, 'one inline script, the head prefs');
 const headHash = crypto.createHash('sha256').update(inline[0]).digest('base64');
@@ -243,7 +270,7 @@ assert.ok(!(await fetch(base + '/app.js')).headers.get('content-security-policy'
 // The app's copy is in tauri.conf.json, where the bundler adds the hash itself
 // -- and must be kept off style-src, where a nonce would switch off the
 // 'unsafe-inline' every inline style on the page depends on.
-const shellConf = JSON.parse(fs.readFileSync(new URL('./shell/tauri.conf.json', import.meta.url)));
+const shellConf = JSON.parse(fs.readFileSync(rootUrl('shell/tauri.conf.json')));
 const appCsp = Object.fromEntries(
   Object.entries(shellConf.app.security.csp).map(([k, v]) => [k, v.split(/\s+/)]),
 );
@@ -260,7 +287,7 @@ assert.deepStrictEqual(shellConf.app.security.dangerousDisableAssetCspModificati
 // Sanitized where it goes in. Every innerHTML in the page is named here: the
 // two that carry what a document said go through DOMPurify, and the rest are
 // the page's own constant markup. A new one has to be one or the other.
-const appJs = fs.readFileSync(new URL('./public/app.js', import.meta.url), 'utf8');
+const appJs = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
 assert.match(appJs, /import \{ sanitizeDocument, sanitizeSvg \} from '\.\/vendor\/sanitize\.js';/,
   'the page loads the sanitizer');
 assert.match(appJs, /const source = raw \? d\.rawHtml : d\.html;[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);/,
@@ -272,30 +299,30 @@ assert.deepStrictEqual(
   ['ack', 'closest', 'count', 'doc', 'more', 'x'],
   'no innerHTML the page does not know is safe',
 );
-const sanitizeJs = fs.readFileSync(new URL('./src/page/sanitize.js', import.meta.url), 'utf8');
+const sanitizeJs = fs.readFileSync(rootUrl('src/page/sanitize.js'), 'utf8');
 assert.match(sanitizeJs, /FORBID_TAGS: \['style', 'form'\]/,
   'a document cannot restyle the window or hide its own marks');
 assert.match(sanitizeJs, /SANITIZE_DOM: false,\n\s*FORBID_ATTR: \['name'\]/,
   'heading ids keep their anchors, and name is what goes instead');
-assert.ok(fs.readFileSync(new URL('./public/vendor/sanitize.js', import.meta.url), 'utf8')
+assert.ok(fs.readFileSync(rootUrl('public/vendor/sanitize.js'), 'utf8')
   .includes('DOMPurify'), 'build:web bundles DOMPurify into it');
-assert.match(fs.readFileSync(new URL('./scripts/stage-page.mjs', import.meta.url), 'utf8'),
+assert.match(fs.readFileSync(rootUrl('scripts/stage-page.mjs'), 'utf8'),
   /'vendor\/sanitize\.js'/, 'and no host stages a page without it');
 
 // The shell runs only the command lines the reader builds. Each spawn in src/
 // is one arm of `may_spawn`, and the arguments it is matched against are
 // copied from these files -- so the two are compared here, not trusted.
-const hostRsCheck = fs.readFileSync(new URL('./shell/src/host.rs', import.meta.url), 'utf8');
+const hostRsCheck = fs.readFileSync(rootUrl('shell/src/host.rs'), 'utf8');
 /** Every .js file under `dir` (relative to src/), so a new host that spawns is scanned too. */
 const jsUnder = (dir) =>
-  fs.readdirSync(new URL(`./src/${dir}/`, import.meta.url), { withFileTypes: true }).flatMap((e) =>
+  fs.readdirSync(rootUrl(`src/${dir}/`), { withFileTypes: true }).flatMap((e) =>
     e.isDirectory() ? jsUnder(`${dir}/${e.name}`) : e.name.endsWith('.js') ? [`${dir}/${e.name}`] : [],
   );
 const srcSpawns = ['reader', 'hosts']
   .flatMap(jsUnder)
   .filter((f) => path.basename(f) !== 'platform.js')
   .flatMap((f) => {
-    const js = fs.readFileSync(new URL(`./src/${f}`, import.meta.url), 'utf8');
+    const js = fs.readFileSync(rootUrl(`src/${f}`), 'utf8');
     return [...js.matchAll(/platform\.spawn\(([^,]+),/g)].map((m) => `${f}: ${m[1]}`);
   })
   .sort();
@@ -305,7 +332,7 @@ assert.deepStrictEqual(srcSpawns,
 const rustFamilies = hostRsCheck.match(/const LIST_FAMILIES: &str = r#"(.*)"#;/)?.[1];
 assert.strictEqual(rustFamilies, LIST_FAMILIES,
   'the one osascript the shell runs is the one src/reader/fonts.js asks for');
-const gitJs = fs.readFileSync(new URL('./src/reader/git.js', import.meta.url), 'utf8');
+const gitJs = fs.readFileSync(rootUrl('src/reader/git.js'), 'utf8');
 const rustList = (js) => js.replaceAll("'", '"');
 for (const call of [
   "'ls-files', '--full-name', '--error-unmatch', '--'",
@@ -318,7 +345,7 @@ for (const call of [
 }
 assert.ok(gitJs.includes('`--format=%x00%H${SEP}%at${SEP}%s`') && gitJs.includes("SEP = '\\x1f'")
   && hostRsCheck.includes('"--format=%x00%H\\x1f%at\\x1f%s"'), 'the log format, separator and all');
-const pumlJs = fs.readFileSync(new URL('./src/reader/plantuml.js', import.meta.url), 'utf8');
+const pumlJs = fs.readFileSync(rootUrl('src/reader/plantuml.js'), 'utf8');
 assert.ok(pumlJs.includes("'-tsvg', '-pipe', '-charset', 'UTF-8'")
   && hostRsCheck.includes('["-tsvg", "-pipe", "-charset", "UTF-8"]'), 'the PlantUML arguments');
 assert.ok(pumlJs.includes("platform.join(root, 'plantuml.jar')")
@@ -329,7 +356,7 @@ for (const cmd of ['write_text', 'mkdirp', 'remove', 'rename']) {
   assert.match(hostRsCheck, new RegExp(`pub fn ${cmd}\\(app: AppHandle,`),
     `${cmd} knows where home is, to know where the store is`);
 }
-const storeJs = fs.readFileSync(new URL('./src/reader/store.js', import.meta.url), 'utf8');
+const storeJs = fs.readFileSync(rootUrl('src/reader/store.js'), 'utf8');
 assert.ok(storeJs.includes("join(root, 'objects')") && storeJs.includes("hash + '.md'")
   && hostRsCheck.includes('*dir == "objects" && name.ends_with(".md")'), 'snapshots');
 assert.ok(storeJs.includes("join(root, 'docs')") && storeJs.includes("docKey(absPath) + '.json'")
@@ -345,7 +372,7 @@ console.log('✓ a document cannot run, and the shell does only what the reader 
 // It is a grep with rules, the same kind of check as the wiring above: collect every
 // `import … from`, `export … from` and `import()`, resolve the relative ones, and check each
 // against the rule in docs/architecture.md, under the directory map.
-const SRC = fileURLToPath(new URL('./src/', import.meta.url));
+const SRC = fileURLToPath(rootUrl('src/'));
 const srcFiles = (dir = '') =>
   fs.readdirSync(path.join(SRC, dir), { withFileTypes: true }).flatMap((e) => {
     const rel = path.posix.join(dir, e.name);
@@ -1076,8 +1103,8 @@ console.log('✓ History paints, opens and is reached through the right column')
 // nothing when picked. ⌘B and ⌥⌘B are checked as a pair because the second was
 // added by copying the first, which is exactly how one of the three gets
 // missed. The browser tab has no menu, so the key is the page's to catch.
-const menuRs = fs.readFileSync(new URL('./shell/src/menu.rs', import.meta.url), 'utf8');
-const seamJs = fs.readFileSync(new URL('./src/hosts/tauri/native.js', import.meta.url), 'utf8');
+const menuRs = fs.readFileSync(rootUrl('shell/src/menu.rs'), 'utf8');
+const seamJs = fs.readFileSync(rootUrl('src/hosts/tauri/native.js'), 'utf8');
 for (const [item, accel, event, hook] of [
   ['side', 'CmdOrCtrl+B', 'md:toggle-side', 'onToggleSide'],
   ['sidetoc', 'Alt+CmdOrCtrl+B', 'md:toggle-toc', 'onToggleToc'],
@@ -1181,8 +1208,8 @@ console.log('✓ find in document wired end to end');
 // Asserted by counting, not by matching: the fix is that *no* registration in
 // the seam is untargeted, which a grep for the good one cannot show. Everything
 // goes through `on`, so one `listen` is the whole of it.
-const hostRs = fs.readFileSync(new URL('./shell/src/host.rs', import.meta.url), 'utf8');
-const winRs = fs.readFileSync(new URL('./shell/src/win.rs', import.meta.url), 'utf8');
+const hostRs = fs.readFileSync(rootUrl('shell/src/host.rs'), 'utf8');
+const winRs = fs.readFileSync(rootUrl('shell/src/win.rs'), 'utf8');
 assert.strictEqual(
   (seamJs.match(/\blisten\(/g) ?? []).length,
   1,
@@ -1245,7 +1272,7 @@ console.log('✓ settings controls wired end to end');
 // to half work: a radio nobody's code reads, a tint applied a frame late (a
 // white flash on every open), a window the shell leaves following a dark
 // system (a dark bar round a cream page), or a cream that reaches paper.
-const prefsRs = fs.readFileSync(new URL('./shell/src/prefs.rs', import.meta.url), 'utf8');
+const prefsRs = fs.readFileSync(rootUrl('shell/src/prefs.rs'), 'utf8');
 assert.match(pageHtml, /name="pAppearance" value="sepia"/, 'sepia can be chosen');
 assert.match(
   pageHtml.slice(0, pageHtml.indexOf('</head>')),
@@ -2002,7 +2029,7 @@ console.log('✓ check a change off');
     'old ones survive a new check-off, and a version that is not one of ours is not kept',
   );
 }
-const serverJsSrc = fs.readFileSync(new URL('./src/hosts/node/server.js', import.meta.url), 'utf8');
+const serverJsSrc = fs.readFileSync(rootUrl('src/hosts/node/server.js'), 'utf8');
 assert.match(serverJsSrc, /at: param\('at'\)/, 'the server passes the version a change was checked in');
 assert.match(pageJs, /backend\.ack\(\{ key, on, at: state\.data\?\.hash, block \}\)/, 'and the page sends it');
 assert.match(pageJs, /from: data\.ackedFrom/, 'and renders against what came back');
@@ -2930,7 +2957,7 @@ sixth.server.close();
     ['./public/backend.js', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
     ['./src/hosts/web/worker.js', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
   ]) {
-    assert.match(fs.readFileSync(new URL(f, import.meta.url), 'utf8'), through, `${f} passes the version on`);
+    assert.match(fs.readFileSync(rootUrl(f), 'utf8'), through, `${f} passes the version on`);
   }
 
   // Following a link: both land on the sibling, and the page is told the id it is on now.
@@ -2952,7 +2979,7 @@ sixth.server.close();
   );
 
   // What a page can call is what the other backends offer -- the page is written to one surface.
-  const { createBackend } = await import('./public/backend.js');
+  const { createBackend } = await import(rootUrl('public/backend.js').href);
   const httpKeys = Object.keys(await createBackend({ docId: () => null }));
   assert.deepStrictEqual(
     Object.keys(rpc).filter((k) => httpKeys.includes(k)).sort(),
@@ -2962,7 +2989,7 @@ sixth.server.close();
 
   // And the layer between is wired: the server answers through the session, not around it.
   assert.match(
-    fs.readFileSync(new URL('./src/hosts/node/server.js', import.meta.url), 'utf8'),
+    fs.readFileSync(rootUrl('src/hosts/node/server.js'), 'utf8'),
     /createSession\(reader\)/,
     'the http routes are the session',
   );
@@ -3061,7 +3088,7 @@ sixth.server.close();
   );
   await assert.rejects(nodePlatform.writeText(path.join(tmp, 'no', 'such', 'dir.json'), 'x'));
   assert.match(
-    fs.readFileSync(new URL('./src/hosts/node/platform.js', import.meta.url), 'utf8'),
+    fs.readFileSync(rootUrl('src/hosts/node/platform.js'), 'utf8'),
     /\.writing/,
     'the node platform writes through a temporary file',
   );
@@ -3558,7 +3585,7 @@ const memoryKv = () => {
   assert.strictEqual(JSON.stringify([...kv2.data]), stored, 'and the store is as it was');
   assert.deepStrictEqual(touched, [], 'no handle was asked to write, create or remove anything');
   assert.doesNotMatch(
-    fs.readFileSync(new URL('./src/hosts/web/platform.js', import.meta.url), 'utf8'),
+    fs.readFileSync(rootUrl('src/hosts/web/platform.js'), 'utf8'),
     /createWritable|removeEntry|create:\s*true/,
     'the web platform has no way to write a document',
   );
@@ -3631,7 +3658,7 @@ const memoryKv = () => {
     if (hadIdb) Object.defineProperty(globalThis, 'indexedDB', hadIdb);
     else delete globalThis.indexedDB;
   }
-  const idbSrc = fs.readFileSync(new URL('./src/hosts/web/idb.js', import.meta.url), 'utf8');
+  const idbSrc = fs.readFileSync(rootUrl('src/hosts/web/idb.js'), 'utf8');
   assert.match(
     idbSrc,
     /IDBKeyRange\.bound\(prefix, prefix \+ '\\uffff'\)/,
@@ -4915,7 +4942,7 @@ const memoryKv = () => {
   process.off('unhandledRejection', onUnhandled);
 
   // --- wired up ------------------------------------------------------------------------
-  const read = (f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+  const read = (f) => fs.readFileSync(rootUrl(f), 'utf8');
   const pageBackend = read('./public/backend.js');
   assert.ok(
     pageBackend.indexOf('__REDLINE_HOST') < pageBackend.indexOf('__REDLINE_WEB') &&
@@ -4967,7 +4994,7 @@ const memoryKv = () => {
     );
   }
   for (const bundle of ['backend-web.js', 'reader-worker.js']) {
-    const file = new URL(`./public/vendor/${bundle}`, import.meta.url);
+    const file = rootUrl(`public/vendor/${bundle}`);
     assert.ok(fs.existsSync(file), `build:web writes ${bundle}`);
     assert.ok(!/node:/.test(fs.readFileSync(file, 'utf8')), `${bundle} imports nothing from node`);
   }
@@ -5267,7 +5294,7 @@ const memoryKv = () => {
   const { createWebappServer } = await import('./scripts/serve-webapp.mjs');
   const { createSiteServer } = await import('./scripts/serve-site.mjs');
   const { workerName, openPort } = await import('./src/hosts/web/backend.js');
-  const read = (f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+  const read = (f) => fs.readFileSync(rootUrl(f), 'utf8');
   const version = JSON.parse(read('./package.json')).version;
   const out = fs.mkdtempSync(path.join(tmp, 'stage-'));
   const walk = (dir, rel = '') =>
@@ -5336,7 +5363,7 @@ const memoryKv = () => {
   );
   assert.ok(
     fs.readFileSync(path.join(tauri, 'host.js')).equals(
-      fs.readFileSync(new URL('./public/host.js', import.meta.url)),
+      fs.readFileSync(rootUrl('public/host.js')),
     ),
     'the desktop app\'s shim is the repository\'s, which says nothing',
   );
@@ -5361,7 +5388,7 @@ const memoryKv = () => {
   // --- stage-page empties what it is given, so it is not given the repository -----------------
   // The guard is asked about the repository, and `stagePage` never is: were it ever to regress,
   // the test that called `stagePage('.')` would be what deleted the repository, .git and all.
-  const repo = path.resolve(fileURLToPath(new URL('.', import.meta.url)));
+  const repo = ROOT;
   const refused = (dir, root) => assert.throws(
     () => assertSafeDest(dir, root),
     (err) => err.message.includes(dir) && /refusing to empty/.test(err.message),
@@ -5726,9 +5753,12 @@ const memoryKv = () => {
   assert.match(serveSrc, /EADDRINUSE[\s\S]*process\.exit\(1\)/,
     'and a taken port is an error, not another origin with no history in it');
   const npmScripts = JSON.parse(read('./package.json')).scripts;
-  assert.strictEqual(npmScripts['build:webapp'], 'node scripts/build-webapp.mjs',
-    'npm run build:webapp');
-  assert.strictEqual(npmScripts.webapp, 'node scripts/serve-webapp.mjs', 'npm run webapp');
+  assert.strictEqual(
+    npmScripts['build:webapp'],
+    'npm run build:ts && node out/scripts/build-webapp.mjs',
+    'npm run build:webapp',
+  );
+  assert.strictEqual(npmScripts.webapp, 'node out/scripts/serve-webapp.mjs', 'npm run webapp');
   assert.strictEqual(npmScripts.prewebapp, 'npm run build:web && npm run build:webapp',
     'which builds the bundles and the app first, so there is one command');
   console.log('✓ npm run webapp serves dist/web with its headers, .mjs as script, and no more');
@@ -5775,7 +5805,7 @@ const memoryKv = () => {
 // the things in it that a person would act on, held to the code they describe, and that it is
 // reachable from the two indexes, since a page nobody links to is one nobody reads.
 {
-  const read = (f) => fs.readFileSync(new URL(f, import.meta.url), 'utf8');
+  const read = (f) => fs.readFileSync(rootUrl(f), 'utf8');
   const doc = read('./docs/web-app.md');
   assert.match(read('./docs/README.md'), /\]\(web-app\.md\)/, 'docs/README.md links it');
   assert.match(read('./README.md'), /\]\(docs\/web-app\.md\)/, 'and so does the README');
@@ -5818,7 +5848,7 @@ const memoryKv = () => {
   // has neither: they are read where they are and passed over where they are not.
   const plan = new RegExp(['web-and', 'vscode'].join('-'));
   const skip = new Set(['node_modules', 'vendor', 'dist', 'target', '.git']);
-  const here = (f) => new URL(`./${f}`, import.meta.url);
+  const here = (f) => rootUrl(`${f}`);
   const files = (dir) =>
     !fs.existsSync(here(dir))
       ? []
@@ -5888,7 +5918,7 @@ console.log('✓ the history store follows the app name');
 // one that was missing: the guard has to come before anything in `arrive` that
 // reads state, the files have to be kept rather than dropped, and the hook has
 // to go looking for them.
-const mainRs = fs.readFileSync(new URL('./shell/src/main.rs', import.meta.url), 'utf8');
+const mainRs = fs.readFileSync(rootUrl('shell/src/main.rs'), 'utf8');
 const arriveBody = mainRs.slice(mainRs.indexOf('fn arrive('));
 assert.ok(
   arriveBody.indexOf('try_state::<win::Shell>()') <
@@ -5906,7 +5936,7 @@ assert.match(mainRs, /RunEvent::Opened \{ urls \}/, 'from the event a Finder ope
 // And the association itself, since a double-click that never reaches the app
 // is the same bug from the reader's side.
 const tauriConf = JSON.parse(
-  fs.readFileSync(new URL('./shell/tauri.conf.json', import.meta.url), 'utf8'),
+  fs.readFileSync(rootUrl('shell/tauri.conf.json'), 'utf8'),
 );
 const assoc = tauriConf.bundle.fileAssociations ?? [];
 assert.ok(
@@ -5920,15 +5950,15 @@ console.log('✓ a document opened from Finder outlives the launch it arrives du
 // exists and is never reached is worse than no check, because it reads as
 // coverage. A workflow is exactly that shape. So this file asserts what runs,
 // on what, and where it leaves the thing you would hand somebody.
-const ci = fs.readFileSync(new URL('./.github/workflows/ci.yml', import.meta.url), 'utf8');
+const ci = fs.readFileSync(rootUrl('.github/workflows/ci.yml'), 'utf8');
 const pagesYml = fs.readFileSync(
-  new URL('./.github/workflows/pages.yml', import.meta.url),
+  rootUrl('.github/workflows/pages.yml'),
   'utf8',
 );
 assert.match(ci, /path: dist\/\*\.dmg/, 'the dmg is kept where bundle.mjs leaves it');
 assert.match(ci, /if-no-files-found: error/, 'loudly, rather than uploading nothing');
 
-const workflows = fs.readdirSync(new URL('./.github/workflows/', import.meta.url));
+const workflows = fs.readdirSync(rootUrl('.github/workflows/'));
 assert.deepStrictEqual(
   workflows.sort(),
   ['ci.yml', 'pages.yml', 'webapp.yml'],
@@ -5950,7 +5980,7 @@ assert.match(triggers(ci), /tags: \['v\*'\]/, 'or of a version tag');
 const ciCode = ci.replace(/^\s*#.*$/gm, '');
 const pagesCode = pagesYml.replace(/^\s*#.*$/gm, '');
 const webappYml = fs.readFileSync(
-  new URL('./.github/workflows/webapp.yml', import.meta.url),
+  rootUrl('.github/workflows/webapp.yml'),
   'utf8',
 );
 const webappCode = webappYml.replace(/^\s*#.*$/gm, '');
@@ -6061,7 +6091,7 @@ assert.strictEqual(
 // reach it as a `--config` patch -- tauri.conf.json has the ad hoc `-` in it,
 // and a patch is the one route whose precedence is documented rather than
 // guessed at.
-const bundleJs = fs.readFileSync(new URL('./scripts/bundle.mjs', import.meta.url), 'utf8');
+const bundleJs = fs.readFileSync(rootUrl('scripts/bundle.mjs'), 'utf8');
 assert.match(bundleJs, /APPLE_SIGNING_IDENTITY/, 'the bundle takes an identity from the env');
 assert.match(bundleJs, /signingIdentity: identity/, 'and patches it over the ad hoc one');
 assert.match(bundleJs, /'--config'/, 'through the flag that merges last over first');
@@ -6123,7 +6153,7 @@ console.log('✓ CI tests every change on two OSes, and signs only what a fork c
 
   // The project is named on the command line, and is not the landing page's.
   const project = deployJob.match(/--project-name=(\S+)/)?.[1];
-  const landingPage = fs.readFileSync(new URL('./wrangler.toml', import.meta.url), 'utf8');
+  const landingPage = fs.readFileSync(rootUrl('wrangler.toml'), 'utf8');
   assert.strictEqual(project, 'redline-app', 'into the web app\'s project');
   assert.notStrictEqual(
     project,
@@ -6156,11 +6186,15 @@ console.log('✓ CI tests every change on two OSes, and signs only what a fork c
 // because the page comes out of the binary: `tauri dev` serves shell/dist over
 // a static server of its own, so a page edit is a restage and a ⌘R instead of a
 // relink. Four things hold that up, and three of them break silently.
-const devJs = fs.readFileSync(new URL('./scripts/dev.mjs', import.meta.url), 'utf8');
+const devJs = fs.readFileSync(rootUrl('scripts/dev.mjs'), 'utf8');
 const devScripts = JSON.parse(
-  fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+  fs.readFileSync(rootUrl('package.json'), 'utf8'),
 ).scripts;
-assert.strictEqual(devScripts.dev, 'node scripts/dev.mjs', 'the dev loop is one command');
+assert.strictEqual(
+  devScripts.dev,
+  'npm run build:ts && node out/scripts/dev.mjs',
+  'the dev loop is one command',
+);
 assert.match(devJs, /'tauri', 'dev'/, 'and it is `tauri dev`, not a cargo run');
 // Staged from in here rather than from a `predev` hook, the same way the bundle
 // does its own: there is to be no way to ask for this and get a stale page.
@@ -6174,7 +6208,7 @@ assert.match(devJs, /'--', '--', \.\.\.appArgs/, 'a file to open reaches the app
 // being ignored is the only reason restaging the page does not trip the Rust
 // rebuild the whole exercise exists to avoid. Un-ignore it and `npm run dev`
 // still works -- it just silently costs what `npm run app` costs.
-const devIgnore = fs.readFileSync(new URL('./.gitignore', import.meta.url), 'utf8');
+const devIgnore = fs.readFileSync(rootUrl('.gitignore'), 'utf8');
 assert.match(
   devIgnore,
   /^(shell\/)?dist\/$/m,
@@ -6235,7 +6269,7 @@ console.log('✓ and also updates the Homebrew cask with the new version and has
 // the claim that a release exists, and it happens only once the dmg it names
 // and the cask a Homebrew copy will be told to upgrade from are both in place.
 // Marked first, a copy could be sent after a version nobody has yet.
-const cmdsRs = fs.readFileSync(new URL('./shell/src/cmds.rs', import.meta.url), 'utf8');
+const cmdsRs = fs.readFileSync(rootUrl('shell/src/cmds.rs'), 'utf8');
 assert.match(ci, /--latest=false/, 'the release is published without being marked Latest');
 assert.ok(
   ci.indexOf('gh release edit "v${VERSION}" --latest') > ci.indexOf('git -C tap push'),
@@ -6309,12 +6343,12 @@ console.log('✓ check for updates is wired from the menu to the settings sheet'
 // shows, and Cargo.toml is the crate. A mismatch is otherwise only noticed by
 // whoever downloads the result — or now, by a copy told it is out of date
 // against a version it already is.
-const pkgVersion = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url))).version;
+const pkgVersion = JSON.parse(fs.readFileSync(rootUrl('package.json'))).version;
 const confVersion = JSON.parse(
-  fs.readFileSync(new URL('./shell/tauri.conf.json', import.meta.url)),
+  fs.readFileSync(rootUrl('shell/tauri.conf.json')),
 ).version;
 const cargoVersion = fs
-  .readFileSync(new URL('./shell/Cargo.toml', import.meta.url), 'utf8')
+  .readFileSync(rootUrl('shell/Cargo.toml'), 'utf8')
   .match(/^version = "([^"]+)"/m)?.[1];
 assert.strictEqual(confVersion, pkgVersion, 'tauri.conf.json has the version package.json has');
 assert.strictEqual(cargoVersion, pkgVersion, 'and so does shell/Cargo.toml');
@@ -6325,7 +6359,7 @@ console.log(`✓ the version agrees in all three places (${pkgVersion})`);
 // The Apache text is a legal document and has to be the one apache.org
 // publishes, to the byte: a retyped copy that differs is a copy of something
 // else. This is the digest of LICENSE-2.0.txt as published.
-const fromRoot = (name) => fs.readFileSync(new URL(`./${name}`, import.meta.url));
+const fromRoot = (name) => fs.readFileSync(rootUrl(`${name}`));
 assert.strictEqual(
   crypto.createHash('sha256').update(fromRoot('LICENSE')).digest('hex'),
   'cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30',
@@ -6355,7 +6389,7 @@ assert.deepStrictEqual(
   'the app carries its license and the third-party notices',
 );
 for (const name of ['LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md', 'SECURITY.md']) {
-  assert.ok(fs.existsSync(new URL(`./${name}`, import.meta.url)), `${name} is there`);
+  assert.ok(fs.existsSync(rootUrl(`${name}`)), `${name} is there`);
 }
 const readmeMd = String(fromRoot('README.md'));
 assert.match(readmeMd, /^## License\n[\s\S]*\(LICENSE\)[\s\S]*\(THIRD-PARTY-NOTICES\.md\)/m,
@@ -6377,7 +6411,11 @@ assert.match(notices, /^\| elkjs \| [^|]+ \| EPL-2\.0 \| https:\/\/github\.com\/
 assert.match(notices, /^\| dompurify \| [^|]+ \| \(MPL-2\.0 OR Apache-2\.0\) \|/m,
   'and DOMPurify');
 assert.match(notices, /^\| tauri \| /m, 'and the crates are in it as well as the page');
-assert.strictEqual(pkgJson.scripts.notices, 'node scripts/notices.mjs', 'npm run notices');
+assert.strictEqual(
+  pkgJson.scripts.notices,
+  'npm run build:ts && node out/scripts/notices.mjs',
+  'npm run notices',
+);
 // Kept by build:web, so the notices that sit with their code still do.
 assert.match(String(fromRoot('scripts/build-web.mjs')), /legalComments: 'eof'/,
   "the bundles keep their license comments");
@@ -6399,9 +6437,9 @@ console.log('✓ the license, the notices, and the bundle identifier');
 // every other grep here -- a demo whose phases mean nothing in CSS is an
 // animation that silently does nothing, and it would look exactly like the
 // page working.
-const siteHtml = fs.readFileSync(new URL('./site/index.html', import.meta.url), 'utf8');
-const siteCss = fs.readFileSync(new URL('./site/landing.css', import.meta.url), 'utf8');
-const siteJs = fs.readFileSync(new URL('./site/landing.js', import.meta.url), 'utf8');
+const siteHtml = fs.readFileSync(rootUrl('site/index.html'), 'utf8');
+const siteCss = fs.readFileSync(rootUrl('site/landing.css'), 'utf8');
+const siteJs = fs.readFileSync(rootUrl('site/landing.js'), 'utf8');
 
 // Comments go first: `unbalanced` does not know about them, and the page's own
 // prose mentions <html> while explaining why the theme script is where it is.
@@ -6454,7 +6492,7 @@ assert.match(siteCss, /\[data-measuring\]/, 'and re-measures with the transition
 // The demo is a picture of the product, so the three change colours are the
 // product's own rather than approximations of them. Light mode is the set both
 // files state literally, at the top, in a `:root` that comes first in each.
-const appCss = fs.readFileSync(new URL('./public/styles.css', import.meta.url), 'utf8');
+const appCss = fs.readFileSync(rootUrl('public/styles.css'), 'utf8');
 const colourOf = (css, name) => css.match(new RegExp(`--${name}: (#[0-9a-f]{6})`))[1];
 for (const name of ['add', 'del', 'mod']) {
   assert.strictEqual(
@@ -6560,11 +6598,15 @@ assert.match(siteJs, /pointerdown/, 'and stops for good the first time it is tou
 // is the answer to that, and `presite` is why it is one command -- an unstaged
 // site/ served from here is the page with no icon, which is the same trap one
 // step earlier.
-const serveSite = fs.readFileSync(new URL('./scripts/serve-site.mjs', import.meta.url), 'utf8');
+const serveSite = fs.readFileSync(rootUrl('scripts/serve-site.mjs'), 'utf8');
 const scripts = JSON.parse(
-  fs.readFileSync(new URL('./package.json', import.meta.url), 'utf8'),
+  fs.readFileSync(rootUrl('package.json'), 'utf8'),
 ).scripts;
-assert.strictEqual(scripts.site, 'node scripts/serve-site.mjs', 'the page can be served from here');
+assert.strictEqual(
+  scripts.site,
+  'node out/scripts/serve-site.mjs',
+  'the page can be served from here',
+);
 assert.strictEqual(scripts.presite, 'npm run build:site', 'and is staged before it is');
 assert.match(serveSite, /'127\.0\.0\.1'/, 'on the loopback and nowhere else');
 assert.match(serveSite, /'cache-control': 'no-store'/, 'holding nothing between edits');
@@ -6577,9 +6619,9 @@ assert.match(serveSite, /createSiteServer\(\);[\s\S]*server\.listen/,
 // The icon is copied in rather than committed, so the deploy has to run the
 // script that copies it -- an unbuilt site/ is a page with no icon and no link
 // preview, and it would deploy perfectly happily.
-const pages = fs.readFileSync(new URL('./.github/workflows/pages.yml', import.meta.url), 'utf8');
-const wrangler = fs.readFileSync(new URL('./wrangler.toml', import.meta.url), 'utf8');
-const ignore = fs.readFileSync(new URL('./.gitignore', import.meta.url), 'utf8');
+const pages = fs.readFileSync(rootUrl('.github/workflows/pages.yml'), 'utf8');
+const wrangler = fs.readFileSync(rootUrl('wrangler.toml'), 'utf8');
+const ignore = fs.readFileSync(rootUrl('.gitignore'), 'utf8');
 assert.match(pages, /npm run build:site/, 'the deploy stages the icon and the og:image');
 assert.match(pages, /command: pages deploy/, 'before uploading anything');
 assert.match(wrangler, /pages_build_output_dir = "site"/, 'from the directory wrangler.toml names');
@@ -6598,7 +6640,7 @@ assert.match(
 );
 // The size a preview lays the card out at before it has the image, so it has to
 // be the png's own -- read out of its IHDR rather than written down twice.
-const iconPng = fs.readFileSync(new URL('./assets/icon.png', import.meta.url));
+const iconPng = fs.readFileSync(rootUrl('assets/icon.png'));
 const ogSize = (k) => Number(siteHtml.match(new RegExp(`og:image:${k}" content="(\\d+)"`))?.[1]);
 assert.strictEqual(ogSize('width'), iconPng.readUInt32BE(16), 'at the width of the icon');
 assert.strictEqual(ogSize('height'), iconPng.readUInt32BE(20), 'and its height');
@@ -6612,7 +6654,7 @@ assert.match(siteHtml, /name="twitter:card" content="summary"/, 'on a square car
 // like. Either the filenames start carrying a version or these stay no-cache
 // (still cached, just revalidated -- the usual answer is a 304), and asserting
 // the pair means the day somebody adds the version, this line says so.
-const headers = fs.readFileSync(new URL('./site/_headers', import.meta.url), 'utf8');
+const headers = fs.readFileSync(rootUrl('site/_headers'), 'utf8');
 for (const ext of ['css', 'js']) {
   const block = headers.match(new RegExp(`^/\\*\\.${ext}\\n((?:  .+\\n)+)`, 'm'));
   assert.ok(block, `_headers has a rule for ${ext}`);
@@ -6730,7 +6772,7 @@ for (const key of ['⌘B', '⌥⌘B']) {
 // overwrites it on every deploy, so holding the source to it would only make
 // every bump touch site/ for nothing. What the source must have is a link
 // build:site can find.
-const buildSite = fs.readFileSync(new URL('./scripts/build-site.mjs', import.meta.url), 'utf8');
+const buildSite = fs.readFileSync(rootUrl('scripts/build-site.mjs'), 'utf8');
 const RELEASE_DOWNLOADS = 'https://github.com/tuanchauict/redlineapp/releases/download';
 const dmgHref = siteHtml.match(/href="(https:\/\/[^"]+\/v(.+?)\/Redline-(.+?)-universal\.dmg)"/);
 assert.ok(dmgHref, 'the page offers the dmg over plain https');
