@@ -5,12 +5,13 @@ import path from 'node:path';
 import os from 'node:os';
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import assert from 'node:assert';
 import { createServer } from './src/hosts/node/server.js';
 import { createMarkdown } from './src/core/render.js';
 import { renderDocument, titleOf as docTitleOf } from './src/core/document.js';
 import { nodePlatform } from './src/hosts/node/platform.js';
+import { ROOT, repoRoot, rootUrl } from './src/hosts/node/root.js';
 import { LIST_FAMILIES } from './src/reader/fonts.js';
 import { NO_GIT } from './src/reader/git.js';
 import { makePaths } from './src/core/paths.js';
@@ -19,6 +20,30 @@ import { walkPath, shorten } from './src/core/links.js';
 import { createSession } from './src/reader/session.js';
 import { serveRpc } from './src/rpc/serve.js';
 import { createRpcBackend } from './src/rpc/client.js';
+
+// --- 0. where the repository is ------------------------------------------
+// Node-run code compiles into out/, which mirrors the repository, so a `..` count that is
+// right in src/ is wrong one directory deeper. The root is found by walking up to the first
+// package.json instead, and out/ has none because tsc does not emit one.
+{
+  assert.ok(fs.existsSync(path.join(ROOT, 'package.json')), 'ROOT holds package.json');
+  assert.strictEqual(repoRoot(import.meta.url), ROOT, 'the same answer from this file');
+  for (const deep of ['src/hosts/node/x.js', 'out/src/hosts/node/x.js', 'out/scripts/x.mjs']) {
+    const from = pathToFileURL(path.join(ROOT, deep)).href;
+    assert.strictEqual(repoRoot(from), ROOT, `from ${deep}, in source or compiled`);
+  }
+  assert.strictEqual(
+    fileURLToPath(rootUrl('package.json')),
+    path.join(ROOT, 'package.json'),
+    'rootUrl names a file under the root',
+  );
+  assert.ok(
+    rootUrl('src/').href.endsWith('/src/'),
+    'and a trailing slash survives, for a directory',
+  );
+  assert.throws(() => repoRoot('file:///no-such-root/x.js'), /no package\.json/, 'or says so');
+  console.log('✓ the repository root is found from a file, in source or compiled');
+}
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-'));
 process.env.REDLINE_HOME = path.join(tmp, 'home');
