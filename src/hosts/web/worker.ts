@@ -21,12 +21,20 @@
 //
 // `requestPermission` is not here. It needs a window and a click, so the page calls it and then
 // tells this side with `grant`.
+import type { Session } from '../../contract/seam.js';
 import { createReader, Closed } from '../../reader/reader.js';
+import type { Reader } from '../../reader/reader.js';
 import { BadRequest, createSession } from '../../reader/session.js';
+import type { ReaderMessage } from '../../rpc/protocol.js';
 import { serveRpc } from '../../rpc/serve.js';
 import { createHandles, NeedsPermission, NoDocument, parseWebPath, webPath } from './handles.js';
 import { createIdbKv } from './idb.js';
 import { createWebPlatform } from './platform.js';
+import type { WebPlatformDeps } from './platform.js';
+import type { Kv } from './kv-files.js';
+
+// The one place a worker's own scope is named, and lib.dom has none for it.
+declare const SharedWorkerGlobalScope: { new (): unknown } | undefined;
 
 /** How long a connection may say nothing before the document it holds is let go. */
 export const SILENT_MS = 30_000;
@@ -42,18 +50,37 @@ const isHandle = (h) =>
 // be called is a separator, but the path is made here, so it is checked here.
 const safeName = (n) => typeof n === 'string' && n !== '.' && n !== '..' && /^[^/\\]+$/.test(n);
 
-/**
- * @param {object} [opts]
- * @param {{ files: object, roots: object, opened: object }} [opts.stores]
- *   The three IndexedDB stores, as `idb.js` makes them. Default: those.
- * @param {number} [opts.pollMs]  Passed to the reader.
- * @param {number} [opts.silentMs]
- * @param {number} [opts.sweepMs]
- * @param {() => number} [opts.now]
- * @param {typeof createReader} [opts.makeReader]  For a test. Building the reader touches no
- *   storage and so cannot fail on this platform; a test that wants to see what a failed build
- *   does to every call has to put the failure there.
- */
+export interface WebHostOptions {
+  /** The three IndexedDB stores, as `idb.ts` makes them. Default: those. */
+  stores?: { files: Kv; roots: Kv; opened: Kv };
+  /** Passed to the reader. */
+  pollMs?: number;
+  silentMs?: number;
+  sweepMs?: number;
+  now?: () => number;
+  /**
+   * For a test. Building the reader touches no storage and so cannot fail on this platform; a
+   * test that wants to see what a failed build does to every call has to put the failure there.
+   */
+  makeReader?: typeof createReader;
+}
+
+/** One page's connection. */
+interface Conn {
+  /** What the page said it shows. */
+  docId: string | null;
+  /** The reader's id for it, once taken. */
+  held: string | null;
+  /** Taken, once the user says so. */
+  pending: { rootId: string } | null;
+  failure: Error | null;
+  gen: number;
+  busy: number;
+  ready: Promise<unknown>;
+  seen: number;
+  swept: boolean;
+}
+
 export function createWebHost({
   stores,
   pollMs,
@@ -61,20 +88,20 @@ export function createWebHost({
   sweepMs = SWEEP_MS,
   now = Date.now,
   makeReader = createReader,
-} = {}) {
+}: WebHostOptions = {}) {
   const kv = stores ?? {
     files: createIdbKv('files'),
     roots: createIdbKv('roots'),
     opened: createIdbKv('opened'),
   };
   const handles = createHandles({ roots: kv.roots, opened: kv.opened });
-  const drops = new Map();
+  const drops: WebPlatformDeps['drops'] = new Map();
   const platform = createWebPlatform({ kv: kv.files, root: handles.root, drops });
 
   // The reader is async to build and a page can speak before it is built, so calls wait for it
   // (`readerP`) and code that has already waited reads it from here.
-  let reader = null;
-  let session = null;
+  let reader: Reader | null = null;
+  let session: Session | null = null;
   const readerP = makeReader({ platform, label: handles.label, pollMs }).then((r) => {
     session = createSession((reader = r));
     return r;
@@ -83,12 +110,12 @@ export function createWebHost({
   // an unhandled rejection of its own.
   readerP.catch(() => {});
 
-  const conns = new Set();
+  const conns = new Set<Conn>();
 
   // --- what a connection holds ---------------------------------------------
 
   /** Let go of the document a connection holds, and call off an acquire still on its way. */
-  function release(conn) {
+  function release(conn: Conn) {
     conn.gen++;
     const held = conn.held;
     conn.held = null;
@@ -108,7 +135,7 @@ export function createWebHost({
    * that was in the background, not the user going anywhere, and it would otherwise take `last`
    * back from the tab in front every time it woke.
    */
-  function acquire(conn, { remember = true } = {}) {
+  function acquire(conn: Conn, { remember = true }: { remember?: boolean } = {}) {
     const gen = ++conn.gen;
     conn.pending = null;
     conn.failure = null;
@@ -166,7 +193,7 @@ export function createWebHost({
     })();
   }
 
-  const settled = (conn) => reader != null && conn.busy === 0;
+  const settled = (conn: Conn) => reader != null && conn.busy === 0;
 
   /**
    * The id of the document this connection holds, or the reason it holds none. A page that
@@ -174,7 +201,7 @@ export function createWebHost({
    * Never `reader.idOf`: with no id it would answer with whichever document is first open, and
    * in a worker that is somebody else's.
    */
-  function mine(conn, id) {
+  function mine(conn: Conn, id: string | null) {
     if (conn.held) {
       if (!id || id === conn.held) return conn.held;
       throw new Closed();
@@ -188,7 +215,7 @@ export function createWebHost({
   }
 
   /** `mine`, once the hello has been dealt with. */
-  async function owned(conn, id) {
+  async function owned(conn: Conn, id: string | null) {
     await readerP;
     await conn.ready;
     return mine(conn, id);
@@ -196,8 +223,9 @@ export function createWebHost({
 
   // --- a connection's session ----------------------------------------------
 
-  function sessionFor(conn, post) {
-    const live = (on, why, needs) => post({ t: 'live', on, why, needs });
+  function sessionFor(conn: Conn, post: (msg: ReaderMessage) => void): Session {
+    const live = (on: boolean, why?: string, needs?: string) =>
+      post({ t: 'live', on, why, needs });
 
     return {
       async doc(id, baseline) {
@@ -396,10 +424,10 @@ export function createWebHost({
    * settable `onmessage`). Returns the function that stops serving it.
    */
   function connect(port) {
-    const conn = {
-      docId: null, // what the page said it shows
-      held: null, // the reader's id for it, once taken
-      pending: null, // { rootId }: taken, once the user says so
+    const conn: Conn = {
+      docId: null,
+      held: null,
+      pending: null,
       failure: null,
       gen: 0,
       busy: 0,
@@ -408,7 +436,7 @@ export function createWebHost({
       swept: false,
     };
     conns.add(conn);
-    const post = (msg) => port.postMessage(msg);
+    const post = (msg: ReaderMessage) => port.postMessage(msg);
 
     const stop = serveRpc({
       session: sessionFor(conn, post),
@@ -468,7 +496,9 @@ export function createWebHost({
       }
     }
   }, sweepMs);
-  sweeper.unref?.();
+  // Node, in the tests, hands back a `Timeout` that would keep the process alive; a browser's is
+  // a number with no `unref`.
+  (sweeper as unknown as { unref?(): void }).unref?.();
 
   return {
     connect,
@@ -493,5 +523,6 @@ if (
   globalThis instanceof SharedWorkerGlobalScope
 ) {
   const host = createWebHost();
-  globalThis.onconnect = (e) => host.connect(e.ports[0]);
+  const scope = globalThis as unknown as { onconnect: (e: MessageEvent) => void };
+  scope.onconnect = (e) => host.connect(e.ports[0]);
 }

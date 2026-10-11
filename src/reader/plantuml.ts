@@ -2,11 +2,32 @@
 // plantuml.jar run through java. Nothing is ever sent to a remote renderer.
 //
 // Finding the renderer means reading the disk and running it means spawning a
-// process, so both go through the platform (see ./platform.js) and both are
+// process, so both go through the platform (see ./platform.ts) and both are
 // async. The jar and the JVM belong to the host either way — they are not
 // things a webview could reach for itself.
 import { hashContent } from '../core/hash.js';
 import { storeRoot } from './store.js';
+import type { Platform } from './platform.js';
+
+/**
+ * What one diagram came to. Both fields optional because the reader reads either off it and
+ * turns it into the contract's `PlantumlResult`, which is the strict form a page is given.
+ */
+export interface RenderOutcome {
+  svg?: string;
+  error?: string;
+}
+
+/** A renderer, or what stands in for one: what `createReader` is given and `caps` reports on. */
+export interface PlantumlRenderer {
+  available: boolean;
+  /** How it will run when it can, and what to do about it when it cannot. */
+  hint: string;
+  render: (code: string) => Promise<RenderOutcome | null>;
+}
+
+/** How to run a renderer that was found, or why there is none. */
+type Found = { cmd: string; pre: string[]; how: string } | { error: string };
 
 const RENDER_TIMEOUT_MS = 20000;
 
@@ -14,7 +35,7 @@ const RENDER_TIMEOUT_MS = 20000;
 // JVM and graphviz to be useful — so bundling one removes none of the setup.
 // Instead: an explicit --plantuml-jar, whatever is installed system-wide, or a
 // jar dropped into the store directory, which needs no flag.
-const jarCandidates = (platform, root, home) => [
+const jarCandidates = (platform: Platform, root: string, home: string): string[] => [
   platform.join(root, 'plantuml.jar'),
   '/opt/homebrew/opt/plantuml/libexec/plantuml.jar',
   '/usr/local/opt/plantuml/libexec/plantuml.jar',
@@ -23,7 +44,7 @@ const jarCandidates = (platform, root, home) => [
   platform.join(home, '.local/share/plantuml/plantuml.jar'),
 ];
 
-async function onPath(cmd, platform) {
+async function onPath(cmd: string, platform: Platform): Promise<string | null> {
   const win = platform.os === 'win32';
   const exts = win ? (platform.env('PATHEXT') || '.EXE;.CMD;.BAT').split(';') : [''];
   for (const dir of (platform.env('PATH') || '').split(win ? ';' : ':')) {
@@ -36,7 +57,10 @@ async function onPath(cmd, platform) {
   return null;
 }
 
-async function findRenderer(jarOption, platform) {
+async function findRenderer(
+  jarOption: string | undefined,
+  platform: Platform,
+): Promise<Found | null> {
   const jar = jarOption || platform.env('PLANTUML_JAR');
   if (jar) {
     if (!(await platform.exists(jar))) return { error: `PlantUML jar not found: ${jar}` };
@@ -55,7 +79,7 @@ async function findRenderer(jarOption, platform) {
 }
 
 /** Strip the XML prolog/doctype so the SVG can be inlined into the page. */
-function inlineSvg(svg) {
+function inlineSvg(svg: string): string {
   return svg
     .replace(/^﻿/, '')
     .replace(/<\?xml[\s\S]*?\?>\s*/i, '')
@@ -64,31 +88,37 @@ function inlineSvg(svg) {
 }
 
 /** What a host that cannot run a program is given: a renderer that says so and draws nothing. */
-export const NO_PLANTUML = Object.freeze({
+export const NO_PLANTUML: PlantumlRenderer = Object.freeze({
   available: false,
   hint: 'PlantUML needs a program to run, and this host has none.',
   render: async () => null,
 });
 
-export async function createPlantumlRenderer({ jar } = {}, platform) {
+export async function createPlantumlRenderer(
+  { jar }: { jar?: string } = {},
+  platform: Platform,
+): Promise<PlantumlRenderer> {
   const found = await findRenderer(jar, platform);
 
-  if (!found || found.error) {
-    return {
-      available: false,
-      hint:
-        found?.error ??
-        'PlantUML is not installed — `brew install plantuml`, or point --plantuml-jar at a plantuml.jar.',
-      render: async () => null,
-    };
+  const unavailable = (hint: string): PlantumlRenderer => ({
+    available: false,
+    hint,
+    render: async () => null,
+  });
+  if (!found) {
+    return unavailable(
+      'PlantUML is not installed — `brew install plantuml`, or point --plantuml-jar at a plantuml.jar.',
+    );
   }
+  // `in`, not `found.error`: it narrows the union with or without strictNullChecks.
+  if ('error' in found) return unavailable(found.error);
 
   // Keyed by source, holding the promise rather than the result: the page asks
   // for every diagram at once, and the same diagram twice on one page should
   // start one JVM, not two.
-  const cache = new Map();
+  const cache = new Map<string, Promise<RenderOutcome>>();
 
-  const run = async (source) => {
+  const run = async (source: string): Promise<RenderOutcome> => {
     const r = await platform.spawn(found.cmd, [...found.pre, '-tsvg', '-pipe', '-charset', 'UTF-8'], {
       input: source,
       timeout: RENDER_TIMEOUT_MS,
@@ -101,7 +131,7 @@ export async function createPlantumlRenderer({ jar } = {}, platform) {
   return {
     available: true,
     hint: found.how,
-    render(code) {
+    render(code: string) {
       const source = /@start\w+/.test(code) ? code : `@startuml\n${code}\n@enduml`;
       const key = hashContent(source);
       if (!cache.has(key)) {

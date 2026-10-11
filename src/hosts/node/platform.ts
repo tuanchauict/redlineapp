@@ -10,10 +10,13 @@ import path from 'node:path';
 import os from 'node:os';
 import { execFile } from 'node:child_process';
 
+import type { Platform } from '../../reader/platform.js';
+
 let tmpSeq = 0;
 
-/** @type {import('../../reader/platform.js').Platform} */
-export const nodePlatform = {
+// Annotated, not inferred: this is the compiler's check that the node host provides everything
+// the reader asks for, and it is also what types each parameter below.
+export const nodePlatform: Platform = {
   async readText(p) {
     try {
       return await fs.readFile(p, 'utf8');

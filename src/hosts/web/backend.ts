@@ -1,7 +1,7 @@
 // The page's end of the web app: find the reader, talk to it, and say what the user has to do
 // when it cannot go on without them.
 //
-// The reader is in a SharedWorker (worker.js), one for every tab of this origin; where there is
+// The reader is in a SharedWorker (worker.ts), one for every tab of this origin; where there is
 // none, it is the same code in this page, behind a MessageChannel. Either way `createRpcBackend`
 // does what it does for every host that is not in the page's own heap, and this wraps it with
 // the four things a browser tab has that the others do not:
@@ -11,17 +11,21 @@
 //     forgets the tab when it comes back
 //   - permission. A file the user granted last week may have to be granted again, and only a
 //     page, from a click, can ask (`reopen`)
-//   - the ways to open something that are not a link: a file, a drop (`welcome.js`)
+//   - the ways to open something that are not a link: a file, a drop (`welcome.ts`)
 //   - the files the tab has open, for the left column, which a window has a shell to keep
 //     (`openFiles`)
 //
 // Bundled to public/vendor/backend-web.js, and loaded only when `host.js` has said this is the
 // web app, so no other build downloads it.
 import { createRpcBackend } from '../../rpc/client.js';
+import type { RpcBackend } from '../../rpc/client.js';
 import { createIdbKv } from './idb.js';
 import { parseWebPath } from './handles.js';
 import { createOpenFiles, storageOf } from './open-files.js';
 import { mountWelcome } from './welcome.js';
+import type { Welcome, WelcomeDeps } from './welcome.js';
+import type { Kv } from './kv-files.js';
+import type { WatchHandlers } from '../../contract/seam.js';
 
 /** How often to tell the worker this page is still here. It lets go of a document after 30 s. */
 export const PING_MS = 10_000;
@@ -41,10 +45,9 @@ export const LINK_NOTE =
  * liked. With no query on `base`, which is every host but the web app's, there is none to copy
  * and the URL is what it always was.
  *
- * @param {string} name
- * @param {string} [base]  Default: this file, which is `vendor/backend-web.js` once bundled.
+ * `base` defaults to this file, which is `vendor/backend-web.js` once bundled.
  */
-export function sibling(name, base = import.meta.url) {
+export function sibling(name: string, base: string = import.meta.url): URL {
   const url = new URL(name, base);
   url.search = new URL(base).search;
   return url;
@@ -53,6 +56,12 @@ export function sibling(name, base = import.meta.url) {
 // The bundle beside this one. Not an import: the page must not download the reader unless it
 // has to.
 const WORKER_URL = sibling('./reader-worker.js');
+
+// Written onto the window by the staged shim, and absent from a page nobody built. A `var`, so
+// that it is a property of `globalThis`, which is where `workerName` reads it from.
+declare global {
+  var __REDLINE_VERSION: string | undefined;
+}
 
 /**
  * What the page calls its SharedWorker. One is found by its URL and its name, and a tab left open
@@ -68,14 +77,17 @@ const WORKER_URL = sibling('./reader-worker.js');
  * (`stage-page.mjs`, after `host.js`); a page without one is a page nobody built, which is the
  * only time it says `dev`.
  */
-export const workerName = (g = globalThis) => `redline@${g.__REDLINE_VERSION ?? 'dev'}`;
+export const workerName = (g: { __REDLINE_VERSION?: string } = globalThis): string =>
+  `redline@${g.__REDLINE_VERSION ?? 'dev'}`;
 
-/**
- * Join the worker, or be one.
- *
- * @returns {Promise<{ port: MessagePort, onError: (fn: (why: string) => void) => void }>}
- */
-export async function openPort() {
+/** How a page reaches its reader: the port, and who to tell when the reader cannot start. */
+export interface Connection {
+  port: MessagePort;
+  onError: (fn: (why: string) => void) => void;
+}
+
+/** Join the worker, or be one. */
+export async function openPort(): Promise<Connection> {
   if (typeof globalThis.SharedWorker === 'function') {
     const worker = new globalThis.SharedWorker(WORKER_URL, { type: 'module', name: workerName() });
     return {
@@ -96,26 +108,56 @@ export async function openPort() {
   return { port: port1, onError: () => {} };
 }
 
+export interface WebBackendOptions {
+  /** The document being shown, read per call. */
+  docId: () => string | null;
+  /** How to reach the reader. Default: `openPort`. */
+  connect?: () => Promise<Connection>;
+  /**
+   * The IndexedDB stores, read here to hold the handle a permission prompt needs. Default: the
+   * real ones.
+   */
+  stores?: { roots: Kv; opened: Kv };
+  /** What fires `pagehide` and `pageshow`. Default: `window`. */
+  win?: typeof globalThis;
+  pingMs?: number;
+}
+
 /**
- * @param {object} opts
- * @param {() => string|null} opts.docId  The document being shown, read per call.
- * @param {typeof openPort} [opts.connect]  How to reach the reader. Default: `openPort`.
- * @param {{ roots: object, opened: object }} [opts.stores]  The IndexedDB stores, read here
- *   to hold the handle a permission prompt needs. Default: the real ones.
- * @param {EventTarget} [opts.win]  What fires `pagehide` and `pageshow`. Default: `window`.
- * @param {number} [opts.pingMs]
+ * What the web app's page gets: the rpc backend without its `call`, which stays in this file,
+ * plus what only a browser tab has.
  */
+export interface WebBackend extends Omit<RpcBackend, 'call'> {
+  /** Hear that the document cannot be read until the user says so; `name` is the folder's. */
+  onNeedsPermission(fn: (info: { name: string }) => void): () => void;
+  /**
+   * Ask the user for the folder again. Call it from the click; answers whether it was granted.
+   */
+  reopen(): Promise<boolean>;
+  /** A file handle from a picker or a drop. Answers `{ rootId, name, kind }`. */
+  addRoot(handle: FileSystemHandle): Promise<{ rootId: string; name: string; kind: string }>;
+  /** A `File` that came with no handle. Answers the path to `open`. */
+  addDrop(file: File): Promise<string>;
+  /** Fill the page's empty state; `sync` on what comes back says whether to ask again. */
+  welcome(el: HTMLElement, hooks: Omit<WelcomeDeps, 'backend' | 'win' | 'doc'>): Welcome;
+  /** Why a link out of this document will not open, or null if it will. */
+  linkNote(path: string | null | undefined): Promise<string | null>;
+  openFiles: ReturnType<typeof createOpenFiles>;
+  /** Stop pinging and close the port. */
+  close(): void;
+}
+
 export async function createWebBackend({
   docId,
   connect = openPort,
   stores,
   win = globalThis,
   pingMs = PING_MS,
-}) {
+}: WebBackendOptions): Promise<WebBackend> {
   const kv = stores ?? { roots: createIdbKv('roots'), opened: createIdbKv('opened') };
   const { port, onError } = await connect();
 
-  let disconnect = () => {};
+  let disconnect: (why?: string) => void = () => {};
   // `call` is kept to this file: the page is written against the surface and not the transport.
   const { call, ...inner } = createRpcBackend({
     docId,
@@ -132,18 +174,19 @@ export async function createWebBackend({
 
   // The worker lets go of a page that goes quiet, because a closed tab cannot say so.
   const pinger = setInterval(() => port.postMessage({ t: 'ping' }), pingMs);
-  pinger.unref?.();
+  // As for the worker's sweeper: Node, in the tests, hands back a `Timeout`.
+  (pinger as unknown as { unref?(): void }).unref?.();
 
   // --- permission ----------------------------------------------------------
 
-  const askers = new Set();
+  const askers = new Set<(info: { name: string }) => void>();
   // What the page would have to ask for, held from the moment it is known to be needed until the
   // click that asks: `requestPermission` wants a user gesture, and a gesture is not for waiting
   // on a database read.
-  let pending = null;
+  let pending: { rootId: string; name: string; handle: any } | null = null;
 
   /** A root, with the handle to ask about it. Or null. */
-  async function rootById(rootId) {
+  async function rootById(rootId?: string | null) {
     const rec = rootId ? await kv.roots.get(rootId) : null;
     return rec ? { rootId, name: rec.name, handle: rec.handle } : null;
   }
@@ -160,20 +203,21 @@ export async function createWebBackend({
    * worker names it when it can -- a link into another folder is not the document on screen --
    * and a page that is shown a lapsed folder on reload has only its own id to go by.
    */
-  async function needsPermission(rootId) {
+  async function needsPermission(rootId?: string) {
     pending = (await rootById(rootId)) ?? (await rootOfDoc());
     if (pending) for (const fn of askers) fn({ name: pending.name });
   }
 
   // --- the page's lifecycle ------------------------------------------------
 
-  let watching = null; // { start, off }: what to subscribe again after a restore
+  // What to subscribe again after a restore.
+  let watching: { start(): void; off: (() => void) | null; cbs: WatchHandlers } | null = null;
 
   // A page in the back/forward cache is neither closed nor running, and its timers stop. The
   // worker would let the document go after 30 s; `bye` says so now, and also stops the worker
   // sending events to a page that cannot hear them.
   const onPageHide = () => inner.bye();
-  const onPageShow = (e) => {
+  const onPageShow = (e: PageTransitionEvent) => {
     // Not `persisted`: a page being shown for the first time has said hello already.
     if (!e.persisted) return;
     port.postMessage({ t: 'hello', doc: docId() });
@@ -186,7 +230,7 @@ export async function createWebBackend({
   win.addEventListener?.('pagehide', onPageHide);
   win.addEventListener?.('pageshow', onPageShow);
 
-  const api = {
+  const api: WebBackend = {
     ...inner,
 
     async doc(baseline) {
@@ -211,15 +255,18 @@ export async function createWebBackend({
     },
 
     watch(cbs) {
-      const mine = { cbs, off: null };
-      mine.start = () => {
-        mine.off = inner.watch({
-          onEvent: cbs.onEvent,
-          onLive: (on, why, needs) => {
-            if (!on && needs === 'permission') needsPermission();
-            cbs.onLive(on, why);
-          },
-        });
+      const mine: NonNullable<typeof watching> = {
+        cbs,
+        off: null,
+        start: () => {
+          mine.off = inner.watch({
+            onEvent: cbs.onEvent,
+            onLive: (on, why, needs) => {
+              if (!on && needs === 'permission') needsPermission();
+              cbs.onLive(on, why);
+            },
+          });
+        },
       };
       mine.start();
       watching = mine;
@@ -285,7 +332,7 @@ export async function createWebBackend({
 
     /**
      * The files this tab has open, which the left column lists as the desktop app lists its
-     * tabs (`open-files.js`). Off `win`'s storage, so a test's window keeps a list in memory.
+     * tabs (`open-files.ts`). Off `win`'s storage, so a test's window keeps a list in memory.
      */
     openFiles: createOpenFiles({
       tab: storageOf(win, 'sessionStorage'),

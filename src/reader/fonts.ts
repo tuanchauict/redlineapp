@@ -5,8 +5,9 @@
 // you already thought of — which is how you end up offering a fixed catalogue
 // that has Iowan Old Style, which this machine does not have, and not Bookerly,
 // which it does. So the question goes to the OS, through the same platform
-// (src/reader/platform.js) as everything else, and both shells get the one answer:
+// (src/reader/platform.ts) as everything else, and both shells get the one answer:
 // the server route for a browser tab, the reader directly for the desktop app.
+import type { Platform, SpawnResult } from './platform.js';
 
 /**
  * Ask AppKit. `availableFontFamilies` is the list a font panel is built from —
@@ -36,7 +37,7 @@ const TIMEOUT_MS = 10_000;
 const NOT_FOR_READING = /emoji|braille|dingbat|wingding|webding|ornament|^symbol$/i;
 
 /** Asked once a launch: the set does not change under a running app in practice. */
-let cached = null;
+let cached: string[] | null = null;
 
 /**
  * Every font family worth reading a document in, sorted, or `[]` where there
@@ -45,15 +46,12 @@ let cached = null;
  * Empty is a real answer and the caller has to have something to show for it:
  * this is macOS-only, and even there an `osascript` that will not run is not
  * worth failing a settings sheet over.
- *
- * @param {import('./platform.js').Platform} platform
- * @returns {Promise<string[]>}
  */
-export async function systemFonts(platform) {
+export async function systemFonts(platform: Platform): Promise<string[]> {
   if (cached) return cached;
   if (platform.os !== 'darwin') return [];
 
-  let out;
+  let out: SpawnResult;
   try {
     out = await platform.spawn('osascript', ['-l', 'JavaScript', '-e', LIST_FAMILIES], {
       timeout: TIMEOUT_MS,

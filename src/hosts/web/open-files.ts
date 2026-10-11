@@ -5,15 +5,24 @@
 // Kept twice. In sessionStorage, so that a reload keeps the list and two tabs on the app each
 // have their own; and the last list any tab wrote in localStorage, for a tab that comes to the
 // app's bare address with nothing of its own -- as the worker gives that tab the document a tab
-// last showed (`last`, in handles.js). Neither is a reason to fail: a browser that refuses
+// last showed (`last`, in handles.ts). Neither is a reason to fail: a browser that refuses
 // storage gets a list that lasts as long as the page.
 
 export const OPEN_KEY = 'redline:open';
 
-const isEntry = (t) =>
+/** A file in the list. `path` is what `open` takes and `label` is how it is shown. */
+export interface OpenFile {
+  id: string;
+  path: string;
+  name: string;
+  dir: string;
+  label: string;
+}
+
+const isEntry = (t: any): t is OpenFile =>
   typeof t?.id === 'string' && typeof t.path === 'string' && typeof t.name === 'string';
 
-function read(store) {
+function read(store: Storage | null | undefined): OpenFile[] | null {
   try {
     const list = JSON.parse(store?.getItem(OPEN_KEY) ?? 'null');
     return Array.isArray(list) ? list.filter(isEntry) : null;
@@ -23,7 +32,7 @@ function read(store) {
 }
 
 /** One of the window's storages, or null: asking for one can throw where cookies are blocked. */
-export function storageOf(win, name) {
+export function storageOf(win: any, name: 'sessionStorage' | 'localStorage'): Storage | null {
   try {
     return win?.[name] ?? null;
   } catch {
@@ -31,15 +40,17 @@ export function storageOf(win, name) {
   }
 }
 
-/**
- * @param {object} [opts]
- * @param {Storage|null} [opts.tab]  This tab's own. Default: sessionStorage.
- * @param {Storage|null} [opts.shared]  Every tab's. Default: localStorage.
- */
+export interface OpenFilesOptions {
+  /** This tab's own. Default: sessionStorage. */
+  tab?: Storage | null;
+  /** Every tab's. Default: localStorage. */
+  shared?: Storage | null;
+}
+
 export function createOpenFiles({
   tab = storageOf(globalThis, 'sessionStorage'),
   shared = storageOf(globalThis, 'localStorage'),
-} = {}) {
+}: OpenFilesOptions = {}) {
   let list = read(tab) ?? read(shared);
   // Whether there has been a list at all. A first visit has closed nothing; a tab whose list is
   // empty because every file in it was closed has, and is not to be handed one back.

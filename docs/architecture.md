@@ -1,10 +1,11 @@
 # Architecture
 
-Node ESM and hand-written CSS, no framework. The code Node runs (`bin/`, `scripts/`,
-`src/hosts/node/`, the test) goes through `tsc` into `out/` first; what esbuild
-bundles is `src/` as written, and what the page runs is `public/` as written. All of it
-is still JavaScript while the conversion is under way ([typescript.md](typescript.md));
-the only dependencies that reach the page are
+Node ESM and hand-written CSS, no framework. `src/` is TypeScript, apart from the one
+classic script that has to stay JavaScript; `bin/`, `scripts/`, the test and the page
+(`public/`, `site/`) are still JavaScript while the conversion is under way
+([typescript.md](typescript.md)). The code Node runs (`bin/`, `scripts/`, `src/hosts/node/`,
+the test) goes through `tsc` into `out/` first; what esbuild bundles is `src/` as written,
+and what the page runs is `public/` as written. The only dependencies that reach the page are
 vendored as they ship (`highlight.js` themes, `mermaid`), and `github-markdown-css` with
 its two palettes re-keyed from the system's scheme to the page's by `build:web`
 (`scripts/markdown-css.mjs`) and nothing else changed.
@@ -39,34 +40,34 @@ src/core/               pure: no I/O and no platform, so it runs anywhere
   csp.ts                the content security policy as data, and the inline-script hashes
 src/page/sanitize.ts    DOMPurify, and what a document may put on the page
 src/reader/             the reader and what it needs, written against the platform
-  reader.js             the open-document registry, the watcher, the payload
-  store.js              the snapshot store: history, baselines, checked changes
-  session.js            the reader's surface as a page asks for it: what each call means
-  platform.js           the disk, as the reader asks for it
-  git.js                git detection, `git log --follow`, `git show`
-  plantuml.js           local PlantUML renderer, with a per-diagram cache
-  fonts.js              the installed font families, where the OS can list them
+  reader.ts             the open-document registry, the watcher, the payload
+  store.ts              the snapshot store: history, baselines, checked changes
+  session.ts            the reader's surface as a page asks for it: what each call means
+  platform.ts           the `Platform` interface: the disk, as the reader asks for it
+  git.ts                git detection, `git log --follow`, `git show`
+  plantuml.ts           local PlantUML renderer, with a per-diagram cache
+  fonts.ts              the installed font families, where the OS can list them
 src/rpc/                the page and the reader over messages; imports only rpc/ and contract/
   protocol.ts           the message shapes, the method list, errors across the wire
   serve.ts              the reader's end: answer a page's calls from a session
   client.ts             the page's end: the seam's shape, over `post` and `onMessage`
 src/hosts/node/         the CLI's shell
-  server.js             HTTP + SSE over the reader
-  platform.js           the platform over node
-  root.js               where the repository is, from any file, in source or compiled
+  server.ts             HTTP + SSE over the reader
+  platform.ts           the platform over node
+  root.ts               where the repository is, from any file, in source or compiled
 src/hosts/tauri/        the app's shell, in the page
-  platform.js           the platform over the shell's IPC, on core/paths.ts
-  native.js             `window.mdNative` over the shell's IPC
-  backend.js            the entry point the app's page imports
+  platform.ts           the platform over the shell's IPC, on core/paths.ts
+  native.ts             `window.mdNative` over the shell's IPC
+  backend.ts            the entry point the app's page imports
 src/hosts/web/          the web app's shell: no server, no node, files in IndexedDB
-  kv-files.js           the store's file operations over a key-value store
-  idb.js                that key-value store, over IndexedDB; the one file no test runs
-  platform.js           the platform over `web:` handles, `drop:` files and the store
-  handles.js            the files the user granted, what a doc id was, what may be read now
-  worker.js             the reader, in a SharedWorker: one per origin, a document per tab
-  backend.js            the page's end of it: finds the worker, names it for the build, pings it,
+  kv-files.ts           the store's file operations over a key-value store
+  idb.ts                that key-value store, over IndexedDB; the one file no test runs
+  platform.ts           the platform over `web:` handles, `drop:` files and the store
+  handles.ts            the files the user granted, what a doc id was, what may be read now
+  worker.ts             the reader, in a SharedWorker: one per origin, a document per tab
+  backend.ts            the page's end of it: finds the worker, names it for the build, pings it,
                         asks for permission
-  welcome.js            the empty state: a file, a drop, the limits, a grant to ask for again
+  welcome.ts            the empty state: a file, a drop, the limits, a grant to ask for again
   host.js               the shim that makes a page the web app's; `stage-page.mjs` puts it over
                         `public/host.js`, with the build's version after it
 
@@ -165,7 +166,7 @@ the page is looking at that text.
 
 ## Open documents
 
-`createReader` (`src/reader/reader.js`) keeps a `Map` of open documents keyed by
+`createReader` (`src/reader/reader.ts`) keeps a `Map` of open documents keyed by
 `hashContent(abs).slice(0, 12)`, and hands back `retain` / `release` / `setFile` /
 `pathOf` plus a method per action for whoever is embedding it.
 
@@ -174,8 +175,9 @@ program: `git`, `plantuml` (`false` turns it off), `fonts`, and `label` for how 
 shown, plus `pollMs`. With none given, a platform that has `spawn` gets git, PlantUML
 discovery and the font list as it always did; a platform without it gets `NO_GIT`, no
 PlantUML and no fonts, and its reader still opens, diffs and prunes. `spawn` is optional in
-the contract (`src/reader/platform.js`) for that reason — a host that has none leaves it
-out rather than providing a function that throws.
+the contract (`src/reader/platform.ts`) for that reason — a host that has none leaves it
+out rather than providing a function that throws. The options are `ReaderOptions` in
+`src/reader/reader.ts`, and the contract is the `Platform` interface there.
 
 Entries are **reference counted**. Two windows on the same file share one watcher
 and one store; the last one to let go is the one that stops watching. This is what
@@ -193,9 +195,11 @@ arguments and the same answers, which is why there is no second table here.
 
 The routes are thin on purpose. What a call *means* — a blank baseline is `last:read`, a
 check-off must name a change or say `clear`, a link must name a file, a diagram is capped
-at 256 KB, a document that closed is `Closed` — is decided once in `src/reader/session.js`,
+at 256 KB, a document that closed is `Closed` — is decided once in `src/reader/session.ts`,
 which throws `Closed` and `BadRequest`; the server turns those into a 410 and a 400 and
-nothing else. `src/rpc/` is the same session behind messages (`hello`, `call`, `bye` one
+nothing else. `createSession` returns `Session` (`src/contract/seam.ts`), so a method renamed
+here, or one that answers a different shape, stops compiling rather than surfacing when a page
+asks. `src/rpc/` is the same session behind messages (`hello`, `call`, `bye` one
 way, and the web host's `ping`, which its worker answers itself; `ret`, `err`, `ev`, `live`,
 `command` the other, all structured-cloneable), and `createRpcBackend` is the third
 implementation of the seam below. A test serves one reader over http and over a
@@ -290,7 +294,7 @@ would have given one file two memories.
 The fallback travels inside the token because it comes from **Compare against** in
 the settings sheet, which the page holds and the reader does not. A `last:` request
 is not itself a choice, so it is not stored; nor is `none`, which names no version.
-`src/hosts/node/server.js` answers a request with no `baseline` param as `last:read`, and
+`src/hosts/node/server.ts` answers a request with no `baseline` param as `last:read`, and
 `public/app.js` sends `keptBaseline()` wherever it shows a document and
 `defaultBaseline()` only when the setting changes.
 
@@ -462,7 +466,11 @@ an initialisation script: `globalThis.__REDLINE_HOST` (the platform, `$HOME`, th
 few environment variables that matter, the files this window opened on, the
 window's own label, and the app's version for the About row) and `window.mdNative`.
 Nothing is probed or fallen back from — by the time anything asks, the answer is
-already on the window.
+already on the window. Both are typed on the page's side: `Handoff` in
+`src/hosts/tauri/platform.ts` is `Handoff` in `shell/src/host.rs` field for field, and
+`MdNative` in `src/hosts/tauri/native.ts` is whatever `installNative` builds. The compiler
+cannot see across the language boundary, so a field added to the Rust struct is added to the
+interface by hand.
 
 The label is there so the page can say which window's events it wants; see the third
 of the [three Rust things](#the-desktop-shell) below for why that is not the default.
@@ -474,8 +482,8 @@ has neither a server nor the reader in the page, and the third is built on it):
 | | |
 | --- | --- |
 | No `__REDLINE_HOST` | `fetch` and an `EventSource` against the server the page came from. Reconnecting a dropped stream lives here, because that is a fact about http and means nothing further up |
-| `__REDLINE_HOST` | A dynamic import of `vendor/backend-tauri.js`, which builds the reader **in the page** over `hosts/tauri/platform.js` and calls it directly. A browser tab never downloads it |
-| `__REDLINE_WEB` | A dynamic import of `vendor/backend-web.js`, which reaches the reader **in a SharedWorker** (`vendor/reader-worker.js`, over `hosts/web/platform.js`) through `createRpcBackend`, and adds what a tab has that the others do not. See below |
+| `__REDLINE_HOST` | A dynamic import of `vendor/backend-tauri.js`, which builds the reader **in the page** over `hosts/tauri/platform.ts` and calls it directly. A browser tab never downloads it |
+| `__REDLINE_WEB` | A dynamic import of `vendor/backend-web.js`, which reaches the reader **in a SharedWorker** (`vendor/reader-worker.js`, over `hosts/web/platform.ts`) through `createRpcBackend`, and adds what a tab has that the others do not. See below |
 
 All three expose the same methods with the same arguments, which is the whole point: the
 one implementation of the diff runs wherever the page is, so a tab and the app
@@ -484,16 +492,16 @@ cannot disagree about what changed.
 ### The web app's reader
 
 One reader for every tab of the origin, so two tabs on one file share a poll and a snapshot
-store. It is `createWebHost` in `src/hosts/web/worker.js`, run as a SharedWorker named
+store. It is `createWebHost` in `src/hosts/web/worker.ts`, run as a SharedWorker named
 `redline@<version>+<hash>`; a browser with none gets the same code in the page behind a
 `MessageChannel`, one reader a tab over the one IndexedDB store. A SharedWorker is found by its
 URL and its name, so one that did not change would, after a deploy, hand a new tab the old
 reader that a tab left open on the old build keeps alive. The build is in both: the URL has the
-page's `?v=` (`sibling` in `backend.js` copies the query of its own bundle's URL, since a
+page's `?v=` (`sibling` in `web/backend.ts` copies the query of its own bundle's URL, since a
 relative URL does not inherit one), and the name has the version and a hash of the two bundles
 the reader is made of, because the version alone is the same across every rebuild at one
 version. Each alone would do; neither is leaned on alone. Two builds get a worker each, over the
-one store, which is the case the fallback already depends on and which `idb.js` allows by closing
+one store, which is the case the fallback already depends on and which `idb.ts` allows by closing
 its connection on `versionchange`. The page learns the build from the shim the build stages
 (below).
 
@@ -503,7 +511,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
   silent releases it; its next message of any kind takes the document again and answers with a
   `change`, so a hidden tab whose timers were throttled catches up instead of going stale. The
   back/forward cache is `pagehide` → `bye` and `pageshow` (persisted) → `hello`, a new watch
-  and a `change`; that wiring is in `backend.js`, where a test can reach it.
+  and a `change`; that wiring is in `web/backend.ts`, where a test can reach it.
 - **A reload is `?id=`.** The worker remembers `docId → { rootId, rel }` in the `opened` store,
   so a fresh worker can find the file again. The root's permission decides what happens:
   `granted` opens it, `prompt` is `NeedsPermission`, and `denied` or a root the registry does
@@ -536,7 +544,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
 - A document from a drop has no handle to keep: `drop:<name>` lives in the worker's memory, and
   does not outlive it.
 - **The welcome is the only door.** A desktop reader is handed a file and a server is told one; a
-  page is handed nothing, so `welcome.js` (mounted by `backend.welcome(el, hooks)` into
+  page is handed nothing, so `welcome.ts` (mounted by `backend.welcome(el, hooks)` into
   `<section id="welcome">`) is how anything gets opened. The page owns *whether* it shows
   (`showWelcome` and `hideWelcome` in `app.js`: they hide `#doc` and set `html.welcoming`) and
   the module owns what is inside; it builds it with `createElement` and `textContent`, because a
@@ -583,7 +591,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
     used, and Firefox asks the user, which it may do only for a click.
 - **The left column is the open files, kept by the page.** A desktop window's are its tabs,
   which the shell keeps and pushes over `md:tabs`; a browser tab has no shell, so
-  `backend.openFiles` (`open-files.js`) keeps the list, `{ id, path, name, dir, label }` in the
+  `backend.openFiles` (`open-files.ts`) keeps the list, `{ id, path, name, dir, label }` in the
   order opened, and `app.js` puts it in `state.tabs` for `paintTabs` to draw with the same
   rows. Every way a document arrives — a pick, a drop, a link, a reload, the one a bare visit
   resumes — ends in `load()`, which calls `noteOpen()`: the document joins the end of the list,
@@ -648,7 +656,7 @@ shim over `public/host.js`. `build:web` writes every host's bundles into `public
   staged `index.html` names its scripts, styles and icon as `name?v=<id>`; the staged `app.js` and
   `backend.js` have it in their imports, which would otherwise be the one place a query is lost
   (a relative import takes none from its importer); and the worker's URL copies it from its own
-  bundle's (`hosts/web/backend.js`, `sibling`). `<id>` is `pageHash`: 12 hex of a sha256 over every
+  bundle's (`hosts/web/backend.ts`, `sibling`). `<id>` is `pageHash`: 12 hex of a sha256 over every
   staged file, the version and the shim, taken before anything is rewritten, so that one id covers
   the page and a cycle of imports has no order to be resolved in. `_headers` then says
   `Cache-Control: public, max-age=31536000, immutable` for every top-level path but `index.html`
@@ -678,7 +686,7 @@ disk, and nothing about what a document is. The reader is JavaScript in the webv
 either way, so porting the shell was porting the window management and none of the
 product.
 
-- **`host.rs`** is the disk, as `src/hosts/tauri/platform.js` asks for it: read, write,
+- **`host.rs`** is the disk, as `src/hosts/tauri/platform.ts` asks for it: read, write,
   mkdirp, read_dir, remove, rename, exists, modified, spawn. Writing and spawning
   are held to what the reader does; see
   [What a document can do](#what-a-document-can-do). Plus `__REDLINE_HOST` —
@@ -757,7 +765,7 @@ Four things about writing Rust here that cost time to learn:
   window went fullscreen. Left unscoped it showed up as one window's **Open files**
   listing another window's documents, or listing nothing under a document that was
   still on screen, and as the menu driving all the windows at once. One window
-  behaves perfectly, which is why it took a while to find. `src/hosts/tauri/native.js`
+  behaves perfectly, which is why it took a while to find. `src/hosts/tauri/native.ts`
   names its own label on every registration; an app-wide `emit` (`md:settings`)
   still arrives, because that one carries no filter to fail.
 
@@ -797,7 +805,7 @@ origin, plus the head script by its SHA-256. `connect-src` is the page's own
 server, or in the app the shell's IPC. `object-src`, `base-uri`, `form-action`
 and `frame-ancestors` are all `'none'`. The policy lives in two places:
 
-- `src/hosts/node/server.js` computes it, hash included, and sends it as a header on
+- `src/hosts/node/server.ts` computes it, hash included, and sends it as a header on
   `index.html`. The directive list and the hashing are `src/core/csp.ts`, which a
   host that builds its own page (a `<meta>`, a `_headers` file) takes the same list from.
   It may tighten a directive and may not loosen one.
@@ -821,9 +829,9 @@ are `REDLINE_HOME` from the shell's own environment, not from the page,
 `~/.redline` and `~/.md-reader`. `spawn` runs only the command lines `src/`
 builds:
 
-- the four git invocations in `src/reader/git.js`, with anything the page chose kept
+- the four git invocations in `src/reader/git.ts`, with anything the page chose kept
   where git reads it as a name and never as an option;
-- the one JXA script in `src/reader/fonts.js`, compared byte for byte;
+- the one JXA script in `src/reader/fonts.ts`, compared byte for byte;
 - `java -jar` with a jar named `plantuml.jar` or the one `PLANTUML_JAR` names;
 - a `plantuml` launcher by absolute path.
 

@@ -1,10 +1,25 @@
 // Optional git baseline: compare the file against a committed revision, and
 // seed a document's history from the commits that touched it.
 //
-// Every call goes through the platform's spawn (see ./platform.js), because git
+// Every call goes through the platform's spawn (see ./platform.ts), because git
 // is the host's to find — it is on a PATH the webview knows nothing about. The
 // two calls that used to be synchronous are not any more, which is why opening
 // a document is now something to await.
+import type { Platform } from './platform.js';
+
+/** Where git has a file: the top of its repository, and the file's path from there. */
+export interface GitInfo {
+  root: string;
+  relPath: string;
+}
+
+/** One commit that touched a file, with the name the file had in that commit. */
+export interface GitCommit {
+  sha: string;
+  ts: number;
+  subject: string;
+  relPath: string;
+}
 
 // A record separator no commit subject can contain, so one line per commit
 // stays one line per commit.
@@ -18,7 +33,7 @@ const TIMEOUT_MS = 15000;
  * opens, it is simply never tracked. The reader tells the two apart by identity, to say in the
  * payload whether git is something this host can do at all.
  */
-export const NO_GIT = Object.freeze({
+export const NO_GIT: Git = Object.freeze({
   info: async () => null,
   show: async () => null,
   log: async () => [],
@@ -26,16 +41,16 @@ export const NO_GIT = Object.freeze({
 });
 
 /** The git reader for one host. */
-export function createGit(platform) {
+export function createGit(platform: Platform) {
   /** stdout, or null if git said no — which it does for anything untracked. */
-  const git = async (args, cwd) => {
+  const git = async (args: string[], cwd: string): Promise<string | null> => {
     const r = await platform.spawn('git', args, { cwd, timeout: TIMEOUT_MS });
     return r.code === 0 ? r.stdout : null;
   };
 
   return {
     /** { root, relPath } when the file is tracked by git, otherwise null. */
-    async info(absPath) {
+    async info(absPath: string): Promise<GitInfo | null> {
       const cwd = platform.dirname(absPath);
       // Ask git for the repo-relative path rather than deriving it from the
       // toplevel: on macOS the two can disagree when the path crosses a symlink
@@ -54,7 +69,7 @@ export function createGit(platform) {
     },
 
     /** Contents of the file at `rev`, or null if it does not exist there. */
-    show(info, rev) {
+    show(info: GitInfo | null, rev: string): Promise<string | null> {
       if (!info) return Promise.resolve(null);
       return git(['show', `${rev}:${info.relPath}`], info.root);
     },
@@ -71,7 +86,7 @@ export function createGit(platform) {
      * open whether or not git is installed, the repo is healthy, or the history
      * is reachable.
      */
-    async log(info, limit = 50) {
+    async log(info: GitInfo | null, limit = 50): Promise<GitCommit[]> {
       if (!info) return [];
       const out = await git(
         [
@@ -105,9 +120,15 @@ export function createGit(platform) {
     },
 
     /** The file's contents in one commit, under the name it had there. */
-    showAt(info, sha, relPath = info?.relPath) {
+    showAt(info: GitInfo | null, sha: string, relPath = info?.relPath): Promise<string | null> {
       if (!info) return Promise.resolve(null);
       return git(['show', `${sha}:${relPath}`], info.root);
     },
   };
 }
+
+/**
+ * What `createReader` is given for git, and what `NO_GIT` has to be a stand-in for: declaring the
+ * null object as this is what keeps the two from drifting apart.
+ */
+export type Git = ReturnType<typeof createGit>;

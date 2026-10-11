@@ -8,7 +8,7 @@ import { SESSION_METHODS, encodeError } from './protocol.js';
 import type { PageMessage, ReaderMessage, SessionMethod } from './protocol.js';
 
 export interface ServeOptions {
-  /** From `createSession` (src/reader/session.js). */
+  /** From `createSession` (src/reader/session.ts). */
   session: Session;
   /** Send a message to the page. */
   post: (msg: ReaderMessage) => void;

@@ -1,7 +1,7 @@
 // What the user has granted, and which document is which file: the web host's memory across
 // visits.
 //
-// Two stores in IndexedDB (`idb.js` makes them) and nothing else:
+// Two stores in IndexedDB (`idb.ts` makes them) and nothing else:
 //
 //   roots    rootId -> { handle, name, kind }   a folder or a file the user handed over
 //   opened   docId  -> { rootId, rel }          what a doc id means, so `?id=` outlives the tab
@@ -9,7 +9,7 @@
 //                                                that comes with no `?id=` at all
 //
 // `last` shares a store with the ids rather than having one of its own, because a new store is
-// a schema upgrade (`idb.js`), and a doc id is twelve hex digits, which `last` cannot be.
+// a schema upgrade (`idb.ts`), and a doc id is twelve hex digits, which `last` cannot be.
 //
 // A root is named by a random id and not by anything about the folder: the id is an identity,
 // not a content hash, and the same folder granted twice is one root (`isSameEntry`), so it keeps
@@ -21,16 +21,19 @@
 // the worker when it has a new one, rather than writing it itself, so that two tabs picking the
 // same folder at once are serialised by one thread instead of racing in two.
 import { makePaths } from '../../core/paths.js';
+import type { Kv } from './kv-files.js';
 
 const paths = makePaths('/');
 
 const LAST = 'last';
 
 /** `web:<rootId>/<rel>`, the path of a file inside a root. */
-export const webPath = (rootId, rel) => `web:${rootId}/${rel}`;
+export const webPath = (rootId: string, rel: string): string => `web:${rootId}/${rel}`;
 
 /** The parts of a `web:` path, or null for any other kind. */
-export function parseWebPath(abs) {
+export function parseWebPath(
+  abs: string | null | undefined,
+): { rootId: string; rel: string } | null {
   const m = /^web:([^/\\]+)\/(.+)$/.exec(abs ?? '');
   return m ? { rootId: m[1], rel: m[2] } : null;
 }
@@ -41,12 +44,15 @@ export function parseWebPath(abs) {
  * from a click, in a window, so not from here. The page turns this into the Reopen button.
  */
 export class NeedsPermission extends Error {
+  /** The folder's name, for a button that says what it asks about. */
+  root: string;
   /**
-   * @param {string} name  The folder's name, for a button that says what it asks about.
-   * @param {string} [rootId]  Which root it is. Carried across the wire (`encodeError`), because
-   *   the page cannot always work it out: a link into another folder is not the document it shows.
+   * Which root it is. Carried across the wire (`encodeError`), because the page cannot always
+   * work it out: a link into another folder is not the document it shows.
    */
-  constructor(name, rootId) {
+  rootId?: string;
+
+  constructor(name: string, rootId?: string) {
     super(`Redline needs your permission to read ${name} again`);
     this.name = 'NeedsPermission';
     this.root = name;
@@ -68,17 +74,19 @@ export class NoDocument extends Error {
   }
 }
 
-/**
- * @param {object} deps
- * @param {import('./kv-files.js').Kv} deps.roots   The `roots` store.
- * @param {import('./kv-files.js').Kv} deps.opened  The `opened` store.
- * @param {() => string} [deps.randomId]
- */
+export interface HandlesDeps {
+  /** The `roots` store. */
+  roots: Kv;
+  /** The `opened` store. */
+  opened: Kv;
+  randomId?: () => string;
+}
+
 export function createHandles({
   roots,
   opened,
   randomId = () => globalThis.crypto.randomUUID(),
-}) {
+}: HandlesDeps) {
   // Live handles, kept once read: a poll asks for its root every 1.5 s, and a read of the store
   // for each would deserialise a handle every time. Only this process adds a root, so there is
   // nothing in here that another could have made stale.

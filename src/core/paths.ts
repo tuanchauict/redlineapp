@@ -3,7 +3,7 @@
 // Hosts that have no `node:path` -- the Tauri page, the web app, the VS Code extension host's
 // webview side -- all need the same five helpers, and the store writes their answers into its
 // own index, so two hosts that spell one file two ways would file one document under two names.
-// They live here once. The behaviour is the one that was in hosts/tauri/platform.js before this
+// They live here once. The behaviour is the one that was in hosts/tauri/platform.ts before this
 // file existed, lifted out unchanged; the test suite holds it against `node:path`'s posix and
 // win32 for the cases it claims.
 

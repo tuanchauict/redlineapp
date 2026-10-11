@@ -1,7 +1,7 @@
-// The browser front door: an http server over a reader (src/reader/reader.js).
+// The browser front door: an http server over a reader (src/reader/reader.ts).
 //
 // Nothing but transport lives here: parsing a request, choosing a status, framing an event
-// stream. What a call means is decided by the session (src/reader/session.js), which any other
+// stream. What a call means is decided by the session (src/reader/session.ts), which any other
 // transport shares. A browser tab needs a URL to talk to, and this is that URL — the reader
 // itself has no opinion about http, because the desktop app holds it directly and never asks
 // it over a socket.
@@ -12,6 +12,7 @@ import { createRequire } from 'node:module';
 
 import { createReader, Closed } from '../../reader/reader.js';
 import { createSession, BadRequest, MAX_DIAGRAM_SOURCE } from '../../reader/session.js';
+import type { Platform } from '../../reader/platform.js';
 import { nodePlatform } from './platform.js';
 import { ROOT } from './root.js';
 import { directives, inlineScriptHashes, serialize } from '../../core/csp.js';
@@ -47,7 +48,7 @@ const MIME = {
 /**
  * The page's content security policy, as a header on index.html.
  *
- * The document is sanitized before it reaches the DOM (src/page/sanitize.js); this
+ * The document is sanitized before it reaches the DOM (src/page/sanitize.ts); this
  * is the floor under that, so that a document which got something past it
  * still could not run it. Script only from this server, plus the one inline
  * script in the head -- by hash, because it has to run before first paint and
@@ -58,7 +59,7 @@ const MIME = {
  * The Tauri build carries the same policy in shell/tauri.conf.json, where the
  * bundler works out the hash itself; the two are compared by the test suite.
  */
-export function contentSecurityPolicy(html) {
+export function contentSecurityPolicy(html: string): string {
   return serialize(directives({ 'script-src': ["'self'", ...inlineScriptHashes(html)] }));
 }
 
@@ -91,12 +92,24 @@ function fromOwnPage(req) {
   return !site || site === 'same-origin' || site === 'none';
 }
 
+export interface ServerOptions {
+  /** The document to open first. */
+  file?: string;
+  plantumlJar?: string;
+  /** What the reader runs on. Default: node. */
+  platform?: Platform;
+}
+
 /**
  * Open `file` and serve it. What comes back is the reader, plus the server to
  * listen on — an embedder drives documents through the former and only needs
  * the latter to hand the page a URL.
  */
-export async function createServer({ file, plantumlJar, platform = nodePlatform } = {}) {
+export async function createServer({
+  file,
+  plantumlJar,
+  platform = nodePlatform,
+}: ServerOptions = {}) {
   const reader = await createReader({ platform, plantumlJar });
   const session = createSession(reader);
 

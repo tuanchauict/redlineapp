@@ -12,7 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * The directory at or above the file `metaUrl` names (an `import.meta.url`) that has a
  * package.json.
  */
-export function repoRoot(metaUrl) {
+export function repoRoot(metaUrl: string): string {
   const from = fileURLToPath(metaUrl);
   let dir = path.dirname(from);
   while (!fs.existsSync(path.join(dir, 'package.json'))) {
@@ -29,4 +29,4 @@ export const ROOT = repoRoot(import.meta.url);
  * A file: URL under the root, for what used to be `new URL('./x', import.meta.url)` in a file
  * that sat at the root. A trailing slash is kept, so `rootUrl('src/')` is a directory.
  */
-export const rootUrl = (name = '') => new URL(name, pathToFileURL(ROOT + path.sep));
+export const rootUrl = (name = ''): URL => new URL(name, pathToFileURL(ROOT + path.sep));

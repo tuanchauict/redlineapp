@@ -4,12 +4,15 @@
 // checked off, and what the document was last compared against. Lives outside
 // the project so it never pollutes the repo.
 //
-// Reaches the disk through a platform (see ./platform.js) rather than node, so
+// Reaches the disk through a platform (see ./platform.ts) rather than node, so
 // that the same store runs in the CLI's server process and inside the desktop
 // app's webview, where there is no node. That is also why every method here is
 // async: a webview cannot read a file synchronously, and writing the store
 // twice to spare the CLI an await would have been the worse trade.
 import { hashContent, docKey, byteLength } from '../core/hash.js';
+import type { GitRef } from '../contract/payload.js';
+import type { AckOptions } from '../contract/seam.js';
+import type { Platform } from './platform.js';
 
 // Re-exported because this is where callers have always reached for it, and
 // because a snapshot's name belongs to the store conceptually even though the
@@ -43,6 +46,48 @@ const VERSION = /^[0-9a-f]{16}$/;
 const BLOCK = /^[0-9a-f]{10}$/;
 
 /**
+ * One version as an index lists it. `size` is not always there -- the reader treats it as
+ * `size ?? null` and draws a delta only when both ends have one -- and `git` is there when the
+ * version came from a commit, or was later found in one.
+ */
+export interface VersionEntry {
+  hash: string;
+  ts: number;
+  size?: number;
+  git?: GitRef;
+}
+
+/** A change checked off: its key, and the version and block it was made in (`ackRecords`). */
+export interface AckRecord {
+  key: string;
+  at?: string;
+  block?: string;
+}
+
+/**
+ * A document's index file as it is on disk. It is shared between processes and outlives any one
+ * build, so what a newer build added is optional here: an older index has to read.
+ */
+export interface Index {
+  path: string;
+  history: VersionEntry[];
+  baseline: string | null;
+  /** What `baseline` replaced, back when moving it could be undone. Deleted when it moves. */
+  prevBaseline?: string | null;
+  compare?: string | null;
+  /** A bare string is a check-off from before they carried a version; see `ackRecords`. */
+  acked?: Array<string | AckRecord>;
+  gitSeen?: string[];
+}
+
+/** One commit's version of a file, as `importGit` is given it. */
+export interface GitVersion {
+  text: string;
+  ts: number;
+  git: GitRef;
+}
+
+/**
  * Where the store lives.
  *
  * A store left under the app's old name is moved across the first time one is
@@ -52,7 +97,7 @@ const BLOCK = /^[0-9a-f]{10}$/;
  * it lay would have meant. A move that cannot be made (a permission, a mount)
  * is not worth failing over: the old directory goes on being used in place.
  */
-export async function storeRoot(platform) {
+export async function storeRoot(platform: Platform): Promise<string> {
   const override = platform.env('REDLINE_HOME');
   if (override) return override;
   const home = await platform.homeDir();
@@ -65,6 +110,16 @@ export async function storeRoot(platform) {
 }
 
 export class DocStore {
+  // Set by `open`, which is how one is made. `declare` so that they are not also initialised to
+  // undefined first, as plain fields would be under ES2022.
+  declare platform: Platform;
+  declare root: string;
+  declare objects: string;
+  declare docs: string;
+  declare abs: string;
+  declare file: string;
+  declare data: Index;
+
   /**
    * Open the store for one document.
    *
@@ -73,7 +128,7 @@ export class DocStore {
    * memory is loaded here, so the methods that only change state -- setting a
    * baseline, checking a change off -- stay a single write.
    */
-  static async open(absPath, platform) {
+  static async open(absPath: string, platform: Platform): Promise<DocStore> {
     const root = await storeRoot(platform);
     const store = new DocStore();
     store.platform = platform;
@@ -97,14 +152,14 @@ export class DocStore {
 
   // What this process last read from the index file or wrote to it, as text. "Has another process
   // written?" is then a comparison and not a guess.
-  #known = null;
-  #mtime = null;
+  #known: string | null = null;
+  #mtime: number | null = null;
   #drifted = false;
   // Changes to the index run one at a time. Each is a read, an edit and a write, and two of them
   // interleaved in one process would lose one just as two processes can.
-  #queue = Promise.resolve();
+  #queue: Promise<unknown> = Promise.resolve();
 
-  #parse(raw) {
+  #parse(raw: string | null): Index | null {
     try {
       const data = JSON.parse(raw);
       if (Array.isArray(data.history)) return data;
@@ -119,7 +174,7 @@ export class DocStore {
    * moment, and then taken for a first run, which is what it always was: the usual cause is a
    * writer caught between truncating the file and filling it.
    */
-  async #load() {
+  async #load(): Promise<{ raw: string | null; data: Index }> {
     let raw = await this.platform.readText(this.file);
     let data = this.#parse(raw);
     if (!data && raw) {
@@ -137,8 +192,8 @@ export class DocStore {
    * duplicate had learned about its commit is carried over, so collapsing two
    * rows never loses the sha or the subject.
    */
-  #collapseDuplicates() {
-    const keep = new Map();
+  #collapseDuplicates(): boolean {
+    const keep = new Map<string, VersionEntry>();
     for (const h of this.data.history) {
       const earlier = keep.get(h.hash);
       if (earlier) h.git ??= earlier.git;
@@ -162,7 +217,7 @@ export class DocStore {
    * another process's change can be lost. A lock would close it and is not worth its cost: the
    * platform has no exclusive create, and a lock left by a crash needs a timeout of its own.
    */
-  #update(change) {
+  #update<T>(change: (data: Index) => T): Promise<T> {
     const run = async () => {
       const { raw, data } = await this.#load();
       // Folded into what is written below, so the poll would find nothing left to compare. Said
@@ -195,7 +250,7 @@ export class DocStore {
    * is read only when its modification time has moved, and only believed when its text differs
    * from what this process last read or wrote.
    */
-  refresh() {
+  refresh(): Promise<boolean> {
     const run = async () => {
       const m = await this.platform.modified(this.file);
       if (m !== this.#mtime) {
@@ -218,11 +273,11 @@ export class DocStore {
     return next;
   }
 
-  objectPath(hash) {
+  objectPath(hash: string): string {
     return this.platform.join(this.objects, hash + '.md');
   }
 
-  read(hash) {
+  read(hash: string | null): Promise<string | null> {
     if (!hash) return Promise.resolve(null);
     return this.platform.readText(this.objectPath(hash));
   }
@@ -235,17 +290,17 @@ export class DocStore {
    * that names nothing. Writing it makes it young again. Half the grace period is the margin,
    * so the two processes' clocks need not agree to the second.
    */
-  async #writeObject(hash, text) {
+  async #writeObject(hash: string, text: string): Promise<void> {
     const dest = this.objectPath(hash);
     const at = await this.platform.modified(dest);
     if (at == null || Date.now() - at > GC_GRACE_MS / 2) await this.platform.writeText(dest, text);
   }
 
-  get latest() {
+  get latest(): VersionEntry | null {
     return this.data.history.at(-1) || null;
   }
 
-  get baseline() {
+  get baseline(): string | null {
     return this.data.baseline;
   }
 
@@ -263,7 +318,7 @@ export class DocStore {
    * and "read" would appear on both of them, and picking either would select
    * both. Undoing an edit is exactly how that happens.
    */
-  async record(text, ts = Date.now()) {
+  async record(text: string, ts = Date.now()): Promise<{ hash: string; added: boolean }> {
     const hash = hashContent(text);
     // The object before the index that names it, never the other way round: an index that names
     // an object nobody wrote is a version that cannot be read, where an object no index names
@@ -276,7 +331,8 @@ export class DocStore {
       let changed = false;
       if (d.history.at(-1)?.hash !== hash) {
         const held = d.history.findIndex((h) => h.hash === hash);
-        const entry = held < 0 ? { hash, size: byteLength(text) } : d.history.splice(held, 1)[0];
+        const entry: VersionEntry =
+          held < 0 ? { hash, size: byteLength(text), ts } : d.history.splice(held, 1)[0];
         // The time a version was last on disk, which for a version that has come
         // back is now: the list is read in time order, and this one is current.
         entry.ts = ts;
@@ -292,7 +348,7 @@ export class DocStore {
     return { hash, added };
   }
 
-  async setBaseline(hash) {
+  async setBaseline(hash: string): Promise<void> {
     // Moving the read mark used to be undoable, and the pointer it replaced was
     // kept for that. It is not information worth a field: the version it named
     // is still in the history, still referenced by gc(), and clicking its row
@@ -320,12 +376,12 @@ export class DocStore {
    * correction — and because the browser tab and the app's webview are separate
    * origins, which would have given one file two memories.
    */
-  get compare() {
+  get compare(): string | null {
     return this.data.compare ?? null;
   }
 
   /** Remember a comparison. A no-op, and no write, when it is the one already held. */
-  async setCompare(id) {
+  async setCompare(id: string | null | undefined): Promise<boolean> {
     return this.#update((d) => {
       if ((d.compare ?? null) === (id ?? null)) return false;
       d.compare = id ?? null;
@@ -341,7 +397,7 @@ export class DocStore {
    * change off says only "I have seen that bit" — the file has still moved, and
    * the rest of what moved is still worth marking.
    */
-  get acked() {
+  get acked(): string[] {
     return this.ackRecords.map((a) => a.key);
   }
 
@@ -357,7 +413,7 @@ export class DocStore {
    * read as a record with neither, which behaves exactly as it always did,
    * rather than being dropped: losing every mark on upgrade is not a migration.
    */
-  get ackRecords() {
+  get ackRecords(): AckRecord[] {
     if (!Array.isArray(this.data.acked)) return [];
     return this.data.acked
       .map((a) => (typeof a === 'string' ? { key: a } : a))
@@ -371,7 +427,11 @@ export class DocStore {
    * `ackRecords`). A version this history does not hold is not recorded: it
    * could not be read back, and it is about to be used to name a file.
    */
-  async setAcked(key, on, { at, block } = {}) {
+  async setAcked(
+    key: string,
+    on: boolean,
+    { at, block }: Pick<AckOptions, 'at' | 'block'> = {},
+  ): Promise<string[]> {
     // Re-marking moves a key to the end rather than leaving it where it was, so
     // the oldest mark is always the one the cap drops.
     await this.#update((d) => {
@@ -386,7 +446,7 @@ export class DocStore {
   }
 
   /** Bring every checked change back. Nothing else here is undone in bulk. */
-  async clearAcked() {
+  async clearAcked(): Promise<string[]> {
     await this.#update((d) => {
       if (!this.ackRecords.length) return false;
       d.acked = [];
@@ -395,7 +455,7 @@ export class DocStore {
   }
 
   /** History newest-first, excluding the current version. */
-  snapshots() {
+  snapshots(): VersionEntry[] {
     return this.data.history.slice().reverse();
   }
 
@@ -404,7 +464,7 @@ export class DocStore {
    * committed to while the reader is not looking at it, so the import is not a
    * one-off — this is what lets a later open read only what is new.
    */
-  get gitSeen() {
+  get gitSeen(): Set<string> {
     return new Set(this.data.gitSeen ?? []);
   }
 
@@ -417,12 +477,12 @@ export class DocStore {
    * stands: this adds versions to compare against, it does not decide that you
    * have or have not read any of them. Returns how many were new.
    */
-  async importGit(versions) {
+  async importGit(versions: GitVersion[]): Promise<number> {
     if (!versions.length) return 0;
 
     // Objects first, for the reason `record` gives. Every one is looked for rather than only
     // the ones this process does not list: another process may have forgotten a version since.
-    const entries = [];
+    const entries: VersionEntry[] = [];
     for (const v of versions) {
       const hash = hashContent(v.text);
       await this.#writeObject(hash, v.text);
@@ -431,8 +491,8 @@ export class DocStore {
 
     let count = 0;
     await this.#update((d) => {
-      const byHash = new Map(d.history.map((h) => [h.hash, h]));
-      const fresh = [];
+      const byHash = new Map<string, VersionEntry>(d.history.map((h) => [h.hash, h]));
+      const fresh: VersionEntry[] = [];
       for (const e of entries) {
         const seen = byHash.get(e.hash);
         if (seen) {
@@ -465,7 +525,7 @@ export class DocStore {
    * never dropped: it is what everything else is compared against. Returns how
    * many versions were forgotten.
    */
-  async prune(upto) {
+  async prune(upto: string): Promise<number> {
     let dropped = 0;
     await this.#update((d) => {
       const idx = d.history.findIndex((h) => h.hash === upto);
@@ -500,19 +560,19 @@ export class DocStore {
    * object and then the index, and a sweep in another process can run in between; without this
    * the only protection was that one window collected and the rest did not.
    */
-  static async gc(platform) {
+  static async gc(platform: Platform): Promise<void> {
     const root = await storeRoot(platform);
     const objects = platform.join(root, 'objects');
     const docs = platform.join(root, 'docs');
 
-    let indexes;
+    let indexes: string[];
     try {
       indexes = await platform.readDir(docs);
     } catch {
       return; // store not created yet
     }
 
-    const referenced = new Set();
+    const referenced = new Set<string>();
     for (const name of indexes) {
       if (!name.endsWith('.json')) continue;
       try {
