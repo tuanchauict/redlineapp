@@ -244,8 +244,8 @@ and which are gitignored, and Mermaid's `vendor/mermaid/mermaid.esm.min.mjs`, wh
 staging copies from `node_modules`. None of them exists in a fresh checkout, and a type check
 of esbuild's output would not check what the page is held to anyway. So `types/vendor/` holds
 a one-line shim for each, and `rootDirs: ["public", "types"]` lays that directory over `public/`
-so that `./vendor/render.js` finds `types/vendor/render.d.ts`, and `../vendor/render.js`, written
-in `public/app/main.ts`, does too, as does `../../vendor/render.js` from `public/app/vm/`. The app project sets the same `rootDirs` and reads the same
+so that `./vendor/render.js` finds `types/vendor/render.d.ts`, and `../../vendor/render.js`,
+written in `public/app/vm/`, does too. The app project sets the same `rootDirs` and reads the same
 shims.
 Each shim is an `export *` from the source its bundle is built from: `render` is
 `src/core/document.ts`, `sanitize` is `src/page/sanitize.ts`, `backend-tauri` is

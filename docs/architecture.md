@@ -166,7 +166,7 @@ Some things the reader does live on an element and not in the payload — a `<de
 being open is the one there is today, and a task-list checkbox would be the next. A
 rebuild would undo them, so `paint` reads them off the old nodes before `innerHTML` is
 replaced and writes them onto the new ones straight after (`readKept` / `writeKept` in
-`public/app/main.ts`), before anything is measured or drawn. What it carries is the `kept`
+`public/app/vm/core.ts`), before anything is measured or drawn. What it carries is the `kept`
 table, and a new kind of state is one more entry in it: a selector, a name, how to read
 the state and how to put it back.
 
@@ -319,7 +319,7 @@ The fallback travels inside the token because it comes from **Compare against** 
 the settings sheet, which the page holds and the reader does not. A `last:` request
 is not itself a choice, so it is not stored; nor is `none`, which names no version.
 `src/hosts/node/server.ts` answers a request with no `baseline` param as `last:read`, and
-`public/app/main.ts` sends `keptBaseline()` wherever it shows a document and
+the page sends `keptBaseline()` wherever it shows a document and
 `defaultBaseline()` only when the setting changes.
 
 ## The store
@@ -410,9 +410,8 @@ into lines, and diff the lines.
 
 ## The client
 
-The page's source is the directory `public/app/`: `main.ts`, ~1.1k lines in commented
-sections (painting, the sidebars, tabs, files, the watch),
-and the modules that have left it so far: `state.ts`, `dom.ts` (`$`, `#doc` and the pane),
+The page's source is the directory `public/app/`: `main.ts`, ~200 lines that mount the
+components, hand the keys and the shell what they do, and boot, and the modules that do the rest: `state.ts`, `dom.ts` (`$`, `#doc` and the pane),
 `backend.ts` (the backend, built once, which every module that asks something of it imports),
 `ui/History.tsx`, `ui/Contents.tsx`, `ui/Ruler.tsx`, `ui/Files.tsx`, `ui/TabMenu.tsx`,
 `ui/Name.tsx`, `ui/Changes.tsx`, `ui/TabLabel.tsx` (the name-over-directory label, and
@@ -424,7 +423,7 @@ and the modules that have left it so far: `state.ts`, `dom.ts` (`$`, `#doc` and 
 | `layout/widths.ts` | The two sidebar widths: each edge's grip, and `fitWidths`, the clamp the pair needs together. Wires its grips as it is imported. |
 | `layout/toc-height.ts` | Where History starts under Contents: the grip, and `tocHMax`. Wires itself the same way. |
 | `layout/keys.ts` | The letters, the keys that scroll the pane from wherever focus is, and the ⌘ shortcuts a browser tab catches itself. `bindKeys` takes what each does. |
-| `layout/native.ts` | `native` (`window.mdNative`, absent in a browser tab), `firstTabShown`, and `bindNative`, which hands the shell's menu commands and tab list to what `main.ts` does with them. |
+| `layout/native.ts` | `native` (`window.mdNative`, absent in a browser tab), `firstTabShown`, and `bindNative`, which hands the shell's menu commands and tab list to the viewmodels' functions, passed in by `main.ts`. |
 | `layout/fonts.ts` | The typefaces Settings offers: the host's list, or the measured catalogue. |
 
 A `layout/` module imports `state.ts`, `dom.ts` and its siblings, never `main.ts`: what a key or
@@ -439,7 +438,7 @@ import line for each module that wrote one, and the suite counts files, not line
 
 ### Viewmodels
 
-`main.ts` is being taken apart a feature at a time into **viewmodels**, `vm/<feature>.ts`. A
+What `main.ts` did is now **viewmodels**, `vm/<feature>.ts`, one per feature. A
 viewmodel owns its feature: the signals that say what it shows, and the functions that do it.
 A component in `ui/` reads its signals and calls its functions; `main.ts` imports it and wires
 it in; and it never imports either of them back. Where a feature works on the rendered
@@ -449,22 +448,30 @@ what the chrome shows of it is a signal.
 | Module | What it is |
 | --- | --- |
 | `vm/find.ts` | Find in the document: `findOpen` and `findCount`, which `ui/chrome.ts` keeps the bar to, the `<mark>`s spliced into `#doc`, `openFind`/`closeFind`, and `refind`, which `paint` calls when it has rebuilt the article under an open bar. Wires the bar's controls as it is imported. |
-| `vm/peek.ts` | The link peek: where the link under the pointer goes, filled and measured at once, so it stays imperative. `hidePeek` for `paint`; `linkTarget` and `HAS_SCHEME` for the link click in `main.ts`. Wires its own listeners. |
+| `vm/peek.ts` | The link peek: where the link under the pointer goes, filled and measured at once, so it stays imperative. `hidePeek` for `paint`; `linkTarget` and `HAS_SCHEME` for the link click in `vm/files.ts`. Wires its own listeners. |
 | `vm/notice.ts` | `notice` and `notify`: one line, said for six seconds. `#notice` stays markup, because it is a live region, and `ui/chrome.ts` keeps it to the signal. |
 | `vm/diagrams.ts` | Mermaid, loaded on first use, and PlantUML, asked of the backend: `drawDiagrams` after `paint`, and `retheme`, which says whether there is a Mermaid to give a new scheme and so whether to repaint. Draws a "before"'s diagrams when it opens. |
 | `vm/changes.ts` | The changes on the page: `changeNodes`, the stops `n`/`p` walk; `paintCount` into `tally`; the ruler, measured by `paintRuler` into `rulerBands` with `rulerCurrent` for the one under the pointer or last landed on; `goToChange` and `goToNode`; and `keepAnchored`. Hears the pointer over a change and watches the article resize. `ui/Changes.tsx` and `ui/Ruler.tsx` read its signals; `main.ts` mounts the ruler with `goToNode` and `hoverMarks`. |
-| `vm/document.ts` | The document as the viewmodels reach it: `load`, `adopt`, `paint` and `rerender`. For now a port — the four are still `main.ts`'s, handed in by `bindDocument` before anything calls them — so that a viewmodel can redraw the document without importing the module that imports it. |
-| `vm/settings.ts` | `settings` (live for an importer, assigned only here), `DEFAULT_SETTINGS`, the baselines a setting picks, `applyScheme` and the `darkMode` listener, `writeSettings`, `stepSize`, `openPrefs` and `initSettings`. Applying them leaves `shownSettings` and `docMeasure` for the sheet. Applies everything but the marks, which are the view's. Wires `prefsBtn` and the menu's Settings…. |
+| `vm/core.ts` | The document: `load` (with the baseline, the payload's arrival and `noteOpen`, which keeps the web app's open files), `adopt`, `paint` — sanitize, write `#doc`, put back what `kept` reads off the old nodes, then Contents, check-offs, the count, the ruler, find and diagrams — `rerender`, `closeDocument`, and the live reload (`connect`, `stopWatch`, the `live` dot). Holds `openFiles` and the document id. Binds `vm/document.ts` as it is imported. |
+| `vm/document.ts` | The document as history, the view and settings reach it: `load`, `adopt`, `paint` and `rerender`, a port that `vm/core.ts` binds with `bindDocument`. `paint` draws History and the marks, so those three importing the core would be a loop; they import this instead. |
+| `vm/files.ts` | Which file is on screen, and the ways to another: `openFile`, which stands the watch down across the swap; `selectTab`/`closeTab`, which go to the shell in a window and to `switchTo`/`closeOpen` in a tab, with `scrollMemory` per id; the click on a link that leaves the document (`followLink` in a tab); and `reopened`, after a grant. Hands the welcome its two doors that open a file (`bindWelcome`). |
+| `vm/welcome.ts` | The web app's welcome as the page holds it: `welcome`, the doors `backend.welcome` returns, `showWelcome`/`hideWelcome`/`backToDocument`, `pendingLink` (the file a refused open was for; `setPendingLink` assigns it) and `welcomeAsks`. Its doors that open a file are `vm/files.ts`'s, bound late, because the core shows the welcome and the files import the core. |
+| `vm/contents.ts` | Contents: `paintToc`, which pairs each heading with its node after the document is written, `spyToc` on the scroll, `scrollToNode`, and the in-page `#` links. |
+| `vm/sidebars.ts` | The two columns: `setSide`/`setTocSide`, `leftColumn` (whether there is a left column at all), `clearSidebars`, the section disclosures under `redline:shut`, and the chevron's tab menu (`toggleTabMenu`, `closeTabMenu`). |
+| `vm/about.ts` | Check for Updates: `checkUpdate` into `update`, and `getUpdate`, which opens the download or copies the Homebrew command. Hears the menu's item. |
+| `vm/settings.ts` | `settings` (live for an importer, assigned only here), `DEFAULT_SETTINGS`, the baselines a setting picks, `applyScheme` and the `darkMode` listener, `writeSettings`, `stepSize`, `openPrefs`, `chooseBaseline` (**Compare against**, which reloads) and `initSettings`. Applying them leaves `shownSettings` and `docMeasure` for the sheet. Applies everything but the marks, which are the view's. Wires `prefsBtn` and the menu's Settings…. |
 | `vm/view.ts` | Rendered or raw, and the marks on or off: `toggleView`, which keeps the line of the file at the top across the switch; `setMarks`, the one switch for the marks, and `applyMarks`. Writes the marks to `vm/settings.ts` and hears them back through an effect on `shownSettings`, so Settings never calls in here. Wires `#view`. |
 | `vm/history.ts` | Versions: their names (`versionName`, `isBaseline`), `pickVersion`, reading one by itself (`setSolo`, and `soloName`, a `computed` the bar's solo tag reads), marking read, the version menu, and forgetting (`prune`). `paintHistory` only hands `ui/History.tsx` the payload; the heading's count and buttons are effects in `ui/chrome.ts`. |
-| `vm/acks.ts` | Check-offs over `state.acked`: `applyAcks` writes `chg-ok` and the tag's wording onto the blocks, `setAck`/`clearAcks` take a change at once and then the backend's word for the list, and `tapCheck` is `c`. Imports `changes.ts` to repaint the count and the ruler; nothing imports it back but `main.ts`. Wires the click on a tag. |
+| `vm/acks.ts` | Check-offs over `state.acked`: `applyAcks` writes `chg-ok` and the tag's wording onto the blocks, `setAck`/`clearAcks` take a change at once and then the backend's word for the list, and `tapCheck` is `c`. Imports `changes.ts` to repaint the count and the ruler. Wires the click on a tag. |
 
 Imports point one way, and the suite checks it: a viewmodel reaches `state.ts`, `dom.ts`,
-`backend.ts`, `layout/native.ts` (the shell, which Settings tells), the vendored renderer
-and its siblings, never `main.ts` or `ui/`, and the
-viewmodels import one another without a cycle: history imports the view, the view imports
-settings, and settings imports neither. What each needs of the document comes through
-`vm/document.ts`, not `main.ts`. The circles there were — `paint` into History and the solo tag,
+`backend.ts`, `layout/native.ts` (the shell, which Settings tells), `layout/widths.ts` (which
+the sidebars apply), the vendored renderer and its siblings, never `main.ts` or `ui/`, and the
+viewmodels import one another without a cycle: files imports the core, the core imports
+history, history imports the view, the view imports settings, and settings imports neither.
+History, the view and settings reach the document through `vm/document.ts`, which the core
+binds. `main.ts` need not import every viewmodel, but each must be reachable from its imports,
+or it would never run; the suite walks the graph to check. The circles there were — `paint` into History and the solo tag,
 `setMarks` into Settings, Settings back into the marks — are broken by becoming signals the
 chrome reacts to, not calls `paint` makes.
 
@@ -478,7 +485,7 @@ that code. Preact and `@preact/signals` are in the page for that, and the chrome
 a panel at a time. History was the first: `ui/History.tsx` draws the version list from signals
 and re-renders when one changes, and `paintHistory` in `vm/history.ts` only hands it the payload.
 Contents is the second, and shows where the line between the two halves falls. `paintToc` stays
-in `main.ts`, because pairing each heading with its node has to happen after the document is
+imperative, in `vm/contents.ts`, because pairing each heading with its node has to happen after the document is
 written and before anything measures it, and it leaves the pairs in `state.toc`; the scroll spy
 only sets `state.tocAt`; `ui/Contents.tsx` draws the rows, lights the one at `tocAt` and scrolls
 it into view. The change ruler is split the same way: `paintRuler` (in `vm/changes.ts`) measures
@@ -533,12 +540,12 @@ Settings and the welcome are hidden at first paint, so both are components whole
 - **`ui/Welcome.tsx`** draws `#welcome`'s children from `welcomeView`. The doors behind it
   stay in `src/hosts/web/welcome.ts`, which is in the backend's bundle and not the page's,
   so a signal cannot cross between them: it hands each new view to the page's `show` hook,
-  and `main.ts` writes it into the signal. See [The web app's reader](#the-web-apps-reader) below.
+  and `vm/welcome.ts` writes it into the signal. See [The web app's reader](#the-web-apps-reader) below.
 
 What is still those `classList`, `hidden =` and `replaceChildren` calls over small builders is
 the version menu. A component imports `state.ts` and never
-`main.ts`, which is what lets a panel come out of it without a cycle: what a row *does* comes
-in as callbacks, from `main.ts`.
+`main.ts` or a viewmodel, which is what lets a panel come out of it without a cycle: what a row
+*does* comes in as callbacks, which `main.ts` takes from the viewmodels and passes.
 
 - **`state`**, in `state.ts`, holds the payload, the view, the baseline, the checked keys and
   the headings paired with their nodes. It reads and writes as the plain object it always was (`state.diff =
@@ -560,7 +567,7 @@ in as callbacks, from `main.ts`.
   key would undo each other. Whether there is a left column at all is decided there as
   well: `html.native` from `?native`, `html.web` from the web app's `host.js`, and with
   neither — a CLI tab — `redline:side` is not honoured, the `#side` button is not
-  drawn, and ⌘B does nothing (`leftColumn` in `main.ts`). The two sidebar
+  drawn, and ⌘B does nothing (`leftColumn` in `vm/sidebars.ts`). The two sidebar
   widths are clamped against each other so the document keeps 320px whatever they
   were dragged to, and that clamp is therefore in two places: `fitWidths` in
   `layout/widths.ts` and the same arithmetic in the inline script (`tocHMax`, in
@@ -692,7 +699,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
   open files gone back to, `open` on a lapsed root, whose first read is refused — is not the
   document on screen, and the button must ask for the file being opened. The page then stays on
   what it was showing, shows the welcome with a way back, and opens that file again after the
-  grant (`pendingLink` in `main.ts`), rather than the document it was reading.
+  grant (`pendingLink` in `vm/welcome.ts`), rather than the document it was reading.
 - **Handles go to the worker as they are** (`addRoot`, over `postMessage`), and only the worker
   writes the `roots` store, so two tabs picking one file at once are one root
   (`isSameEntry`). The page reads the stores, to hold the handle it will ask about.
@@ -705,7 +712,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
   `{ canFile, busy, status, reopen, back }` — through the page's `show` hook; and
   `ui/Welcome.tsx`, which `main.ts` mounts into `<section id="welcome">` and which draws that
   view, a file name going in as text because it is the user's. The page owns *whether* it shows
-  (`showWelcome` and `hideWelcome` in `main.ts`: they hide `#doc` and set `html.welcoming`, and
+  (`showWelcome` and `hideWelcome` in `vm/welcome.ts`: they hide `#doc` and set `html.welcoming`, and
   `showing` tells the doors). It shows when `doc` is `NoDocument` (and then drops `?id=` from the
   address, and empties Contents and History, which are outside `#doc` and would go on listing a
   file the reader has let go of) or `NeedsPermission` (and offers **Reopen** *name*: `reopen()`,
@@ -753,7 +760,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
 - **The left column is the open files, kept by the page.** A desktop window's are its tabs,
   which the shell keeps and pushes over `md:tabs`; a browser tab has no shell, so
   `backend.openFiles` (`open-files.ts`) keeps the list, `{ id, path, name, dir, label }` in the
-  order opened, and `main.ts` puts it in `state.tabs` for `ui/Files.tsx` to draw with the
+  order opened, and `vm/core.ts` puts it in `state.tabs` for `ui/Files.tsx` to draw with the
   same rows. Every way a document arrives — a pick, a drop, a link, a reload, the one a bare visit
   resumes — ends in `load()`, which calls `noteOpen()`: the document joins the end of the list,
   or is relabelled in place, and the column opens by itself at the second file while
@@ -772,7 +779,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
     to seed a tab that has none of its own. Both are written on every change, and either
     refusing is not an error — the list then lasts as long as the page. It is not a
     preference and not in the head script: nothing about the layout depends on it, and the
-    rows are drawn by `main.ts` before the first load, so a file that has to be asked for
+    rows are drawn by `vm/core.ts` before the first load, so a file that has to be asked for
     again does not hold the rest of them up.
   - **A tab that closed everything is not handed a file back.** A bare address is given the
     document a tab last showed (`last`), which after closing every file is the one just
@@ -941,7 +948,7 @@ run git and write the store. So there are three layers, and each one assumes the
 one before it has failed.
 
 **Sanitized at insertion.** `src/page/sanitize.ts` runs DOMPurify over the document —
-rendered or raw — as `main.ts` assigns it to the pane, and over each PlantUML SVG
+rendered or raw — as `paint` (`vm/core.ts`) assigns it to the pane, and over each PlantUML SVG
 as it replaces its fence. That happens in the page, after the diff, not in
 `render.js`: the renderer also runs in Node, where DOMPurify has no DOM and gives
 its input back unchanged. And one call on the way in covers the inline word marks
