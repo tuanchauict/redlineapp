@@ -8,19 +8,13 @@ import {
 } from './vendor/render.js';
 import { sanitizeDocument, sanitizeSvg } from './vendor/sanitize.js';
 import { createBackend } from './backend.js';
+// Nothing here names the type: the import is for native.ts's own `declare global`, which types
+// `window.mdNative` from what `installNative` leaves, so the page's calls on the shell are
+// checked against what the Tauri host provides. tsc drops it from the emitted file.
 import type { MdNative } from '../src/hosts/tauri/native.js';
 
-// The desktop build's half of the shell, typed from what `installNative` leaves, so a call the
-// page makes on it is checked against what the Tauri host provides. native.ts says the same of
-// `Window`; the page program sees that only through this import, so it is said here too.
-declare global {
-  interface Window {
-    mdNative?: MdNative;
-  }
-}
-
 // Every id is in index.html, so the element is there, and the caller is the one that knows
-// which kind it is: `$<HTMLInputElement>('font')`.
+// which kind it is: `$<HTMLInputElement>('findInput')`.
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 const doc = $('doc');
 // The scroll area is the document pane, not the page — see `main` in the CSS.
@@ -1419,6 +1413,7 @@ doc.addEventListener('click', (e) => {
  * files it has open, so the one you came from is still a click away.
  */
 doc.addEventListener('click', (e) => {
+  // The `?.` stays: a click target need not be an Element (the document is not one).
   const a = (e.target as Element).closest?.('a[href]');
   const href = a?.getAttribute('href')?.trim();
   if (!href || href.startsWith('#')) return; // in-page jumps are handled above
@@ -1951,6 +1946,7 @@ $('verMenu').addEventListener('keydown', (e) => {
   // command to the page behind it — `m` would mark the newest version read.
   e.stopPropagation();
   const items = [...$('verMenu').querySelectorAll<HTMLElement>('button:not(:disabled)')];
+  // Safe as a cast because `indexOf` only compares identity: anything else is simply -1.
   const at = items.indexOf(document.activeElement as HTMLElement);
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
@@ -2019,6 +2015,7 @@ $('histClear').addEventListener('click', () => {
 // And it previews the same way Forget in a row's menu does, from the row it
 // would cut at — everything but the version on disk. A button under the list
 // says what it acts on far less plainly than the list going dim does.
+// Pairs, not arrays of either: without the cast `when` is `string | boolean` to addEventListener.
 for (const [on, when] of [
   [true, 'pointerenter'],
   [false, 'pointerleave'],
@@ -2863,7 +2860,10 @@ function scrollByKey(e) {
 document.addEventListener('keydown', (e) => {
   // Settings is modal: the letters belong to it while it is up.
   if ($<HTMLDialogElement>('prefs').open) return;
-  if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as Element).tagName)) return;
+  if (
+    e.metaKey || e.ctrlKey || e.altKey ||
+    /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as Element).tagName)
+  ) return;
   if (scrollByKey(e)) return e.preventDefault();
   const key = e.key.toLowerCase();
   if (key === 'r') toggleView();

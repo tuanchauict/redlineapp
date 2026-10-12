@@ -333,6 +333,14 @@ assert.deepStrictEqual(
   ['ack', 'closest', 'count', 'doc', 'more', 'x'],
   'no innerHTML the page does not know is safe',
 );
+// The capture above sees `x.innerHTML =` and `x(…).innerHTML =`, but not the forms TypeScript
+// brings in -- `$<T>('x').innerHTML =`, `(el as T).innerHTML =` -- which it would pass unseen.
+// So every assignment in the source has to be one it captured.
+assert.strictEqual(
+  [...appJs.matchAll(/([\w$]+)(?:\([^)]*\))?\.innerHTML =/g)].length,
+  appJs.match(/\.innerHTML =/g)?.length ?? 0,
+  'every innerHTML assignment is one the list above can see',
+);
 const sanitizeJs = fs.readFileSync(rootUrl('src/page/sanitize.ts'), 'utf8');
 assert.match(sanitizeJs, /FORBID_TAGS: \['style', 'form'\]/,
   'a document cannot restyle the window or hide its own marks');
