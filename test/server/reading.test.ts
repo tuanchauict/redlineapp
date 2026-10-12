@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import assert from 'node:assert';
 import { rootUrl } from '../../src/hosts/node/root.js';
 import { createServer } from '../../src/hosts/node/server.js';
-import { createMarkdown } from '../../src/core/render.js';
+import { createMarkdown, outline, slugify } from '../../src/core/render.js';
 import { renderDiff } from '../../src/core/diff.js';
 import { renderDocument, titleOf as docTitleOf } from '../../src/core/document.js';
 import { clientFor, mdPage, pageJs, portOf, scratch, type Reply } from '../support.js';
@@ -200,7 +200,6 @@ test('contents list + heading anchors', async () => {
     assert.match(srcLines[h.line], new RegExp(`^#+\\s+${h.text}$`), `line ${h.line} is "${h.text}"`);
   }
 
-  const { outline, slugify } = await import('../../src/core/render.js');
   const mdToc = createMarkdown();
   assert.strictEqual(slugify('Why *this*, and not That?'), 'why-this-and-not-that', 'GitHub-style slug');
   // Two headings with the same words must not share an id, or the second link
