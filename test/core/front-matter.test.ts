@@ -265,5 +265,6 @@ test('a header field that is a list is drawn as one, escaped, and an empty one a
     'a flow sequence is a list, its items text and not markup');
   assert.match(html, /<dt>steps<\/dt><dd><ul><li>one<\/li><li>two<\/li><\/ul><\/dd>/,
     'and so is a block one');
-  assert.match(html, /<dt>none<\/dt><dd><\/dd>/, 'an empty list is an empty value, not an empty <ul>');
+  assert.match(html, /<dt>none<\/dt><dd><\/dd>/,
+    'an empty list is an empty value, not an empty <ul>');
 });

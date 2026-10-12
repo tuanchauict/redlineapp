@@ -17,7 +17,6 @@ const DOC = {
   text: '# Notes\n\n<details><summary>More</summary>\n\nInside.\n\n</details>\n\nA line.\n',
   base: null,
 };
-const tick = () => new Promise((r) => setTimeout(r, 0));
 
 async function coreIn({ welcome = null as object | null, welcomeAsks = null as string | null,
   search = '', openFiles = undefined as any } = {}) {

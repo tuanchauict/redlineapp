@@ -41,14 +41,31 @@ function run(args: string[]): Promise<{ code: number | null; out: string; err: s
 }
 const portOf = (out: string) => Number(out.match(/127\.0\.0\.1:(\d+)\//)?.[1]);
 
-/** A port that is taken, and held for the length of `fn`. */
+const bind = (port: number) =>
+  new Promise<net.Server | null>((done) => {
+    const s = net.createServer();
+    s.once('error', () => done(null));
+    s.listen(port, '127.0.0.1', () => done(s));
+  });
+
+/**
+ * A port that is taken, held for the length of `fn`, with the one after it free. Picked below the
+ * ephemeral range: a port the OS handed out is followed by the next it will hand out, to whichever
+ * of the suite's servers asks first, and the step past would land somewhere else.
+ */
 async function holding<T>(fn: (port: number) => Promise<T>): Promise<T> {
-  const s = net.createServer();
-  await new Promise<void>((r) => s.listen(0, '127.0.0.1', r));
-  try {
-    return await fn((s.address() as net.AddressInfo).port);
-  } finally {
-    s.close();
+  for (;;) {
+    const port = 20000 + Math.floor(Math.random() * 10000);
+    const next = await bind(port + 1);
+    if (!next) continue;
+    await new Promise((r) => next.close(r));
+    const held = await bind(port);
+    if (!held) continue;
+    try {
+      return await fn(port);
+    } finally {
+      held.close();
+    }
   }
 }
 

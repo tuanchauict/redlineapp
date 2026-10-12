@@ -278,7 +278,16 @@ const kebab = (s: string) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 // parts. A combinator is not one of them: nothing the page asks of a fake needs one but
 // `:scope > x`, which `querySelectorAll` takes itself, and anything else throws rather than
 // matching wrong.
-const PART = /^(?:([a-z][\w-]*|\*)|#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:=["']?([^"'\]]*)["']?)?\]|:not\(([^()]*)\)|:(disabled))/i;
+// A tag, an id, a class, an attribute with or without a value, a :not(), :disabled.
+const PART = new RegExp(
+  [
+    String.raw`^(?:([a-z][\w-]*|\*)`,
+    String.raw`|#([\w-]+)|\.([\w-]+)`,
+    String.raw`|\[([\w-]+)(?:=["']?([^"'\]]*)["']?)?\]`,
+    String.raw`|:not\(([^()]*)\)|:(disabled))`,
+  ].join(''),
+  'i',
+);
 function matchesCompound(el, sel: string): boolean {
   let rest = sel.trim();
   while (rest) {
@@ -389,7 +398,9 @@ export function fakeWindow({
     }
     querySelectorAll(sel: string) {
       const scoped = sel.match(/^:scope\s*>\s*(.+)$/);
-      if (scoped) return this.childNodes.filter((c) => c instanceof Element && c.matches(scoped[1]));
+      if (scoped) {
+        return this.childNodes.filter((c) => c instanceof Element && c.matches(scoped[1]));
+      }
       return [...this.elements()].filter((el) => el.matches(sel));
     }
     querySelector(sel: string) {
@@ -564,7 +575,17 @@ export function fakeWindow({
   function parse(html: string) {
     const top = new Element('#fragment');
     let at: Node = top;
-    const tokens = /<!--[\s\S]*?-->|<![^>]*>|<script\b[^>]*>[\s\S]*?<\/script>|<(\/?)([a-zA-Z][\w-]*)((?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|[^<]+|</g;
+    // A comment or a doctype, a script whole, a tag with its attributes, a run of text, or a
+    // stray `<`.
+    const tokens = new RegExp(
+      [
+        String.raw`<!--[\s\S]*?-->|<![^>]*>|<script\b[^>]*>[\s\S]*?<\/script>`,
+        String.raw`|<(\/?)([a-zA-Z][\w-]*)`,
+        String.raw`((?:\s+[^\s=>/]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>`,
+        String.raw`|[^<]+|<`,
+      ].join(''),
+      'g',
+    );
     for (const [tok, closing, tag, attrs, self] of html.matchAll(tokens)) {
       if (!tag) {
         if (!tok.startsWith('<!') && !/^<script/i.test(tok)) at.appendChild(new Text(unesc(tok)));
@@ -601,7 +622,8 @@ export function fakeWindow({
     title = '';
     constructor() {
       super();
-      const root = parse(html).find((n) => n instanceof Element && n.localName === 'html') as Element;
+      const root = parse(html)
+        .find((n) => n instanceof Element && n.localName === 'html') as Element;
       this.documentElement = root ?? new Element('html');
       this.appendChild(this.documentElement);
       this.body = this.documentElement.querySelector('body') ?? new Element('body');

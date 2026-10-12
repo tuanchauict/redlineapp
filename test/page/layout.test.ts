@@ -283,12 +283,15 @@ test('the head script and layout/ arrive at the same widths and height', async (
               'redline:side': side, 'redline:toc': toc,
               'redline:sidew': sidew, 'redline:tocw': tocw, 'redline:toch': toch,
             }).filter(([, v]) => v !== null));
-            const win = fakeWindow({ search: host === 'native' ? '?native' : '', width, height, store });
+            const search = host === 'native' ? '?native' : '';
+            const win = fakeWindow({ search, width, height, store });
             if (host === 'web') Object.assign(win, { __REDLINE_WEB: true });
             runHeadScript(win);
             const head = vars(win);
-            const label = `${host} ${width}x${height}, ${JSON.stringify(Object.fromEntries(store))}`;
-            assert.ok(head.side && head.toc && head.tocH, `${label}: the head script sets all three`);
+            const kept = JSON.stringify(Object.fromEntries(store));
+            const label = `${host} ${width}x${height}, ${kept}`;
+            assert.ok(head.side && head.toc && head.tocH,
+              `${label}: the head script sets all three`);
             await loadPage(['layout/widths', 'layout/toc-height'], { win });
             assert.deepStrictEqual(vars(win), head, `${label}: and layout/ agrees with it`);
             cases++;

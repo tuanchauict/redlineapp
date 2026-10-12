@@ -151,7 +151,8 @@ test('History says which row is compared against, and a pick changes it', async 
 
   h.state.pruneAsk = 'a';
   h.pickVersion(ROWS[0]);
-  assert.deepStrictEqual(plain(h.view.setMarks.calls), [[false]], 'the newest row puts the marks away');
+  assert.deepStrictEqual(plain(h.view.setMarks.calls), [[false]],
+    'the newest row puts the marks away');
   assert.strictEqual(h.core.load.calls.length, 0, 'and costs no load');
   assert.strictEqual(h.state.pruneAsk, null, 'and a pick answers a question left open');
 
@@ -220,7 +221,8 @@ test('a row\'s menu: what it offers, where it opens, the keys, and forgetting', 
   h.tabMenuAt.value = 3;
   h.openVerMenu(row, ROWS[1], 1, { from: null, keyboard: true, x: 700, y: 560 });
   assert.strictEqual(h.tabMenuAt.value, null, 'it closes the chevron\'s list');
-  assert.deepStrictEqual(plain(items()), [['Mark as read', true], ['Forget this version…', false]],
+  assert.deepStrictEqual(plain(items()),
+    [['Mark as read', true], ['Forget this version…', false]],
     'the row already marked says so, and one version is "this version"');
   assert.deepStrictEqual([menu.style.left, menu.style.top], ['500px', '480px'],
     'at the pointer, turned left and up where it would hang off the window');
@@ -239,9 +241,10 @@ test('a row\'s menu: what it offers, where it opens, the keys, and forgetting', 
   const page = spy();
   h.win.document.addEventListener('keydown', page);
   key('ArrowDown');
-  assert.strictEqual(h.win.document.activeElement.textContent, 'Mark as read', 'down from none is the first');
+  const focused = () => h.win.document.activeElement.textContent;
+  assert.strictEqual(focused(), 'Mark as read', 'down from none is the first');
   key('ArrowUp');
-  assert.strictEqual(h.win.document.activeElement.textContent, 'Forget this and older…', 'and up wraps');
+  assert.strictEqual(focused(), 'Forget this and older…', 'and up wraps');
   assert.strictEqual(page.calls.length, 0, 'none of it reaches the page behind');
 
   // Forget: pointing at it greys what would go; choosing it asks, in the row.
@@ -282,7 +285,8 @@ test('a row\'s menu: what it offers, where it opens, the keys, and forgetting', 
   // Mark as read from a row: the version named, the marks on.
   menu.querySelector('button').click();
   await new Promise((r) => setTimeout(r, 0));
-  assert.deepStrictEqual(plain(h.backend.markRead.calls), [['a']], 'an older row marks itself read');
+  assert.deepStrictEqual(plain(h.backend.markRead.calls), [['a']],
+    'an older row marks itself read');
   assert.deepStrictEqual(plain(h.view.setMarks.calls), [[true, { redraw: false }]],
     'and turns the marks on, since the point is what came after it');
 });
