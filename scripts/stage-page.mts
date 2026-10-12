@@ -64,6 +64,8 @@ export const HOSTS: Record<HostName, HostSpec> = {
   },
 };
 
+const PAGE_SOURCE = path.join(ROOT, 'public', 'app');
+
 /** Where each thing comes from, keyed by where the page looks for it. */
 const FILES = {
   'vendor/hljs-light.css': require.resolve('highlight.js/styles/github.css'),
@@ -239,8 +241,10 @@ export function stagePage(dest: string, { host }: { host: HostName }): StagedPag
   );
   fs.cpSync(path.join(ROOT, 'public'), out, {
     recursive: true,
-    // The page's sources sit beside what they compile to; only the compiled file ships.
-    filter: (src) => !others.has(path.basename(src)) && !src.endsWith('.ts'),
+    // The page's sources sit beside what they compile to; only the compiled file ships. All of
+    // public/app/ is source -- app.js is its bundle -- and it holds .tsx, which `.ts` misses.
+    filter: (src) =>
+      !others.has(path.basename(src)) && !src.endsWith('.ts') && src !== PAGE_SOURCE,
   });
   for (const [to, from] of Object.entries(FILES)) {
     fs.mkdirSync(path.join(out, path.dirname(to)), { recursive: true });
@@ -267,11 +271,9 @@ export function stagePage(dest: string, { host }: { host: HostName }): StagedPag
   ];
   for (const file of needed) {
     if (!fs.existsSync(path.join(out, file))) {
-      // app.js is compiled, and build:ts is what writes it again after a branch switch deleted
-      // it, which `tsc -b` alone does not. Everything under vendor/ is bundled, and build:web
-      // runs the compile first anyway, so it is the answer for those and would be for both.
-      const fix = file === 'app.js' ? 'build:ts' : 'build:web';
-      throw new Error(`${dest} is missing ${file} — run npm run ${fix} first`);
+      // Every one of them is written by build:web: app.js is bundled from public/app/ like
+      // everything under vendor/ is, and build:web runs the compile first.
+      throw new Error(`${dest} is missing ${file} — run npm run build:web first`);
     }
   }
 

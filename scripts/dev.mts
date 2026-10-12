@@ -111,8 +111,16 @@ if (watching) {
     // Without this a src/ change restages twice: once for the source, once for
     // the bundle the first pass produced. A `.ts` is the source of what tsc is
     // about to emit next to it, so the restage waits for that.
-    if (!src && file && (file.startsWith(`vendor${path.sep}`) || file.endsWith('.ts'))) return;
-    touchedSrc ||= src;
+    //
+    // Except under public/app/, which tsc only checks: build:web bundles it into
+    // public/app.js, so an edit there is a src/ edit, and the app.js it writes
+    // (and its map) is skipped for the reason vendor/ is.
+    const page = !src && file?.startsWith(`app${path.sep}`);
+    if (!src && !page && file) {
+      if (file.startsWith(`vendor${path.sep}`) || file.startsWith('app.js')) return;
+      if (file.endsWith('.ts')) return;
+    }
+    touchedSrc ||= src || page;
     clearTimeout(pending);
     pending = setTimeout(() => {
       const web = touchedSrc;

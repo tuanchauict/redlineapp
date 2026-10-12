@@ -6,7 +6,7 @@
 // page already, holding the store and the file watch directly. In the web app the reader is in
 // a worker, reached over messages (src/hosts/web/backend.ts). This module is
 // the seam between those, so that everything above it -- the whole of
-// app.ts -- is written once, and no host gets its own copy of what marking
+// public/app/ -- is written once, and no host gets its own copy of what marking
 // a document read does to the screen.
 //
 // The shape follows the reader's own surface, because the reader is what sits

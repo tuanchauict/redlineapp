@@ -11,25 +11,27 @@ npm run dev -- sample.md     # the same window, page reloadable without a recomp
 npm run webapp               # the web app, built and served on 127.0.0.1:8081
 ```
 
-For the browser the build is short: `tsc -b` compiles what node runs into `out/` and the page
-beside its sources (a no-op when nothing changed), `prestart` bundles `src/` for the page, and
-`public/` runs as `tsc` left it. The native window is a Rust binary, so it needs a
-toolchain — [rustup](https://rustup.rs) — and the first compile takes a few minutes. After
-that it is seconds.
+For the browser the build is short: `tsc -b` compiles what node runs into `out/` and
+`public/backend.ts` beside its source, and type-checks the rest of the page (a no-op when
+nothing changed); `prestart` bundles `src/` for the page and then the page itself, `public/app/`
+into `public/app.js`; and `public/` runs as those left it. The native window is a Rust
+binary, so it needs a toolchain — [rustup](https://rustup.rs) — and the first compile takes a
+few minutes. After that it is seconds.
 
 ## What is generated
 
 Four commands, and the reason to know about `build:web` and `build:dist` is that the app
 **embeds** its copy of the page at compile time. A change to `public/` that has not been
 through both is a change that is not in the window, which looks exactly like the change
-not working. The copy is the *compiled* page, `public/app.js` and not `app.ts`, so `tsc`
-comes before both, and each of them runs it.
+not working. The copy is the *bundled* page, `public/app.js` and not the `public/app/` it is
+bundled from: `build:web` writes it and `build:dist` stages what it finds, and `tsc` comes
+before both, so each of them runs it.
 
 | | |
 | --- | --- |
-| `npm run build:ts` | `tsc -b`, behind `bootstrap/heal-page-build.mjs`, which has the page rebuilt if a branch switch deleted its `.js` (`tsc -b` alone says "up to date" and writes nothing). It compiles `bin/`, `scripts/`, `src/` and the test into `out/`, which mirrors the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`). Gitignored, and what every npm script runs; every other build command runs it first. It also compiles the page, `public/app.ts`, `public/backend.ts` and `site/landing.ts`, **in place**: the `.js` beside each is gitignored and is what the server serves and the commands below stage. See [TypeScript](typescript.md) |
-| `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mts`, which stops the build if a release moves the palettes) |
-| `npm run build:dist` | Stages `shell/dist`: `public/` (the compiled `.js`, not the `.ts`), the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
+| `npm run build:ts` | `tsc -b`, behind `bootstrap/heal-page-build.mjs`, which has the page rebuilt if a branch switch deleted `public/backend.js` or `site/landing.js` (`tsc -b` alone says "up to date" and writes nothing). It compiles `bin/`, `scripts/`, `src/` and the test into `out/`, which mirrors the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`). Gitignored, and what every npm script runs; every other build command runs it first. It also compiles `public/backend.ts` and `site/landing.ts`, **in place**: the `.js` beside each is gitignored and is what the server serves and the commands below stage. The rest of the page, `public/app/`, it only **type-checks** (`tsconfig.app.json`, `noEmit`): a type error stops the build here, and `app.js` is written by `build:web`. See [TypeScript](typescript.md) |
+| `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. Then it bundles the page itself, `public/app/main.ts`, into `public/app.js`, the one file `index.html` loads: what the page imports by package name (Preact, its signals, the JSX runtime) goes in, and the renderer, DOMPurify, the backend and Mermaid stay the separate files they were, so `app.js` imports the same four whatever its source is split into. It is **not minified**, so that a stack trace in the webview names the function it is in. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mts`, which stops the build if a release moves the palettes) |
+| `npm run build:dist` | Stages `shell/dist`: `public/` (the bundled `app.js` and the compiled `backend.js`, not the `.ts`), the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
 | `npm run build:webapp` | Stages `dist/web`, the web app: the same page, with the web bundles in and the Tauri backend left out, the web app's `host.js` over the empty one, every file asked for as `?v=<build>`, and a `_headers` file that says what to keep for a year. See [The web app](#the-web-app) |
 
 `npm run app`, `npm run dev`, `npm run bundle`, `npm run webapp` and `npm test` each run
@@ -207,8 +209,8 @@ M-series laptop, with everything warm:
 
 | | |
 | --- | --- |
-| `npm start` | **~0.4 s** (timed on a busy machine, load average 2.8 to 3.6) when nothing has changed: `prestart` runs `build:web`, which runs `tsc -b` and then bundles `src/`. The browser tab is the page as `tsc` left it |
-| `npm run app` | **~3 s**, an earlier total that has not been re-timed since the page became TypeScript. `build:web` and `build:dist` are about 0.4 s each of it, timed on the same busy machine (about half of each is `npm run build:ts` finding nothing to do); a cargo dev build is the rest. Every page edit pays it, because the page is *in* the binary |
+| `npm start` | **~0.4 s** (timed on a busy machine, load average 2.8 to 3.6) when nothing has changed: `prestart` runs `build:web`, which runs `tsc -b` and then bundles `src/` and the page. The browser tab is `public/` as those left it |
+| `npm run app` | **~3 s**, an earlier total that has not been re-timed since the page became TypeScript, or since it began to be bundled. `build:web` and `build:dist` are about 0.4 s each of it, timed on the same busy machine (about half of each is `npm run build:ts` finding nothing to do); a cargo dev build is the rest. Every page edit pays it, because the page is *in* the binary |
 | `npm run bundle` | **~40 s of compile** before it even starts bundling, and then a dmg. `opt-level = "z"` with LTO and one codegen unit means an edit anywhere re-optimizes everything |
 
 So the bundle is for shipping, and CI is where it belongs. Three seconds is not
@@ -225,12 +227,17 @@ It runs `tauri dev` rather than `cargo run`. With `frontendDist` and no `devUrl`
 Tauri starts a static server of its own over `shell/dist` (port 1430) and points
 the window at that instead of embedding it — so the page is a file on disk again,
 and **⌘R picks up an edit with no relink**. `scripts/dev.mts` adds the restaging:
-a watch on `public/` and `src/` that re-runs the two build steps. The page is
+a watch on `public/` and `src/` that re-runs the two build steps. `public/backend.ts` is
 TypeScript and the window loads a staged copy of what `tsc` emits beside it, so
 `tsc -b --watch` runs too, and the restage follows its emit rather than the edit to a `.ts`
 in `public/` (which would stage the previous compile, then stage again). `tsc` emits through a
 type error, so a mistake is a message in that terminal and the window still updates. Rust is
 still a recompile, but `tauri dev` watches for that itself and restarts the app.
+
+`tsc` writes nothing for `public/app/`, though: `app.js` comes from `build:web`. So the watch
+treats **an edit under `public/app/` as an edit to `src/`**: it reruns `build:web`, which
+bundles the page, and then stages. The `app.js` that writes (and its map) is skipped, as
+`public/vendor/` is, or one edit would restage twice.
 
 That this works at all rests on `shell/dist` being **gitignored**, because Tauri's
 watcher honours gitignore and would otherwise see every restage as a reason to
@@ -257,9 +264,9 @@ tree — and the app's single-instance lock makes a second window pointless anyw
 
 For work that is only `public/`, `npm start` is still the better loop: no cargo in
 the picture, and devtools that are not WebKit's inspector bolted to a webview. It does not
-watch, so an edit to a `public/*.ts` reaches the tab after `npm run build:ts` (or an
-`npx tsc -b --watch` in another terminal) and a reload.
-`npm run dev` earns its keep on the page code that only exists in the window — the
+watch, so an edit to `public/app/` reaches the tab after `npm run build:web` and a reload, and
+one to `public/backend.ts` after `npm run build:ts` (or an `npx tsc -b --watch` in another
+terminal). `npm run dev` earns its keep on the page code that only exists in the window — the
 drag-region toolbar, the tab strip, the menu wiring, the drop overlay.
 
 ## Tests
@@ -295,7 +302,13 @@ notices are current with both lockfiles; and that the bundle identifier is still
 
 It also greps `public/` to check that each of those features is actually **wired
 up** — the id exists, the handler exists, the CSS rule exists. A diff that is
-correct and unreachable would otherwise pass.
+correct and unreachable would otherwise pass. The page's source is read through
+`pageSource()`, every `.ts` and `.tsx` under `public/app/` as one text, so which module a
+line lives in is not the assertion's business. What is executed, the helpers lifted out of
+the page and run in a `vm`, is read from `public/app/main.ts` with its types stripped by
+esbuild, and not from the bundle: in `app.js` Preact sits in beside the page, and esbuild
+renames a page name wherever it meets one of Preact's own. The checks on what is *served*
+(the four imports, the preference fallback) do read `app.js`.
 
 It cannot watch a hostile document fail to run, because there is no DOM here. What
 it checks instead is that each layer from
@@ -450,8 +463,8 @@ of compile to save and seconds to restore.
 
 `site/` is the project's page on the web — one hand-written `index.html`, one
 stylesheet, one module (`landing.ts`, which `tsc` compiles in place to the `landing.js` the
-page loads), no framework and no bundler, the same way the reader itself is written. It is
-not part of the app and the app knows nothing about it.
+page loads), no framework and no bundler — which the reader's page, bundled from
+`public/app/`, no longer is. It is not part of the app and the app knows nothing about it.
 
 ```
 npm run site                       # builds, serves, opens http://127.0.0.1:8080/
