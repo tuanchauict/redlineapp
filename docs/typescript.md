@@ -17,9 +17,10 @@ JavaScript](#what-stays-javascript)); the first is still read by `tsc`, which th
 explains. A `.js` file is not type-checked (`allowJs` on, `checkJs` off; the page project turns
 `allowJs` off, and says why below), and a `.ts` file is checked leniently
 (`strict: false`): for what it declares and what the compiler can infer, with an untyped
-parameter left as `any`. The one exception is `src/`, which the ratchet has begun on: its
-project has `noImplicitAny`, so an untyped parameter there is an error. The node and page
-projects, and every other flag, are still lenient ([The ladder](#the-ladder)).
+parameter left as `any`. The one exception is the `src` project (`src/` except
+`src/hosts/node/`, which is in the node project), which the ratchet has begun on: it has
+`noImplicitAny`, so an untyped parameter there is an error. The node and page projects, and
+every other flag, are still lenient ([The ladder](#the-ladder)).
 
 ## Two homes for compiled code
 
@@ -107,15 +108,20 @@ cannot be switched off without a test failing. `FLOOR` in `test-smoke.ts` is a t
 project's config file to the flags that must be on in it (today `tsconfig.src.json` and
 `noImplicitAny`). For each entry the test reads the project and `tsconfig.base.json`, merges
 their `compilerOptions` (every project extends the base and nothing deeper, so one level is
-enough) and fails unless the flag is `true`, falling back to `strict` for a flag that nothing
-sets, as `tsc` does. The PR that turns a flag on adds one entry and leaves the logic alone.
+enough) and fails unless the flag is `true`, falling back to `strict` for a strict-family flag
+that nothing sets (`noImplicitAny`, `strictNullChecks` and the like), as `tsc` does; a flag
+outside that family, such as `noUnusedLocals`, does not borrow `strict`, and an entry for one
+would need the fallback taken out. The PR that turns a flag on adds one entry and leaves the
+logic alone.
 It is a floor and not a target: it fails a step backwards and does not ask for a step
 forward, so a project it does not list is held to nothing, and one it does list is not made
 to take the next flag. The node and page projects are not listed, and no entry is scheduled
 for them ([The ladder](#the-ladder)). A second assertion walks every `.ts` under `src/`, the
 `.d.ts` shim included, and fails on a `@ts-nocheck`, `@ts-ignore` or `@ts-expect-error`, since
-a comment would keep the flag on and hide the error. It reads the sources and not `out/`,
-which `tsc` has reprinted.
+a comment would keep the flag on and hide the error. It covers all of `src/`, `src/hosts/node/`
+too, which is outside the flag. It reads the `.ts` sources and not `out/`, because the shim is
+never emitted and because a check on how the source is written reads the source (the read
+rule, below).
 
 ## `src/contract/`
 
@@ -297,13 +303,15 @@ omit. The rest:
 - `declare global { var X }` where two modules agree on a global through nothing but its name
   (`__REDLINE_HOST`, `__REDLINE_VERSION`, `window.mdNative`).
 - `declare const` for what `lib.dom` has no name for (`SharedWorkerGlobalScope`).
-- Four of the casts in `src/` are worth saying why. Two are a timer's `unref`, which Node's
-  `Timeout` has and a browser's number does not, and one is the worker's own scope
-  (`onconnect`), which `lib.dom` does not describe. The fourth is `serveRpc` calling a
-  `Session` method by name with the arguments that arrived in a message: `SESSION_METHODS` is
-  what checks the name, and nothing checks the arguments, because a message is not typed. The
-  `noImplicitAny` ratchet added four more, each with its why at the cast; the one in
-  `render.ts` is under [The ladder](#the-ladder), because a later flag takes it out.
+- Other casts exist in `src/` (for example `csp.ts:66`, `idb.ts:71`, `rpc/client.ts:63`,
+  and `serve.ts:51` and `:55`), and four of them are worth saying why. Two are a timer's
+  `unref`, which Node's `Timeout` has and a browser's number does not, and one is the worker's
+  own scope (`onconnect`), which `lib.dom` does not describe. The fourth is `serveRpc` calling
+  a `Session` method by name with the arguments that arrived in a message: `SESSION_METHODS`
+  is what checks the name, and nothing checks the arguments, because a message is not typed.
+  The `noImplicitAny` ratchet added four more, each with its why where it is made; the one in
+  `render.ts` is documented at `fieldsHtml` and again under [The ladder](#the-ladder), because
+  a later flag takes it out.
 - `invoke<T>` where the page reads what a Tauri command answers (`tauri/platform.ts`, and the
   settings and update calls in `native.ts`), because `invoke` cannot know the Rust command's
   return type and answers `unknown` without it.
@@ -424,16 +432,18 @@ Each step is its own PR, with `npm test` and `npm run bundle` green.
 5. `test-smoke.ts` (done): the suite renamed and checked as part of the node project, with
    its fakes typed where they are declared; see [The projects](#the-projects).
 6. The ratchet (in progress), one flag per project: `noImplicitAny`, then `strictNullChecks`,
-   then `strict`. `src` has `noImplicitAny`, and [a test holds it](#the-projects). Next for
-   `src` is `strictNullChecks` (53 errors when this was written) and then `strict`. One cast
+   then `strict`. The `src` project has `noImplicitAny`, and [a test holds
+   it](#the-projects); `src/hosts/node/`, in the node project, does not (it has 9 errors in
+   `server.ts` under the flag). Next for `src` is `strictNullChecks` (53 errors when this was
+   written) and then `strict`. One cast
    goes with `strictNullChecks`: `render.ts` reads `(value as FrontText).text`, because
    `FrontRow` types a keyless row's value as any `FrontValue` while `readMap` only builds text
    for a keyless row, and a union does not narrow at `strict: false`. The node and page
    projects stay lenient and their flags are not scheduled: `test-smoke.ts` and
    `public/app.ts` hold most of the implicit `any`s in them (643 `noImplicitAny` errors
    between the two projects when this was written, 590 of them in those two files), a flag
-   applies to a whole project, and the owner's decision was not to type those two files. That
-   can be revisited.
+   applies to a whole project, and the decision is not to type those two files. That can be
+   revisited.
 
 What the design decided is in this file and in [architecture.md](architecture.md); the
 design document itself is not in the repository.
@@ -444,9 +454,10 @@ Measured with `tsc` 5.9.3 on an arm64 Mac at the end of each step: step 2 over t
 files in `src/`, step 3 over those and the 13 in `bin/` and `scripts/`, step 4 over those
 and the page's three files and the five shims in `types/`, and step 5 over the same with
 `test-smoke.js` renamed `test-smoke.ts`, 7.5k lines; step 6 over the same files and the one
-shim that `src/core/` gained, with `src` under `noImplicitAny`. The `.ts` files are checked
-leniently, except `src/` from step 6; the JavaScript compiled beside them is not (that was
-`test-smoke.js` until step 5, and is `src/hosts/web/host.js` still). The columns are three
+shim that `src/core/` gained, with the `src` project under `noImplicitAny`. The `.ts` files
+are checked leniently, except the `src` project (`src/` except `src/hosts/node/`) from step 6;
+the JavaScript compiled beside them is not (that was `test-smoke.js` until step 5, and is
+`src/hosts/web/host.js` still). The columns are three
 things you wait for: a rebuild of everything (`tsc -b --force`; step 1 was from no `out/`),
 `tsc -b` on a tree that is up to date, and the same as `npm run build:ts`.
 
@@ -480,12 +491,14 @@ with it off (1.10, 1.11 and 1.13 s with it on again afterwards); `tsc -b` on an 
 tree took 0.05 to 0.06 s either way, and `npm run build:ts` 0.20 to 0.22 s on and 0.19 to
 0.22 s off. The table has the average of the six runs with it on. The load average was 4.4
 to 5.4 (about 4.5 over five minutes and 4.2 over fifteen) throughout, well above about 2, so
-none of it is a finding. It says that the flag did not move anything by more than the noise
-of that measurement, and nothing about what it costs on a quiet machine. What
-`strictNullChecks` and `strict` cost is still to measure, when they land.
+none of it is a finding. No cost was seen at that load, and none can be ruled out: the means
+of a rebuild are 1.142 s with the flag on and 1.117 s with it off, and the first three runs
+with it on span 1.14 to 1.22 s on their own, more than that difference; `npm run build:ts` is
+0.207 s either way. What `strictNullChecks` and `strict` cost is still to measure, when they land.
 
-The last column has one more cost since the table was made: `npm run build:ts` starts
-`bootstrap/heal-page-build.mjs` before `tsc -b`, an extra `node` process (about 0.02 s on its
-own) that lists two directories. Timed in a scratch copy at the end of that change, with the
+The last column has one more cost in the Step 5 and Step 6 rows than in Steps 1 to 4:
+`npm run build:ts` starts `bootstrap/heal-page-build.mjs` before `tsc -b`, an extra `node`
+process (about 0.02 s on its own) that lists two directories, and the change that added it
+came after step 4 was measured. Timed in a scratch copy at the end of that change, with the
 load not recorded, an up-to-date `npm run build:ts` went from about 0.17 s to about 0.20 s, and
 one from no `out/` and no compiled page took about 1.3 s.
