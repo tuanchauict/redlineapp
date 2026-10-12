@@ -8,6 +8,7 @@ import { after } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert';
+import { transformSync } from 'esbuild';
 import { createServer } from '../src/hosts/node/server.js';
 import { createMarkdown } from '../src/core/render.js';
 import { renderDocument } from '../src/core/document.js';
@@ -100,6 +101,20 @@ export const pageCss = read('public/styles.css');
 export const pageHead = pageHtml.slice(0, pageHtml.indexOf('</head>'));
 // The Settings sheet is a component, so its markup is read from where it is written.
 export const settingsTsx = read('public/app/ui/Settings.tsx');
+
+// What runs in a vm has to be JavaScript, and annotated TypeScript is not: the checks that run the
+// page's functions over fakes lift their text out of main.ts and the viewmodels with its types
+// stripped, where the greps for how the source is written read the .ts. Stripped, not read from
+// the bundle: app.js has Preact scope-hoisted in beside the page, and esbuild renames the page's
+// top-level names wherever they meet Preact's minified ones -- `$` is `$2` there -- so a lifted
+// function would call a helper the vm's fakes do not name. Transforming file by file renames
+// nothing. Made the first time it is asked for, since most files never do.
+let pageRunText: string | undefined;
+export const pageRun = () =>
+  (pageRunText ??= ['main.ts', 'vm/changes.ts', 'vm/acks.ts', 'vm/settings.ts']
+    .map((file) => fs.readFileSync(rootUrl(`public/app/${file}`), 'utf8'))
+    .map((ts) => transformSync(ts, { loader: 'ts', target: 'es2022' }).code)
+    .join('\n'));
 
 // HTML's own void elements: the only tags a balanced fragment may leave open.
 const VOID_TAGS = new Set([

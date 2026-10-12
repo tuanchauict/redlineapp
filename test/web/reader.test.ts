@@ -148,7 +148,6 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
         onMessage: (h) => h({ t: 'bye' }),
       });
       quiet();
-      console.log('✓ serveRpc tells the host when a page says bye, after its watch has stopped');
     }
   });
 
@@ -1002,7 +1001,6 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
         w.w.sync({});
         assert.notStrictEqual(w.seen.view, last, 'each view handed over is a new object');
         assert.strictEqual(w.seen.views, views + 1, 'and is handed over once for each change');
-        console.log('✓ the welcome opens a file, offers no folder, and says what the Mac app adds');
       }
     });
 

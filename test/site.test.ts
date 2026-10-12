@@ -261,7 +261,6 @@ test('pages.yml builds in one job and deploys from another, token in one', async
       /name: redline-site\n\s+path: site/,
       'which the deploy downloads to site/',
     );
-    console.log('✓ pages.yml builds in one job and deploys from another, token in one');
   }
 });
 

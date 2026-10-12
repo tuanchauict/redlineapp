@@ -350,7 +350,6 @@ test('a page behind a channel is answered as one behind http is', async () => {
       /createSession\(reader\)/,
       'the http routes are the session',
     );
-    console.log('✓ a page behind a channel is answered as one behind http is');
     closeRpc();
     chan.port1.close();
     chan.port2.close();
