@@ -24,19 +24,19 @@ const MAX_HTML = 200_000;
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
 
-const tokenize = (html) => html.match(/\s*(?:<[^>]+>|[^<\s]+)/g) ?? [];
-const norm = (t) => t.replace(/\s+/g, ' ').trim();
-const isTag = (t) => t.trimStart().startsWith('<');
-const isBlock = (t) => BLOCK_TAG.test(t.trimStart());
-const isWord = (t) => !isTag(t) && norm(t) !== '';
+const tokenize = (html: string) => html.match(/\s*(?:<[^>]+>|[^<\s]+)/g) ?? [];
+const norm = (t: string) => t.replace(/\s+/g, ' ').trim();
+const isTag = (t: string) => t.trimStart().startsWith('<');
+const isBlock = (t: string) => BLOCK_TAG.test(t.trimStart());
+const isWord = (t: string) => !isTag(t) && norm(t) !== '';
 
 /**
  * Indices of tags whose partner lies outside `tokens`. A mark may not span
  * one of these, or it would interleave with an element it does not contain
  * — `<strong><ins>x</strong>y</ins>` and friends.
  */
-function unpaired(tokens) {
-  const open = [];
+function unpaired(tokens: string[]) {
+  const open: { name: string; i: number }[] = [];
   const loose = new Set();
   tokens.forEach((t, i) => {
     if (!isTag(t)) return;
@@ -57,7 +57,7 @@ function unpaired(tokens) {
 }
 
 /** Wrap `body` without swallowing the whitespace that positions it. */
-function mark(tag, cls, s) {
+function mark(tag: string, cls: string, s: string) {
   const lead = s.match(/^\s*/)[0];
   const body = s.slice(lead.length);
   return body ? `${lead}<${tag} class="${cls}">${body}</${tag}>` : s;
@@ -67,15 +67,15 @@ function mark(tag, cls, s) {
  * Deleted text only: the old version's tags are dropped so nothing unbalances,
  * but the whitespace in front of them is kept — it is what separates words.
  */
-function emitDel(tokens) {
+function emitDel(tokens: string[]) {
   return mark('del', 'w-del', tokens.map((t) => (isTag(t) ? t.match(/^\s*/)[0] : t)).join(''));
 }
 
 /** Added tokens keep the new version's structure; marks stop at tags they don't own. */
-function emitAdd(tokens) {
+function emitAdd(tokens: string[]) {
   const loose = unpaired(tokens);
   let out = '';
-  let buf = [];
+  let buf: string[] = [];
   const flush = () => {
     if (buf.length) out += mark('ins', 'w-add', buf.join(''));
     buf = [];
@@ -92,9 +92,15 @@ function emitAdd(tokens) {
   return out;
 }
 
+/** A run of the word diff: tokens both versions share (`eq`), lost (`del`) or gained (`add`). */
+interface Op {
+  t: 'eq' | 'del' | 'add';
+  tokens: string[];
+}
+
 /** Duplicate short unchanged runs into both sides so changes read as phrases. */
-function bridge(ops) {
-  const out = [];
+function bridge(ops: Op[]) {
+  const out: Op[] = [];
   for (let i = 0; i < ops.length; i++) {
     const op = ops[i];
     const prev = out.at(-1);
@@ -169,8 +175,8 @@ export function inlineDiff(oldHtml: string, newHtml: string): string | null {
       continue;
     }
     // Collect the whole run of changes, then show old text before new.
-    const del = [];
-    const add = [];
+    const del: string[] = [];
+    const add: string[] = [];
     for (; i < ops.length && ops[i].t !== 'eq'; i++) {
       (ops[i].t === 'del' ? del : add).push(...ops[i].tokens);
     }
