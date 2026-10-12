@@ -11,8 +11,9 @@
 // machine above all.
 //
 // Drawn from `shownSettings` and the signals beside it. What is not here is applying a setting:
-// `writeSettings` in main.ts puts it on <html>, redraws the diagrams it recolours and tells the
-// shell, and only then does the sheet see it, so the sheet always shows what the window is.
+// `writeSettings` in vm/settings.ts puts it on <html>, redraws the diagrams it recolours and
+// tells the shell, and only then does the sheet see it, so the sheet always shows what the
+// window is.
 import { render } from 'preact';
 import { useLayoutEffect, useRef } from 'preact/hooks';
 import {
@@ -25,16 +26,7 @@ import {
   update,
   type Settings,
 } from '../state.js';
-
-/** How far the document's own text is allowed to go, in px. */
-export const SIZE_MIN = 11;
-export const SIZE_MAX = 24;
-
-/** A font name goes into a stylesheet, so keep it to what a name can be. */
-export const cleanFontName = (s) =>
-  String(s ?? '')
-    .replace(/[\p{C}"'\\;{}]/gu, '')
-    .trim();
+import { cleanFontName, SIZE_MIN, SIZE_MAX } from '../vm/settings.js';
 
 /**
  * What the typeface popup is on. A picked face is stored as `font: 'custom'` with its name beside

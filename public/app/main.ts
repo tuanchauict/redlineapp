@@ -3,22 +3,15 @@ import { sanitizeDocument } from '../vendor/sanitize.js';
 import {
   prefs,
   state,
-  shownHistory,
-  menuFor,
-  cutFrom,
   barName,
-  soloName,
   tabMenuAt,
   liveWhy,
   shut,
-  shownSettings,
-  docMeasure,
   prefsOpen,
-  storeRoot,
   update,
   welcomeView,
 } from './state.js';
-import { mountHistory, askPrune, isBaseline, versionName } from './ui/History.js';
+import { mountHistory } from './ui/History.js';
 import { mountContents } from './ui/Contents.js';
 import { mountRuler } from './ui/Ruler.js';
 import { mountFiles } from './ui/Files.js';
@@ -27,8 +20,8 @@ import { mountName } from './ui/Name.js';
 import { mountChanges } from './ui/Changes.js';
 import { bindChrome } from './ui/chrome.js';
 import { mountWelcome } from './ui/Welcome.js';
-import { mountSettings, cleanFontName, SIZE_MIN, SIZE_MAX } from './ui/Settings.js';
-import { $, doc, pane } from './dom.js';
+import { mountSettings } from './ui/Settings.js';
+import { $, doc, pane, paneTop } from './dom.js';
 import { applyWidths } from './layout/widths.js';
 import './layout/toc-height.js';
 import { bindKeys } from './layout/keys.js';
@@ -37,7 +30,7 @@ import { listFonts } from './layout/fonts.js';
 import { backend } from './backend.js';
 import { notify } from './vm/notice.js';
 import { hidePeek, linkTarget, HAS_SCHEME } from './vm/peek.js';
-import { sepia, retheme, drawDiagrams } from './vm/diagrams.js';
+import { drawDiagrams } from './vm/diagrams.js';
 import { findOpen, refind, openFind } from './vm/find.js';
 import {
   changeNodes,
@@ -47,11 +40,34 @@ import {
   forgetHover,
   goToNode,
   goToChange,
-  keepAnchored,
 } from './vm/changes.js';
 import { applyAcks, clearAcks, tapCheck } from './vm/acks.js';
+import { bindDocument } from './vm/document.js';
+import {
+  settings,
+  defaultBaseline,
+  keptBaseline,
+  writeSettings,
+  stepSize,
+  openPrefs,
+  initSettings,
+} from './vm/settings.js';
+import { applyMarks, toggleDiff, toggleView } from './vm/view.js';
+import {
+  paintHistory,
+  pickVersion,
+  setSolo,
+  toggleSolo,
+  tapMarkRead,
+  openVerMenu,
+  closeVerMenu,
+  prune,
+} from './vm/history.js';
 
-const darkMode = matchMedia('(prefers-color-scheme: dark)');
+// The document core is still here, and the viewmodels that redraw it reach it through
+// vm/document.ts. Bound first, before anything that could call it can run: every one of these
+// is a function declaration, so it is already defined.
+bindDocument({ load, adopt, paint, rerender });
 
 /** Where each document was left, so switching back does not lose the place. */
 const scrollMemory = new Map();
@@ -263,10 +279,10 @@ function closeDocument({ reopen = null } = {}) {
   painted = { id: '', source: null };
   doc.replaceChildren();
   clearSidebars();
-  // The bar's half of the document, as `paint` draws it: the count, the arrows, the
-  // version being read and the ruler would otherwise stay over the welcome, telling of
-  // a file no longer open. Each reads `state.data`, so with none they put themselves away.
-  paintSolo(null);
+  // The bar's half of the document, as `paint` draws it: the count, the arrows and the ruler
+  // would otherwise stay over the welcome, telling of a file no longer open. Each reads
+  // `state.data`, so with none they put themselves away. (The version being read is a computed
+  // over `state.data`, and goes by itself.)
   paintCount();
   paintRuler();
   state.changeIndex = -1;
@@ -416,7 +432,6 @@ function paint({ reuse = false } = {}) {
   applyAcks();
   paintHistory(d);
   paintToc(d);
-  paintSolo(d);
   paintCount();
   paintRuler();
   state.changeIndex = -1;
@@ -594,26 +609,6 @@ mountTabMenu($('tabMenuSlot'), $('tabListSlot'), {
 document.addEventListener('click', () => closeTabMenu());
 document.addEventListener('keydown', (e) => e.key === 'Escape' && closeTabMenu());
 
-/**
- * The marks on or off. There is no button for this: the choice is the far end
- * of "what am I comparing against", so it is made where that is made — the
- * newest row in the history, which is the file against itself. The class does
- * the hiding, so the baseline underneath is not given up and turning the marks
- * back on costs no round trip.
- */
-function applyMarks() {
-  document.documentElement.classList.toggle('no-diff', !state.diff);
-}
-
-// Heard on System, which follows it, and also when the shell pins or unpins the
-// window, which moves what it reports: a scheme picked by name does not move
-// with it, so only a scheme that did gets the repaint.
-darkMode.addEventListener('change', () => {
-  if (!applyScheme()) return;
-  retheme();
-  paint(); // re-paints from source, so diagrams redraw in the new theme
-});
-
 // Scrolling moves where you are in the document, which is what the contents list is for. (The
 // link peek has its own listener, in vm/peek.ts.)
 pane.addEventListener('scroll', queueSpy);
@@ -628,9 +623,6 @@ pane.addEventListener('scroll', queueSpy);
 //
 // Rows indent by heading level, capped: a document nested six deep would
 // otherwise spend the whole column on whitespace.
-
-/** Where the pane's text starts, which is what "at the top" is measured against. */
-const paneTop = () => pane.getBoundingClientRect().top;
 
 /**
  * The element a heading row points at.
@@ -796,15 +788,8 @@ async function followLink(abs) {
 
 // ---------- history ----------
 
-// The list itself is ui/History.tsx. What is here is what the list does — the menu on a row,
-// marking a version read, forgetting some — and the switch and the tag that read one alone.
-
-const el = (tag, className?, text?) => {
-  const n = document.createElement(tag);
-  if (className) n.className = className;
-  if (text != null) n.textContent = text;
-  return n;
-};
+// The list is ui/History.tsx, and what it does is vm/history.ts. It is mounted here, because a
+// viewmodel does not import the components that draw it.
 
 /**
  * The two sidebars for a page with no document. The welcome hides `#doc`, but Contents and
@@ -816,287 +801,6 @@ const el = (tag, className?, text?) => {
 function clearSidebars() {
   paintToc(null);
   paintHistory(null);
-}
-
-function paintHistory(d) {
-  const versions = d?.history ?? [];
-  // A row's menu is about a row that is about to be replaced, and possibly
-  // with different numbers in it — a save has arrived, or a version has gone.
-  closeVerMenu();
-
-  $('histCount').textContent = versions.length > 1 ? String(versions.length) : '';
-  $('histClear').hidden = versions.length < 2;
-  // Nothing older to read with one version — but never hidden while on, or it
-  // could not be found again to switch off.
-  $('histSolo').hidden = versions.length < 2 && !state.solo;
-  // The list draws itself from this, and again whenever anything else it reads changes.
-  shownHistory.value = d;
-}
-
-/** What a click on a row does: History hands it the version, and this decides what that means. */
-function pickVersion(v) {
-  state.pruneAsk = null;
-  if (v.current) {
-    setMarks(false);
-    return;
-  }
-  // Marks on first: picking a version to compare against and seeing nothing
-  // marked would look like the click missed. It also keeps the scroll anchored
-  // across the blocks that hiding the marks had collapsed. Reading versions
-  // by themselves, it is what says "an older one" rather than the file — but
-  // not redrawn yet, or the version being left would flash up before the
-  // load below brings the one clicked.
-  setMarks(true, { redraw: false });
-  // Named outright, which is also how the choice sticks: the reader keeps
-  // the baseline it was asked for by name, and hands it back the next time
-  // this document is opened. Nothing to store here.
-  //
-  // The row carrying the read mark is named as `read` rather than by its
-  // hash, because that is what the row means: the version counted as read,
-  // which moves as you read rather than staying where it is now. It is also
-  // the way back — a choice is kept from now on, so naming that row by hash
-  // would pin the document to it with nothing in the list to unpin it.
-  state.baseline = v.baseline ? 'read' : `snap:${v.hash}`;
-  load({ keepScroll: true });
-}
-
-/**
- * Whether the read mark is already on the version on disk, and so whether
- * there is anything left for `m` to do.
- */
-function readDone(d) {
-  const at = d?.history?.find((v) => v.baseline);
-  return !at || at.current;
-}
-
-/**
- * The older version on the page, while reading versions by themselves — null
- * when what is on the page is the file as it is. The filled row is the one,
- * so this asks the same question the row does rather than a second one that
- * could disagree with it.
- */
-function soloVersion(d) {
-  if (!state.solo || !state.diff || d?.base == null || d.base === d.text) return null;
-  return d.history?.find((v) => !v.current && isBaseline(d, v)) ?? null;
-}
-
-/**
- * The switch in the History heading, and the name on the bar of the version on
- * the page. The bar says it because nothing else would: with no marks and the
- * sidebar shut, last week's text and this morning's look exactly alike.
- */
-function paintSolo(d) {
-  const btn = $('histSolo');
-  btn.setAttribute('aria-pressed', String(state.solo));
-  btn.title = state.solo
-    ? 'Compare against the version picked again (v)'
-    : 'Read the version picked by itself, without the changes since (v)';
-  btn.setAttribute('aria-label', btn.title);
-
-  const v = soloVersion(d);
-  soloName.value = v ? versionName(v) : null;
-}
-
-/**
- * On or off. Off, the version that was being read becomes the one compared
- * against — it is already the baseline — so the way out of reading an old
- * version is to see what has happened to it since.
- */
-function setSolo(on) {
-  if (on === state.solo) return;
-  state.solo = on;
-  if (state.data) rerender();
-  else paintSolo(null);
-}
-
-const toggleSolo = () => setSolo(!state.solo);
-$('histSolo').addEventListener('click', toggleSolo);
-
-/**
- * Move the read mark: to `at`, a version in the list, or without it to the
- * version on disk. It is about the stored pointer rather than what is on
- * screen, so it works just as well while looking at an older version or with
- * the marks off.
- *
- * The version on disk is the usual one, and the one with keys — `m`, ⇧⌘M and
- * the View menu — because saying "I have seen this" should not need the
- * sidebar open. Any row can say it from its menu, where an older one means "I
- * have read up to here". That one turns the marks on as well: the point of it
- * is the changes that came after, and with the marks off the click would look
- * like it had missed — the same reason picking a row turns them on.
- */
-async function markRead(at?) {
-  const y = pane.scrollTop;
-  state.pruneAsk = null;
-  if (at) setMarks(true, { redraw: false });
-  adopt(await backend.markRead(at));
-  paint();
-  pane.scrollTo(0, y);
-}
-
-// The "…" of the row the menu is open for, to put the keyboard back on. Kept rather than
-// looked up, because the list can be repainted under an open menu — a save arrives. Which row
-// is lit is `menuFor`, by hash, which outlives the node.
-const verMenu = { more: null };
-
-/**
- * One menu for every row, filled for the row it is opened on. `n` is how many
- * versions forgetting this one would take.
- *
- * Drawn by the page in every host, the desktop app included. A native menu
- * there would be a round trip through the shell for each item, and could not
- * do the thing this one is for: pointing at Forget greys the rows that would
- * go, the same preview the list has always given, before anything is asked.
- *
- * Under the "…" it was opened from, or at the pointer for a right-click;
- * turned upward or leftward when it would hang off the window. From the
- * keyboard the first item is focused, and from a pointer the menu itself is —
- * so the arrows and Escape work either way, with no focus ring for a click.
- */
-function openVerMenu(row, v, n, { from, keyboard = false, x = 0, y = 0 }) {
-  closeVerMenu();
-  closeTabMenu();
-  const menu = $('verMenu');
-
-  const read = el('button', null, 'Mark as read');
-  read.type = 'button';
-  read.role = 'menuitem';
-  // The mark is already here. Left in rather than taken out, so the menu has
-  // the same shape on every row and the item is where it was last time.
-  read.disabled = !!v.baseline;
-  read.title = v.current
-    ? 'Count the file as it is now as read, which clears the marks (m)'
-    : 'Count this version as read: the marks then show what changed since it';
-  read.addEventListener('click', () => {
-    closeVerMenu();
-    markRead(v.current ? undefined : v.hash);
-  });
-  const items = [read];
-
-  // Never the version on disk: everything else is compared against it.
-  if (!v.current) {
-    const one = n === 1;
-    const forget = el('button', null, one ? 'Forget this version…' : 'Forget this and older…');
-    forget.type = 'button';
-    forget.role = 'menuitem';
-    forget.title = one
-      ? 'Forget this version'
-      : `Forget these ${n} versions — this one and everything older`;
-    // On the row rather than on the list, so the stylesheet can take it from
-    // there with `~`: what goes is this row and every row below it, which is
-    // exactly what a sibling combinator says.
-    const mark = (on) => (cutFrom.value = on ? v.hash : null);
-    forget.addEventListener('pointerenter', () => mark(true));
-    forget.addEventListener('pointerleave', () => mark(false));
-    forget.addEventListener('focus', () => mark(true));
-    forget.addEventListener('blur', () => mark(false));
-    forget.addEventListener('click', () => {
-      closeVerMenu();
-      askPrune(v.hash);
-    });
-    items.push(forget);
-  }
-
-  menu.replaceChildren(...items);
-  menu.hidden = false;
-  verMenu.more = row.querySelector('.ver-more');
-  menuFor.value = v.hash;
-
-  const w = menu.offsetWidth;
-  const h = menu.offsetHeight;
-  let left = x;
-  let top = y;
-  if (from) {
-    const r = from.getBoundingClientRect();
-    left = r.right - w;
-    top = r.bottom + 2;
-    if (top + h > innerHeight - 6) top = r.top - 2 - h;
-  } else {
-    if (left + w > innerWidth - 6) left -= w;
-    if (top + h > innerHeight - 6) top -= h;
-  }
-  menu.style.left = `${Math.max(6, Math.min(left, innerWidth - w - 6))}px`;
-  menu.style.top = `${Math.max(6, Math.min(top, innerHeight - h - 6))}px`;
-
-  const first = items.find((b) => !b.disabled);
-  if (keyboard && first) first.focus();
-  else menu.focus({ preventScroll: true });
-}
-
-/** `refocus` puts the keyboard back on the "…", for a menu left with Escape. */
-function closeVerMenu({ refocus = false } = {}) {
-  const menu = $('verMenu');
-  if (menu.hidden) return;
-  menu.hidden = true;
-  // Taken off here and not only on the item's blur: Escape with the pointer
-  // still on Forget leaves the menu without the pointer ever leaving it.
-  menuFor.value = null;
-  cutFrom.value = null;
-  if (refocus && verMenu.more?.isConnected) verMenu.more.focus();
-  verMenu.more = null;
-}
-
-$('verMenu').addEventListener('keydown', (e) => {
-  if (e.metaKey || e.ctrlKey || e.altKey) return closeVerMenu();
-  // The menu's keys and no one else's while it has them: an arrow here moves
-  // between items rather than scrolling the document, and a letter is not a
-  // command to the page behind it — `m` would mark the newest version read.
-  e.stopPropagation();
-  const items = [...$('verMenu').querySelectorAll<HTMLElement>('button:not(:disabled)')];
-  // Safe as a cast because `indexOf` only compares identity: anything else is simply -1.
-  const at = items.indexOf(document.activeElement as HTMLElement);
-  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-    e.preventDefault();
-    const step = e.key === 'ArrowDown' ? 1 : -1;
-    const next = at < 0 ? (step > 0 ? 0 : items.length - 1) : at + step;
-    items[(next + items.length) % items.length]?.focus();
-  } else if (e.key === 'Escape' || e.key === 'Tab') {
-    e.preventDefault();
-    closeVerMenu({ refocus: true });
-  }
-});
-// A click in the menu that is not on an item — its padding, a disabled one —
-// leaves it open, the way a native menu stays up for a click on its edge.
-$('verMenu').addEventListener('click', (e) => e.stopPropagation());
-document.addEventListener('click', () => closeVerMenu());
-document.addEventListener('contextmenu', () => closeVerMenu());
-document.addEventListener('keydown', (e) => e.key === 'Escape' && closeVerMenu());
-// Fixed to the window, so anything that moves the row out from under it
-// leaves it pointing at nothing.
-$('histList').addEventListener('scroll', () => closeVerMenu());
-addEventListener('resize', () => closeVerMenu());
-addEventListener('blur', () => closeVerMenu());
-
-async function prune(upto) {
-  const y = pane.scrollTop;
-  state.pruneAsk = null;
-  // The version being compared against may be one of the ones just forgotten;
-  // the payload says what it fell back to.
-  adopt(await backend.prune(upto, state.baseline));
-  paint();
-  pane.scrollTo(0, y);
-}
-
-$('histClear').addEventListener('click', () => {
-  // "Clear" is the same act as forgetting everything below the current
-  // version, so it asks in the same place, on that row.
-  const second = state.data?.history?.[1];
-  if (second) askPrune(second.hash);
-});
-
-// And it previews the same way Forget in a row's menu does, from the row it
-// would cut at — everything but the version on disk. A button under the list
-// says what it acts on far less plainly than the list going dim does.
-// Pairs, not arrays of either: without the cast `when` is `string | boolean` to addEventListener.
-for (const [on, when] of [
-  [true, 'pointerenter'],
-  [false, 'pointerleave'],
-  [true, 'focus'],
-  [false, 'blur'],
-] as [boolean, string][]) {
-  $('histClear').addEventListener(when, () => {
-    cutFrom.value = on ? (shownHistory.value?.history?.[1]?.hash ?? null) : null;
-  });
 }
 
 mountHistory($('histList'), {
@@ -1126,8 +830,6 @@ mountChanges($('changesSlot'), {
   unack: () => clearAcks(),
 });
 
-$('view').addEventListener('click', () => toggleView());
-
 // Both columns and their keys work in the web app as much as in the desktop
 // app, each filling the left one with a list of its own; a CLI tab has only
 // the right one (see `leftColumn`).
@@ -1145,152 +847,7 @@ mountName($('nameSlot'));
 setSide(state.side, false);
 setTocSide(state.tocSide, false);
 
-function setView(view) {
-  // Keep the place, not the pixel: the two views agree on the file, and on
-  // nothing else (see `sourceAt`).
-  const at = sourceAt();
-  state.view = view;
-  prefs.setItem('redline:view', view);
-  paint();
-  scrollToSource(at);
-}
-
-const toggleView = () => setView(state.view === 'raw' ? 'rendered' : 'raw');
-
-// Switching views should leave you looking at the sentence you were looking at.
-// The scroll offset cannot say that — the same paragraph is one height as prose
-// and another as the lines of markdown it was written as, so the same number of
-// pixels down is a different part of the document. What the two views do share
-// is the file: every block of the render and every line of the source carries
-// the line it came from (`data-line`, from `sourceLines` and `renderRawDiff`).
-// So the place is read off as a line of the file — with the fraction, because a
-// block can be a screen tall — and put back by the same measure on the far side.
-
-/**
- * The last index where `holds` is true, given it is true for a prefix and false
- * after. A binary search rather than a scan because the blocks are siblings in
- * document order, so both the lines and the offsets only ever go up, and a long
- * file is thousands of them to measure on a keypress.
- */
-function lastWhere(n, holds) {
-  let lo = 0;
-  let hi = n - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (holds(mid)) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo;
-}
-
-/**
- * Everything on screen that knows where it is in the file, in file order.
- *
- * Whichever view is up answers: lines in the raw one, top-level blocks in the
- * rendered one. What is not the file is not in here — a deleted block, the
- * "before" inside a rewrite — which is the point, since neither is a place the
- * other view could show you.
- */
-const anchors = () => doc.querySelectorAll<HTMLElement>('[data-line]');
-
-/** Where the top edge of the pane is, as a line of the file, fractionally. */
-function sourceAt() {
-  const nodes = anchors();
-  if (!nodes.length) return null;
-  const edge = paneTop();
-  const i = lastWhere(nodes.length, (k) => nodes[k].getBoundingClientRect().top <= edge);
-  const box = nodes[i].getBoundingClientRect();
-  const line = +nodes[i].dataset.line;
-  // How far into the block the edge has cut, as a share of the lines it spans:
-  // half way down a ten-line paragraph is line five, and that is a place the
-  // other view has too — where "half way down the paragraph" is some other
-  // number of pixels entirely.
-  const span = spanOf(nodes, i, line);
-  const into = box.height ? clamp((edge - box.top) / box.height, 0, 1) : 0;
-  return line + into * span;
-}
-
-/** Put line `at` back at the top edge, as near as the other view can manage. */
-function scrollToSource(at) {
-  if (at == null) return;
-  const nodes = anchors();
-  if (!nodes.length) return;
-  // The line may be one this view does not have a block for — the raw view has
-  // every line of the file and the rendered one has a block per several — so
-  // the block that holds it is the last one that starts at or before it.
-  const i = lastWhere(nodes.length, (k) => +nodes[k].dataset.line <= at);
-  const line = +nodes[i].dataset.line;
-  const box = nodes[i].getBoundingClientRect();
-  const span = spanOf(nodes, i, line);
-  const into = clamp(at - line, 0, span) / span;
-  pane.scrollBy(0, box.top - paneTop() + into * box.height);
-}
-
-/**
- * How many lines of the file a block covers: up to where the next one starts.
- * The last block has nothing after it to measure against and is taken as one
- * line, which costs nothing — the end of the document is already on screen.
- */
-function spanOf(nodes, i, line) {
-  const next = nodes[i + 1];
-  return next ? Math.max(+next.dataset.line - line, 1) : 1;
-}
-
-const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
-
-
-function setDiff(on, { redraw = true } = {}) {
-  if (on === state.diff) return;
-  // Reading versions by themselves there are no marks to hide: the switch is
-  // which text is on the page, the version picked or the file — so it is a
-  // render, not a class. `redraw: false` is for a caller about to load anyway.
-  if (state.solo) {
-    state.diff = on;
-    prefs.setItem('redline:diff', on ? '1' : '0');
-    applyMarks();
-    if (redraw) rerender();
-    return;
-  }
-  keepAnchored(() => {
-    state.diff = on;
-    // The pre-paint mirror, so the marks never flash on for someone who
-    // turned them off — see the inline script in index.html.
-    prefs.setItem('redline:diff', on ? '1' : '0');
-    applyMarks();
-    if (state.data) {
-      // The history says what is being compared against, and with the marks off
-      // the answer is "nothing" — the newest row.
-      paintHistory(state.data);
-      paintCount();
-    }
-  });
-  // Turning the marks off takes the removed text out of the page, so the
-  // document is a different height and every mark is somewhere else.
-  paintRuler();
-  drawDiagrams(); // diagrams in blocks that were hidden could not be measured
-}
-
-/**
- * The one switch for the marks, wherever it is thrown: the newest row in the
- * history, `d`, ⇧⌘D, or the Settings checkbox. It is remembered, so a document
- * opens the way you left the last one.
- */
-function setMarks(on, opts?) {
-  if (on === state.diff) return;
-  setDiff(on, opts);
-  writeSettings({ marks: on });
-}
-
-const toggleDiff = () => setMarks(!state.diff);
-
-/**
- * `m` and the menu item, and nothing when the mark is already on the version on
- * disk: pressing it twice should not cost a round trip and a repaint to leave
- * the document exactly as it was.
- */
-function tapMarkRead() {
-  if (!readDone(state.data)) markRead();
-}
+// The view and the marks are vm/view.ts; the bar's button for the view is wired there.
 
 // The letters, the scrolling and the ⌘ shortcuts: layout/keys.ts.
 bindKeys({
@@ -1324,122 +881,14 @@ bindNative({
   setTocSide,
   setDocId,
   connect,
-  // Wrapped, because `keptBaseline` is a const further down: named here it is not one yet.
-  keptBaseline: () => keptBaseline(),
+  keptBaseline,
   load,
   scrollMemory,
 });
 
 // ---------- settings ----------
 
-// What is worth a setting: the things you decide once and want kept — how the
-// app looks, what it does when it starts, how the document reads, and what
-// "changed" is measured against. Everything else stays on the toolbar, where
-// it is one click away and belongs to the moment rather than to you.
-//
-// The desktop app keeps them beside the window state, so every window agrees
-// and the shell can act on the ones that are its own (launch, Finder, and the
-// window's theme, which is the chrome's and is what System is read from);
-// a browser tab keeps its own copy and never shows the rows for launch and
-// Finder. Appearance it does show: the page draws the scheme (`applyScheme`).
-
-const DEFAULT_SETTINGS = {
-  appearance: 'system', // 'system' | 'light' | 'sepia' | 'dark'
-  reopenLast: true, // start with the files you left open, or ask
-  finderOpensIn: 'tab', // where a file from Finder lands: 'tab' | 'window'
-  font: 'sans', // the document's typeface: 'sans' | 'serif' | 'mono' | 'custom'
-  fontName: '', // the one you picked, when font is 'custom'
-  textSize: 15, // the document's own text, in px
-  width: 'medium', // 'narrow' | 'medium' | 'wide'
-  marks: true, // show the change marks
-  baseline: 'read', // 'read' | 'git'
-};
-
-let settings = { ...DEFAULT_SETTINGS };
-
-/** What **Compare against** in the settings sheet names, as a baseline id. */
-const defaultBaseline = () => (settings.baseline === 'git' ? 'git:HEAD' : 'read');
-
-/**
- * What to ask for when a document is *shown* rather than when a baseline is
- * *chosen*: the one it was last compared against, and the setting above only
- * for a document that has never been compared against anything.
- *
- * The reader resolves the pair, because only it knows the file's history — see
- * `validBaseline` in src/reader/reader.ts. Asking it that way instead of looking the
- * answer up here is what keeps the first paint right: this page does not learn
- * which file it is showing until the document arrives.
- */
-const keptBaseline = () => `last:${defaultBaseline()}`;
-
-/**
- * Light or dark, from the setting, onto <html> and the two highlight.js
- * stylesheets — what the head script in index.html does before first paint,
- * and the two must agree. Dark is on screen only, as every dark palette is, so
- * that print stays light. Sepia is drawn on light. Answers whether the scheme
- * moved, for the callers that have diagrams to redraw if it did.
- */
-function applyScheme() {
-  const root = document.documentElement;
-  const was = root.dataset.scheme;
-  const look = settings.appearance;
-  const scheme = look === 'dark' || (look === 'system' && darkMode.matches) ? 'dark' : 'light';
-  root.dataset.scheme = scheme;
-  $<HTMLLinkElement>('hljsLight').media = scheme === 'dark' ? 'print' : 'all';
-  $<HTMLLinkElement>('hljsDark').media = scheme === 'dark' ? 'screen' : 'not all';
-  return scheme !== was;
-}
-
-/** Everything a setting changes in this page. Safe to run again at any time. */
-function applySettings() {
-  const root = document.documentElement;
-  root.dataset.font = settings.font;
-  const named = settings.font === 'custom' && cleanFontName(settings.fontName);
-  // The three built-in families are stylesheet rules; a font picked by name
-  // can only be an inline value. Clearing it puts those rules back in charge.
-  if (named) root.style.setProperty('--doc-font', `${JSON.stringify(named)}, var(--font-sans)`);
-  else root.style.removeProperty('--doc-font');
-  root.style.setProperty('--doc-size', `${settings.textSize}px`);
-  root.dataset.width = settings.width;
-  // The cream is the stylesheet's, keyed off the tint, over the light scheme.
-  // Diagrams are drawn with their colours baked in, so a change of tint or of
-  // scheme has to redraw them — but only a change: this runs on every setting,
-  // and at boot. On System, the scheme read here is the one the window had: the
-  // shell unpins it after this, and the listener on `darkMode` catches that.
-  const wasSepia = sepia();
-  if (settings.appearance === 'sepia') root.dataset.tint = 'sepia';
-  else delete root.dataset.tint;
-  const schemeMoved = applyScheme();
-  if ((sepia() !== wasSepia || schemeMoved) && retheme()) paint();
-  // Mirrored for the inline script in index.html, which runs before first
-  // paint — and, in a browser tab, this is the store rather than a mirror.
-  prefs.setItem('redline:settings', JSON.stringify(settings));
-  setDiff(settings.marks);
-  // What the sheet shows. The measure comes off the variable the document
-  // reads, so what Settings says a width is can never drift from what it is.
-  shownSettings.value = settings;
-  docMeasure.value = getComputedStyle(root).getPropertyValue('--doc-width').trim();
-}
-
-/** Take a change here first, so the window answers at once, then store it. */
-function writeSettings(patch) {
-  settings = { ...settings, ...patch };
-  applySettings();
-  native?.setSettings(patch);
-}
-
-const stepSize = (by) =>
-  writeSettings({ textSize: Math.min(Math.max(settings.textSize + by, SIZE_MIN), SIZE_MAX) });
-
-function openPrefs() {
-  if (prefsOpen.value === null) prefsOpen.value = '';
-}
-
-$('prefsBtn').addEventListener('click', openPrefs);
-
-// The menu sends this in the desktop app; in a browser tab the page has to
-// catch the key itself.
-native?.onOpenSettings(() => openPrefs());
+// vm/settings.ts, and the sheet ui/Settings.tsx, mounted below with the update check it shares.
 
 // ---------- about, and updates ----------
 
@@ -1515,33 +964,6 @@ if (native) {
     prefsOpen.value = 'aboutSec';
     checkUpdate();
   });
-}
-
-async function initSettings() {
-  let stored = {};
-  try {
-    stored = native
-      ? await native.settings()
-      : JSON.parse(prefs.getItem('redline:settings') || '{}');
-  } catch {
-    /* a corrupt or unreadable copy just means the defaults */
-  }
-  settings = { ...DEFAULT_SETTINGS, ...stored };
-  applySettings();
-  state.baseline = keptBaseline();
-
-  // Changed in another window, or from the menu.
-  native?.onSettings((s) => {
-    settings = { ...DEFAULT_SETTINGS, ...s };
-    applySettings();
-  });
-
-  if (native) storeRoot.value = await native.storeRoot();
-
-  // Started now rather than when the sheet opens: asking the OS costs a third
-  // of a second, and a popup that fills in after you have looked at it is a
-  // popup you saw the wrong answer in. Nothing waits on it.
-  listFonts(backend, () => settings);
 }
 
 // ---------- live reload ----------
@@ -1625,6 +1047,10 @@ async function openFile(path, { unopened = null } = {}) {
 // Before the first load: the text size, the width and the marks all have to be
 // right on the first paint, and the baseline decides what that paint shows.
 await initSettings();
+// Started now rather than when the sheet opens: asking the OS costs a third
+// of a second, and a popup that fills in after you have looked at it is a
+// popup you saw the wrong answer in. Nothing waits on it.
+listFonts(backend, () => settings);
 if (native) {
   // Which document that is comes from `onTabs`'s first event instead -- see
   // `firstTabShown` above.

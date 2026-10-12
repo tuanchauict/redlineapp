@@ -3,7 +3,7 @@
 // The typefaces the Settings popup offers beyond the three built in.
 
 import { fontGroups, type Settings } from '../state.js';
-import { cleanFontName } from '../ui/Settings.js';
+import { cleanFontName } from '../vm/settings.js';
 
 /**
  * Whether a named font resolves on this machine, rather than quietly falling

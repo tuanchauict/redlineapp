@@ -1,5 +1,5 @@
-// The window's fixed chrome -- the bar's buttons, the dot, the sidebar disclosures, the find bar
-// and the notice -- kept to the signals that say what each shows.
+// The window's fixed chrome -- the bar's buttons, the dot, the sidebar disclosures and the History
+// heading, the find bar and the notice -- kept to the signals that say what each shows.
 //
 // Not components, on purpose. These are on screen from the first frame, before app.js has run,
 // so they are markup in index.html, where the browser draws them with the rest of the page; a
@@ -8,7 +8,7 @@
 // it runs once now, against whatever the head script and the stored prefs already say, and again
 // whenever a signal it read changes. Code elsewhere sets the signal and never the attribute.
 import { effect } from '@preact/signals';
-import { state, liveWhy, shut } from '../state.js';
+import { state, liveWhy, shut, shownHistory } from '../state.js';
 import { findOpen, findCount } from '../vm/find.js';
 import { notice } from '../vm/notice.js';
 
@@ -65,6 +65,26 @@ export function bindChrome() {
     if (why === null) live.removeAttribute('aria-label');
     else live.setAttribute('aria-label', why);
   });
+
+  // The History heading: how many versions there are, Clear history, and the switch for reading
+  // one alone -- all three about the list under them, so drawn off the same payload it is.
+  effect(() => {
+    const versions = shownHistory.value?.history ?? [];
+    $('histCount').textContent = versions.length > 1 ? String(versions.length) : '';
+    $('histClear').hidden = versions.length < 2;
+    // Nothing older to read with one version — but never hidden while on, or it
+    // could not be found again to switch off.
+    $('histSolo').hidden = versions.length < 2 && !state.solo;
+  });
+  effect(() =>
+    press(
+      $('histSolo'),
+      state.solo,
+      state.solo
+        ? 'Compare against the version picked again (v)'
+        : 'Read the version picked by itself, without the changes since (v)',
+    ),
+  );
 
   // The class is what folds the section, and the head script set it before first paint; this
   // keeps it, and the button's state, to `shut` from here on.
