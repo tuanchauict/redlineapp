@@ -11,31 +11,35 @@ npm run dev -- sample.md     # the same window, page reloadable without a recomp
 npm run webapp               # the web app, built and served on 127.0.0.1:8081
 ```
 
-For the browser the build is short: `tsc -b` compiles what node runs into `out/` (a no-op
-when nothing changed), `prestart` bundles `src/` for the page, and `public/` runs as it
-is. The native window is a Rust binary, so it needs a toolchain — [rustup](https://rustup.rs) —
-and the first compile takes a few minutes. After that it is seconds.
+For the browser the build is short: `tsc -b` compiles what node runs into `out/` and the page
+beside its sources (a no-op when nothing changed), `prestart` bundles `src/` for the page, and
+`public/` runs as `tsc` left it. The native window is a Rust binary, so it needs a
+toolchain — [rustup](https://rustup.rs) — and the first compile takes a few minutes. After
+that it is seconds.
 
 ## What is generated
 
 Four commands, and the reason to know about `build:web` and `build:dist` is that the app
 **embeds** its copy of the page at compile time. A change to `public/` that has not been
 through both is a change that is not in the window, which looks exactly like the change
-not working.
+not working. The copy is the *compiled* page, `public/app.js` and not `app.ts`, so `tsc`
+comes before both, and each of them runs it.
 
 | | |
 | --- | --- |
-| `npm run build:ts` | `tsc -b`: compiles `bin/`, `scripts/`, `src/` and the test into `out/`, which mirrors the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`). Gitignored, and what every npm script runs; every other build command runs it first. See [TypeScript](typescript.md) |
+| `npm run build:ts` | `tsc -b`: compiles `bin/`, `scripts/`, `src/` and the test into `out/`, which mirrors the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`). Gitignored, and what every npm script runs; every other build command runs it first. It also compiles the page, `public/app.ts`, `public/backend.ts` and `site/landing.ts`, **in place**: the `.js` beside each is gitignored and is what the server serves and the commands below stage. See [TypeScript](typescript.md) |
 | `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mts`, which stops the build if a release moves the palettes) |
-| `npm run build:dist` | Stages `shell/dist`: `public/`, the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
+| `npm run build:dist` | Stages `shell/dist`: `public/` (the compiled `.js`, not the `.ts`), the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
 | `npm run build:webapp` | Stages `dist/web`, the web app: the same page, with the web bundles in and the Tauri backend left out, the web app's `host.js` over the empty one, every file asked for as `?v=<build>`, and a `_headers` file that says what to keep for a year. See [The web app](#the-web-app) |
 
 `npm run app`, `npm run dev`, `npm run bundle`, `npm run webapp` and `npm test` each run
-the ones they need, so the only time to reach for them by hand is after editing `src/` with a
-window already open — and `npm run dev` re-runs them for you on every edit, which is
-[the point of it](#the-dev-loop). One exception: `npm run dev` compiles `out/` once, when
-it starts. A change to `scripts/` or `src/hosts/node/` while it runs is not picked up until
-the next `npm run build:ts`; a change to `src/` is, because esbuild reads it directly.
+the ones they need, so the only time to reach for them by hand is after editing `src/` or
+`public/` with a window already open — and `npm run dev` re-runs them for you on every edit,
+which is [the point of it](#the-dev-loop). One exception: `npm run dev` compiles `out/` once,
+when it starts, and then `tsc -b --watch` keeps it current, so the scripts it re-runs are the
+ones just saved. `dev.mts` itself is not one of them: it is already running. With `--no-watch`
+there is no `tsc` and no restage, and a change to `scripts/` or `src/hosts/node/` waits for
+the next `npm run build:ts`.
 
 `build:dist` and `build:webapp` are both `stagePage` in `scripts/stage-page.mts`, called
 for a different host: it is the one place that knows what goes into a page and what only
@@ -203,8 +207,8 @@ M-series laptop, with everything warm:
 
 | | |
 | --- | --- |
-| `npm start` | no compile at all. The browser tab is `src/` and `public/` as they are |
-| `npm run app` | **~3 s** — `build:web` and `build:dist` are two tenths of it, a cargo dev build is the rest. Every page edit pays it, because the page is *in* the binary |
+| `npm start` | **~0.4 s** when nothing has changed: `prestart` runs `build:web`, which runs `tsc -b` and then bundles `src/`. The browser tab is the page as `tsc` left it |
+| `npm run app` | **~3 s** — `build:web` and `build:dist` are about 0.4 s each of it (about half of each is `npm run build:ts` finding nothing to do), a cargo dev build is the rest. Every page edit pays it, because the page is *in* the binary |
 | `npm run bundle` | **~40 s of compile** before it even starts bundling, and then a dmg. `opt-level = "z"` with LTO and one codegen unit means an edit anywhere re-optimizes everything |
 
 So the bundle is for shipping, and CI is where it belongs. Three seconds is not
@@ -441,8 +445,9 @@ of compile to save and seconds to restore.
 ## The landing page
 
 `site/` is the project's page on the web — one hand-written `index.html`, one
-stylesheet, one module, no framework and no bundler, the same way the reader itself
-is written. It is not part of the app and the app knows nothing about it.
+stylesheet, one module (`landing.ts`, which `tsc` compiles in place to the `landing.js` the
+page loads), no framework and no bundler, the same way the reader itself is written. It is
+not part of the app and the app knows nothing about it.
 
 ```
 npm run site                       # builds, serves, opens http://127.0.0.1:8080/
@@ -456,10 +461,12 @@ loopback only, nothing cached — a stylesheet held for a minute during a round 
 edits is a change that looks like it did not land. It takes the same `-p` / `--port`
 and `--no-open` as the reader's own CLI and walks to the next free port the same way.
 
-Nothing is watched and nothing is rebuilt while it runs, and it does not need to be:
-the page is served exactly as it is written, so edit `index.html`, the stylesheet or
-the module and reload. Only the icon and the og:image are staged, and those change
-about once a year.
+Nothing is watched and nothing is rebuilt while it runs. `index.html` and the stylesheet
+are served exactly as they are written, so edit them and reload. The module is the one
+exception, because it is TypeScript: `presite` compiled it once, when the server started,
+and after an edit to `landing.ts` it is `npm run build:ts` (or `npx tsc -b --watch` in
+another terminal) that writes the new `landing.js`, and then you reload. Only the icon and
+the og:image are staged, and those change about once a year.
 
 **Not `open site/index.html`.** `landing.js` is a module, and every browser refuses a
 module script from a `file://` origin. The page still renders — it ships in its
@@ -546,7 +553,7 @@ Three more consequences worth knowing before editing any of it:
   below it, twice a lap, with nobody touching the page. Each of the five handles it
   without a pixel value for anyone to maintain: the hero's marked state is taller than
   its clean one (the removed block and the removed words leave the flow), so
-  `landing.js` measures it once and pins it; `#sim-view` gives both panes the same
+  `landing.ts` measures it once and pins it; `#sim-view` gives both panes the same
   grid cell, which makes the box the taller of prose and source at every width;
   `#sim-jump` scrolls inside a fixed window; `#sim-tone` only ever changes colour; and
   `#sim-history` hides its removed paragraph with `visibility` rather than taking it
@@ -745,9 +752,12 @@ CLOUDFLARE_ACCOUNT_ID    Workers & Pages, in the sidebar on the right
 ```
 
 It is **two jobs**, the way [the web app's](#publishing-the-web-app) is. `build` runs
-`npm ci` and `npm run build:site` — which compiles `scripts/build-site.mts` first, so
-the job needs the repository's dependencies, and `npm ci` runs every dependency's
-install scripts — and uploads `site/`. `deploy` holds the Cloudflare token and runs
+`npm ci` and `npm run build:site` — which compiles `scripts/build-site.mts` and `landing.ts`
+first, so the job needs the repository's dependencies, and `npm ci` runs every dependency's
+install scripts — and uploads `site/` without its `.ts`, since `landing.ts` sits beside the
+`landing.js` it compiled to and the page needs only the second (`!site/*.ts` in the step's
+`path`; asserted in `test-smoke.js`, and **not yet run on GitHub**: see [The page
+project](typescript.md#the-page-project)). `deploy` holds the Cloudflare token and runs
 nothing from the repository: it downloads that artifact and hands it to wrangler, with
 the project and the directory named on the command line, because it has no checkout and
 so no `wrangler.toml`. An unbuilt `site/` is the page with no icon and no link preview,
