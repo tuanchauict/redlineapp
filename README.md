@@ -236,9 +236,9 @@ left alone. One hand-written stylesheet. The diff works at two levels, blocks an
 words, on top of markdown-it's own parser. The word diff compares *rendered HTML* rather
 than markdown source, which is why a mark never splits a link or a run of bold text.
 
-**One test file, and it boots the real thing.** `test-smoke.ts` has about 600
-assertions, no test framework and no mocks. It starts the actual server on a temp
-file, edits the file, and checks what comes back. Then it searches the client code
+**Tests that boot the real thing.** `test/` holds a file per topic, about 1,600
+assertions on Node's own `node:test`, and no mocks. They start the actual server on a temp
+file, edit the file, and check what comes back. Then they search the client code
 to make sure each feature is actually *wired up*, because a diff that is correct but
 unreachable would otherwise pass.
 → [Architecture](docs/architecture.md) · [Building and testing](docs/building.md)

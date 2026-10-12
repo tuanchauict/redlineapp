@@ -2,9 +2,9 @@
 
 Node ESM and hand-written CSS, with Preact for the page's chrome and nothing for the
 document ([The client](#the-client)). `src/`, `bin/`, `scripts/`, the page (`public/`,
-`site/`) and the test (`test-smoke.ts`) are TypeScript, apart from the two classic scripts
+`site/`) and the tests (`test/`) are TypeScript, apart from the two classic scripts
 that have to stay JavaScript ([typescript.md](typescript.md)). The code Node runs (`bin/`,
-`scripts/`, `src/hosts/node/`, the test) goes through `tsc` into `out/` first. The page is
+`scripts/`, `src/hosts/node/`, the tests) goes through `tsc` into `out/` first. The page is
 different: it is edited as the directory `public/app/` and served as one file,
 `public/app.js`, which `build:web` bundles from it, so `tsc` checks it and writes nothing.
 Two page files, `public/backend.ts` and `site/landing.ts`, compile in place instead, to the
@@ -117,7 +117,8 @@ scripts/make-icons.mts  icon.svg -> icon.png, icon.icns
 scripts/bundle.mts      .app and .dmg
 scripts/build-site.mts  stage site/: the icon, and the one image it names
 scripts/serve-site.mts  serve site/ over node, so a module script loads at all
-test-smoke.ts           the whole test suite
+test/                   the test suite, a file per topic on `node:test`; support.ts is what
+                        more than one needs
 
 site/                   the landing page, `landing.ts` compiled in place to `landing.js`.
                         Nothing above it knows it exists
@@ -794,7 +795,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
   (`showDiagramError`), and there is no Settings row for it to hide yet.
 - **What is not verified from here:** the pickers, a drop, `persist()` and how a `SharedWorker`
   calls `getFile()` and `queryPermission()` are behaviours of a browser. The tests stand in
-  fakes for them (test-smoke.ts, 12d), and the layout and contrast of the welcome, and of the
+  fakes for them (`test/web/reader.test.ts`), and the layout and contrast of the welcome, and of the
   open files in a browser, have not been looked at.
 
 ### Staging the page, and the web app's build
@@ -1045,5 +1046,5 @@ file.
   its specificity, so any rule that sets `display` on an element that gets toggled
   with `hidden` must carry its own `[hidden]` rule. The idiom here is
   `.row[hidden] { display: none }`.
-- Every behaviour that can be asserted from outside gets an assertion in
-  `test-smoke.ts` — see [Building and testing](building.md).
+- Every behaviour that can be asserted from outside gets an assertion in the
+  file under `test/` for its topic — see [Building and testing](building.md).

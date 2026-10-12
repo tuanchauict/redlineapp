@@ -12,8 +12,8 @@ converted `bin/` and `scripts/`. Step 4 converted the page: `public/app.ts`,
 ([The page project](#the-page-project)). `public/app.ts` has since become the directory
 `public/app/`, which `tsc` only checks and esbuild bundles into `app.js`, so that project
 compiles two files and not three ([The app project](#the-app-project)). Step 5 converted the
-suite, `test-smoke.ts`, which the node project checks like the code it tests. Nothing the
-build is meant to compile is JavaScript any more. The two classic scripts,
+suite, then `test-smoke.ts` and now a file per topic under `test/`, which the node project
+checks like the code it tests. Nothing the build is meant to compile is JavaScript any more. The two classic scripts,
 `src/hosts/web/host.js` and `public/host.js`, stay JavaScript and are copied as they are
 ([What stays JavaScript](#what-stays-javascript)); the first is still read by `tsc`, which
 that section explains. A `.js` file is not type-checked (`allowJs` on, `checkJs` off; the page
@@ -28,7 +28,7 @@ and every other flag, are still lenient ([The ladder](#the-ladder)).
 
 | | Where it lives | Built to |
 | --- | --- | --- |
-| Run by Node: `bin/`, `src/`, `scripts/`, `test-smoke.ts` | the repository | `out/`, mirroring the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`), by `tsc` |
+| Run by Node: `bin/`, `src/`, `scripts/`, `test/` | the repository | `out/`, mirroring the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`), by `tsc` |
 | Named by a URL, and standing alone: `public/backend.ts`, `site/landing.ts` | the repository | **in place**, gitignored, by `tsc`: `public/backend.js` and `site/landing.js`, each beside its source. The server, `stage-page.mts`, the `?v=` rewrite and the tests all name those paths, and compiling to `out/` would have renamed every one |
 | The page: `public/app/` | the repository | `public/app.js`, gitignored, by esbuild in `build-web.mts`. `tsc` type-checks it and writes nothing ([The app project](#the-app-project)) |
 
@@ -61,7 +61,7 @@ An import keeps the name of what it will find *after* compiling: `./stage-page.m
 sibling `stage-page.mts`, and `../src/hosts/node/root.js` for `root.ts`. That is how `NodeNext`
 resolves it, and it is the same name in `out/`. A string that names a script
 (`build('build-web.mjs')` in `dev.mts`) is compiled output as well, and `tsc` does not check
-a string, so `test-smoke.ts` checks that each one exists under `out/`, along with every path
+a string, so `test/repo.test.ts` checks that each one exists under `out/`, along with every path
 that `package.json` hands to Node, and that `bin/` and `scripts/` hold no `.js` or `.mjs` at
 all: one would be compiled and never checked, and nothing else would say it was forgotten.
 Those existence checks only mean something from a clean `out/`, which is what CI has; see
@@ -75,12 +75,12 @@ Those existence checks only mean something from a clean `out/`, which is what CI
 | Project | Holds | Environment |
 | --- | --- | --- |
 | `tsconfig.src.json` | `src/` except `src/hosts/node/` | DOM lib, **no node types** |
-| `tsconfig.node.json` | `src/hosts/node/`, `bin/`, `scripts/`, `test-smoke.ts` | `@types/node` |
+| `tsconfig.node.json` | `src/hosts/node/`, `bin/`, `scripts/`, `test/` | `@types/node` |
 | `tsconfig.page.json` | `public/*.ts` (`backend.ts`), `site/*.ts` (`landing.ts`), `types/` | DOM lib, **no node types** |
 | `tsconfig.app.json` | `public/app/`, `types/` | DOM lib, **no node types**, JSX for Preact, **`noEmit`** |
 
 The `src` project has `"types": []` so that "nothing under `core/`, `page/` or `reader/`
-may reach for a node built-in" — a rule `test-smoke.ts` checks with a grep — is also a
+may reach for a node built-in" — a rule `test/layers.test.ts` checks with a grep — is also a
 compile error in a `.ts` file. `core/hash.ts` is where it showed: it uses Node's `Buffer`
 only where there is no `TextEncoder`, and says so with a `declare const Buffer` of its own
 rather than with the node types. The `page` and `app` projects have `"types": []` for the
@@ -112,7 +112,7 @@ so the parameter type asks for more than the function uses, and `plantumlSvg` re
 union whose `error` branch the suite narrows.
 
 **The floor.** The suite asserts what the ratchet has turned on, so that a flag that is on
-cannot be switched off without a test failing. `FLOOR` in `test-smoke.ts` is a table from a
+cannot be switched off without a test failing. `FLOOR` in `test/repo.test.ts` is a table from a
 project's config file to the flags that must be on in it (today `tsconfig.src.json` and
 `noImplicitAny`). For each entry the test reads the project and `tsconfig.base.json`, merges
 their `compilerOptions` (every project extends the base and nothing deeper, so one level is
@@ -215,7 +215,7 @@ beside its sources for the same reason, though esbuild writes it and not this pr
 project](#the-app-project)). The built files are gitignored, and a test asserts it, because a
 tracked copy goes stale against its source and looks exactly like the change not working. The
 config is JSON and cannot say why it is the way it is, so the reasons are here, and
-`test-smoke.ts` holds each line they explain.
+`test/web/compile.test.ts` holds each line they explain.
 
 **It names its own `exclude`.** With `outDir` set to `.`, `tsc`'s default `exclude` (`node_modules`
 and the `outDir`) is the whole repository, so the project includes nothing: `tsc -b` compiles
@@ -289,7 +289,7 @@ here.
 **The read rule.** `tsc` and esbuild both reprint what they emit: they re-indent, split a
 one-line `if` over lines and drop every annotation, and esbuild writes a bundle's top-level
 `const` as `var`, so the built `public/app.js` is not the file whose shape anyone wrote. A grep
-for how the *source* is written therefore reads the `.ts`: `appJs` in `test-smoke.ts` is
+for how the *source* is written therefore reads the `.ts`: `pageJs` in `test/support.ts` is
 `pageSource()`, every `.ts` and `.tsx` under `public/app/` joined into one text, so a grep does
 not care which module a line is in. The `Backend` signatures are read from `public/backend.ts`
 and the landing page's checks from `site/landing.ts`. Anything that is *executed* or *served*
@@ -348,9 +348,9 @@ comes in as callbacks), so a module can come out of `main.ts` without a cycle.
 
 The project is as lenient as the rest, `strict: false`, and with the suite it is where most of
 the implicit `any`s are: `main.ts` has untyped parameters throughout, and the ratchet has no
-entry for it ([The ladder](#the-ladder)). `test-smoke.ts` does not hold `tsconfig.app.json`
-the way it holds the page project's lines (`allowJs` off, `rootDirs`, the `exclude`): nothing
-fails if `noEmit` goes, or the JSX settings drift from esbuild's, short of the build breaking.
+entry for it ([The ladder](#the-ladder)). `test/web/compile.test.ts` does not hold
+`tsconfig.app.json` the way it holds the page project's lines (`allowJs` off, `rootDirs`, the
+`exclude`): nothing fails if `noEmit` goes, or the JSX settings drift from esbuild's, short of the build breaking.
 
 ## What the conversion needed
 
@@ -515,7 +515,7 @@ Each step is its own PR, with `npm test` and `npm run bundle` green.
    goes with `strictNullChecks`: `render.ts` reads `(value as FrontText).text`, because
    `FrontRow` types a keyless row's value as any `FrontValue` while `readMap` only builds text
    for a keyless row, and a union does not narrow at `strict: false`. The node, page and app
-   projects stay lenient and their flags are not scheduled: `test-smoke.ts` and `app.ts`
+   projects stay lenient and their flags are not scheduled: the suite and `app.ts`
    (now `public/app/main.ts`) hold most of the implicit `any`s in them (643 `noImplicitAny`
    errors between the node and page projects when this was written, 590 of them in those two
    files, when `app.ts` was still in the page project), a flag applies to a whole project, and
