@@ -288,7 +288,7 @@ error in one stops `pretest`'s `tsc -b` and `npm test` fails before it has run a
 | `test/server/` | a real server on a temp file: reading, versions, git, documents, assets |
 | `test/page/` | the page's wiring and its helpers run in a `vm`, panel by panel |
 | `test/web/` | the web app: its platform, its reader, its build, and the docs it ships with |
-| `test/*.test.ts` | layers, security, CI, release, the shell, the landing page, the repository |
+| `test/*.test.ts` | the CLI as a process, layers, security, CI, release, the shell, the landing page, the repository |
 | `test/support.ts` | what more than one file needs; the one file here that is not a test |
 
 A file is its own process, so nothing in `support.ts` is state: `scratch()` gives a file its own
@@ -316,7 +316,11 @@ name is migrated; and that the server refuses a rebound `Host` or another site's
 request, and serves the page with its CSP; that `LICENSE` is the Apache text to the
 byte, the bundle carries it with `NOTICE` and the third-party notices, and those
 notices are current with both lockfiles; and that the bundle identifier is still
-`com.redline.reader`, which everything the app remembers is filed under.
+`com.redline.reader`, which everything the app remembers is filed under. Run whole: History's
+rows, menu and Forget; find through its bar; the link peek; which file a row or a link opens;
+the document's load, its failures, a reload that keeps what was opened, and the watch; the RPC
+client over a fake transport; the reader's watcher over a save that replaces the file; and the
+CLI's options, refusals and port fallback, as a process.
 
 The files under `test/page/` also grep `public/` to check that each of those features is
 actually **wired up** — the id exists, the handler exists, the CSS rule exists. A diff that is
@@ -329,6 +333,24 @@ file, and `export` taken off by the test that lifts them. Not the bundle: in `ap
 sits in beside the page, and esbuild renames a page name wherever it meets one of Preact's
 own. The checks on what is *served* (the four imports, the preference fallback) do read
 `app.js`.
+
+The viewmodels are also run whole, over the real `index.html`. `fakeWindow()` in `support.ts`
+is a hand-written DOM -- elements, text nodes, events that bubble, `classList`, `dataset`,
+`style`, a selector matcher for compound selectors and comma lists, `innerHTML` both ways --
+with the page's globals around it: `location`, `history.replaceState`, `matchMedia`, the prefs
+store, timers, and a size. What it does not know it throws on rather than guess. `loadPage(
+['state', 'vm/history'], { win, stubs })` bundles those modules with esbuild and runs them in
+that window: each key in `stubs` (`backend`, `vm/document`, `../vendor/sanitize`) replaces the
+module at that path, so a test keeps the module under test and its real neighbours, and stands
+in for what draws around it or talks to a reader. A function stub forwards to the window's copy,
+so a test can swap one after the load; a value is read once. The bundle is cached by module
+list and stub shape, so a test that loads one page over three hundred windows builds it once.
+What comes back is the module namespaces -- destructure the export, `{ state: { state } }`,
+not the namespace, or a write goes nowhere -- and anything out of the window's realm wants
+`plain()` before `deepStrictEqual`. `spy()` is a function that keeps its calls. `runHeadScript(
+win)` runs the inline `<script>` in the head, which is how `layout.test.ts` holds the head
+script and `layout/` to the same widths over a grid of windows. No layout is computed: a rect
+is whatever the test sets on `el.rect`.
 
 It cannot watch a hostile document fail to run, because there is no DOM here. What
 it checks instead is that each layer from

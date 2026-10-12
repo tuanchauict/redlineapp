@@ -257,3 +257,14 @@ test('the `---` header block reads as fields', async () => {
     'the card is set in mono, independent of the document font',
   );
 });
+
+test('a header field that is a list is drawn as one, escaped, and an empty one as nothing', () => {
+  const html = createMarkdown().render(
+    '---\ntitle: T\ntags: [a, "<b>"]\nnone: []\nsteps:\n  - one\n  - two\n---\n\nBody\n');
+  assert.match(html, /<dt>tags<\/dt><dd><ul><li>a<\/li><li>&lt;b&gt;<\/li><\/ul><\/dd>/,
+    'a flow sequence is a list, its items text and not markup');
+  assert.match(html, /<dt>steps<\/dt><dd><ul><li>one<\/li><li>two<\/li><\/ul><\/dd>/,
+    'and so is a block one');
+  assert.match(html, /<dt>none<\/dt><dd><\/dd>/,
+    'an empty list is an empty value, not an empty <ul>');
+});

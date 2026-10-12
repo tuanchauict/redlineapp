@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import { rootUrl } from '../../src/hosts/node/root.js';
-import { pageCss, pageHead, pageHtml, pageJs } from '../support.js';
+import {
+  fakeWindow, loadPage, pageCss, pageHead, pageHtml, pageJs, runHeadScript,
+} from '../support.js';
 
 // Dragging either column's inner edge. The grip has to exist, has to be styled
 // (a 1px border with no cursor is not a handle anyone finds), and both widths
@@ -256,4 +258,54 @@ test('Contents resizes against History, and defaults to room for a document\'s s
     /\.shut-hist:not\(\.shut-toc\) #tocSec/,
     'and Contents takes over when History alone is put away',
   );
+});
+
+// The head script and layout/ each work out the two widths and the contents height -- the script
+// before first paint, the modules from the first frame on -- and the greps above only say both
+// exist. Run here over the same prefs and the same window, the script first and the modules
+// after it as a tab runs them, every number the script wrote has to be the one the modules then
+// write over it: any difference is a column visibly jumping on every open.
+test('the head script and layout/ arrive at the same widths and height', async () => {
+  const vars = (win) => {
+    const v = win.document.documentElement.style.vars;
+    return { side: v.get('--side-w'), toc: v.get('--toc-w'), tocH: v.get('--toc-h') };
+  };
+  const sizes = [null, '90', '236', '400', '700', 'junk'];
+  let cases = 0;
+  for (const host of ['cli', 'web', 'native'])
+    for (const [width, height] of [[480, 260], [760, 420], [1000, 700], [1600, 1100]])
+      for (const side of [null, '1'])
+        for (const toc of [null, '1'])
+          for (const [sidew, tocw, toch] of [
+            [null, null, null], ...sizes.map((s, i) => [s, sizes.at(-1 - i), sizes[(i + 2) % 6]]),
+          ]) {
+            const store = new Map(Object.entries({
+              'redline:side': side, 'redline:toc': toc,
+              'redline:sidew': sidew, 'redline:tocw': tocw, 'redline:toch': toch,
+            }).filter(([, v]) => v !== null));
+            const search = host === 'native' ? '?native' : '';
+            const win = fakeWindow({ search, width, height, store });
+            if (host === 'web') Object.assign(win, { __REDLINE_WEB: true });
+            runHeadScript(win);
+            const head = vars(win);
+            const kept = JSON.stringify(Object.fromEntries(store));
+            const label = `${host} ${width}x${height}, ${kept}`;
+            assert.ok(head.side && head.toc && head.tocH,
+              `${label}: the head script sets all three`);
+            await loadPage(['layout/widths', 'layout/toc-height'], { win });
+            assert.deepStrictEqual(vars(win), head, `${label}: and layout/ agrees with it`);
+            cases++;
+          }
+  // A window resized later is the modules' alone, and has to land where a window opened at that
+  // size would have: the head script for the new size is the reference.
+  const store = new Map([['redline:side', '1'], ['redline:toc', '1'], ['redline:sidew', '400']]);
+  const win = fakeWindow({ search: '?native', width: 1600, height: 1000, store });
+  runHeadScript(win);
+  await loadPage(['layout/widths', 'layout/toc-height'], { win });
+  Object.assign(win, { innerWidth: 700, innerHeight: 300 });
+  win.fire(win.__target, 'resize');
+  const fresh = fakeWindow({ search: '?native', width: 700, height: 300, store: new Map(store) });
+  runHeadScript(fresh);
+  assert.deepStrictEqual(vars(win), vars(fresh), 'a resize lands where an open at that size does');
+  assert.ok(cases > 300, `and the grid is not empty (${cases} cases)`);
 });
