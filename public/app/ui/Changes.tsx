@@ -4,11 +4,12 @@
 // document open, so it is one component, ending in the line that divides it from the buttons
 // that are about the window.
 //
-// Drawn from `tally` and `soloName`, which `paintCount` (vm/changes.ts) and `paintSolo` leave, and
+// Drawn from `tally`, which `paintCount` (vm/changes.ts) leaves, `soloName` (vm/history.ts), and
 // `state.diff`: the number of changes is worked out from the payload, and how many of them the
 // arrows can reach is counted off the page, which is not a thing a render should be asking.
 import { render } from 'preact';
-import { state, soloName } from '../state.js';
+import { state } from '../state.js';
+import { soloName } from '../vm/history.js';
 import { tally } from '../vm/changes.js';
 
 export interface ChangesActions {

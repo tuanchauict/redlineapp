@@ -109,9 +109,6 @@ export const cutFrom = signal<string | null>(null);
  */
 export const barName = signal({ name: '…', dir: '', path: '' });
 
-/** The name of the version being read by itself, or null while the page compares. `paintSolo`. */
-export const soloName = signal<string | null>(null);
-
 /**
  * The chevron's menu, open: where the chevron's left edge was when it was pressed, which the
  * list is put under. Null while it is shut.
@@ -129,11 +126,11 @@ export const shut = signal(
   ['files', 'toc', 'hist'].filter((k) => document.documentElement.classList.contains(`shut-${k}`)),
 );
 
-// The Settings sheet's own state. main.ts keeps the settings themselves -- it is what applies
-// them to the window, stores them and hears them changed in another window -- and leaves here
-// what the sheet shows of them. ui/Settings.tsx draws it.
+// The Settings sheet's own state. vm/settings.ts keeps the settings themselves -- it is what
+// applies them to the window, stores them and hears them changed in another window -- and leaves
+// here what the sheet shows of them. ui/Settings.tsx draws it.
 
-/** What a setting can be. `DEFAULT_SETTINGS` in main.ts says what each one starts as. */
+/** What a setting can be. `DEFAULT_SETTINGS` in vm/settings.ts says what each one starts as. */
 export interface Settings {
   appearance: string;
   reopenLast: boolean;

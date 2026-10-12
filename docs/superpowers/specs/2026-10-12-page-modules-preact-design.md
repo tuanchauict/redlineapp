@@ -4,8 +4,9 @@ Status: phase 1 (the build), the signal-backed `state` of phase 2, and the compo
 phase 4 for History, Contents, the change ruler, the bar, the tabs and the left column, and
 Settings and the welcome are merged, as is phase 3's `layout/`. The rest of phase 3 is now the
 [viewmodels](#viewmodels) rather than `doc/`; the first of them — find, the link peek, the
-notice and diagrams — is merged, and the second, the changes and their check-offs, is
-`split-vm-changes`. The version menu is still imperative.
+notice and diagrams — is merged, as is the second, the changes and their check-offs. The
+third, History, the view and Settings, is `split-vm-history`: `vm/document.ts` stands in for the
+document core as a port until the fourth moves it in. The version menu is still imperative.
 
 ## Goal and decisions
 

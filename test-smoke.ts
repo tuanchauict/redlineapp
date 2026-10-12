@@ -1392,9 +1392,9 @@ assert.match(pageCss, /\.ruler-current \{/, 'and the stylesheet gives that mark 
 // names wherever they meet Preact's minified ones -- `$` is `$2` there -- so a lifted function
 // would call a helper the vm's fakes do not name. Transforming file by file renames nothing.
 const { transformSync } = await import('esbuild');
-const pageRun = ['public/app/main.ts', 'public/app/vm/changes.ts', 'public/app/vm/acks.ts']
-  .map((file) =>
-    transformSync(fs.readFileSync(rootUrl(file), 'utf8'), { loader: 'ts', target: 'es2022' }).code)
+const pageRun = ['main.ts', 'vm/changes.ts', 'vm/acks.ts', 'vm/settings.ts']
+  .map((file) => fs.readFileSync(rootUrl(`public/app/${file}`), 'utf8'))
+  .map((ts) => transformSync(ts, { loader: 'ts', target: 'es2022' }).code)
   .join('\n');
 
 // Stepping through the changes, run over fakes the way `applyScheme` is below: the arrows, `n`,
@@ -1724,11 +1724,11 @@ console.log('✓ the layout is its own modules, wired from main.ts');
     for (const spec of specs) {
       assert.ok(
         spec === '@preact/signals' ||
-          /^\.\.\/(state|dom|backend)\.js$/.test(spec) ||
+          /^\.\.\/(state|dom|backend|layout\/native)\.js$/.test(spec) ||
           /^\.\.\/\.\.\/vendor\//.test(spec) ||
           /^\.\/[\w-]+\.js$/.test(spec),
         `vm/${f} imports ${spec}: a viewmodel reaches only the state, the DOM, the backend, ` +
-          'the vendored renderer and its siblings',
+          'the shell, the vendored renderer and its siblings',
       );
     }
     const siblings = specs.flatMap((s) => /^\.\/([\w-]+)\.js$/.exec(s)?.[1] ?? []);
@@ -1768,10 +1768,10 @@ console.log('✓ the layout is its own modules, wired from main.ts');
     'as Contents follows it, on a listener of its own');
   assert.match(vm('diagrams.ts'), /doc\.addEventListener\('toggle', \(e\) => drawDiagrams\(/,
     'a diagram is drawn when its "before" opens');
-  assert.match(mainTs,
+  assert.match(vm('settings.ts'),
     /if \(\(sepia\(\) !== wasSepia \|\| schemeMoved\) && retheme\(\)\) paint\(\);/,
     'and redrawn on a new tint or scheme, only once Mermaid has drawn anything');
-  assert.match(mainTs, /if \(!applyScheme\(\)\) return;\s*retheme\(\);\s*paint\(\);/,
+  assert.match(vm('settings.ts'), /if \(!applyScheme\(\)\) return;\s*retheme\(\);\s*paint\(\);/,
     'which System moving is too');
   const chromeTs = fs.readFileSync(rootUrl('public/app/ui/chrome.ts'), 'utf8');
   assert.match(chromeTs, /\$\('findCount'\)\.textContent = findCount\.value;/,
@@ -1806,6 +1806,51 @@ console.log('✓ the layout is its own modules, wired from main.ts');
       new RegExp(`^import \\{ ${names} \\} from '\\.\\./vm/changes\\.js';$`, 'm'),
       `ui/${f} reads them from there`);
   }
+
+  // History, the view and Settings. Each redraws the document, which is still main.ts's, so
+  // they reach it through vm/document.ts, which main.ts fills before anything can call it.
+  assert.match(mainTs, /^bindDocument\(\{ load, adopt, paint, rerender \}\);$/m,
+    'main.ts hands the document core to the port');
+  assert.ok(mainTs.indexOf('bindDocument(') < mainTs.indexOf('bindNative({'),
+    'before the shell, or anything else, can ask for a load');
+  for (const f of ['history.ts', 'view.ts', 'settings.ts']) {
+    assert.match(vm(f), /^import \{[^}]*\} from '\.\/document\.js';$/m, `${f} redraws through it`);
+  }
+  // One way: History picks a version by turning the marks on, the view stores them as a setting,
+  // and Settings hands them back through `shownSettings` rather than calling the view.
+  assert.match(vm('history.ts'), /^import \{ setMarks \} from '\.\/view\.js';$/m,
+    'History turns the marks on through the view');
+  assert.match(vm('view.ts'), /^import \{ writeSettings \} from '\.\/settings\.js';$/m,
+    'which stores them as a setting');
+  assert.ok(!/from '\.\/(view|history)\.js'/.test(vm('settings.ts')),
+    'and Settings knows nothing of either');
+  assert.match(vm('view.ts'),
+    /effect\(\(\) => \{\s*const s = shownSettings\.value;\s*if \(s\) untracked\(\(\) => setDiff\(s\.marks\)\);/,
+    'the view takes the marks from the settings as they are applied');
+  assert.ok(!/setDiff/.test(vm('settings.ts')), 'which apply no marks themselves');
+  // The repaints that are now signals: the version read alone is worked out, not left, and the
+  // History heading keeps to the payload the list is drawn from.
+  assert.match(vm('history.ts'), /export const soloName = computed\(\(\) => \{/,
+    'the name of the version read alone is computed from what it depends on');
+  assert.ok(!/soloName/.test(stateTs), 'and is not shared state for something to forget to set');
+  assert.match(fs.readFileSync(rootUrl('public/app/ui/Changes.tsx'), 'utf8'),
+    /^import \{ soloName \} from '\.\.\/vm\/history\.js';$/m, 'the bar reads it from there');
+  assert.ok(!/paintSolo/.test(pageJs), 'and nothing paints it');
+  assert.match(chromeTs, /\$\('histSolo'\)\.hidden = versions\.length < 2 && !state\.solo;/,
+    'the switch is drawn from the list and from itself');
+  assert.match(chromeTs, /press\(\s*\$\('histSolo'\),\s*state\.solo,/, 'and pressed from its state');
+  assert.match(vm('history.ts'),
+    /export function paintHistory\(d\) \{[^}]*closeVerMenu\(\);[^}]*shownHistory\.value = d;\s*\}/,
+    'what is left of painting History is handing it the payload');
+  assert.ok(!/\$\('hist(Count|Clear|Solo)'\)\.(hidden|textContent)|setAttribute/.test(vm('history.ts')),
+    'and none of the heading is drawn by hand');
+  const historyTsx = fs.readFileSync(rootUrl('public/app/ui/History.tsx'), 'utf8');
+  assert.match(historyTsx, /^import \{ isBaseline, versionName, pruneFocus \} from '\.\.\/vm\/history\.js';$/m,
+    'the list names a version and asks what is compared against as the bar does');
+  const vmMoved = 'setDiff|setMarks|setView|sourceAt|applySettings|applyScheme|markRead|' +
+    'openVerMenu|pickVersion|setSolo|initSettings';
+  assert.ok(!new RegExp(`^(?:async )?function (?:${vmMoved})\\(`, 'm').test(mainTs),
+    'and none of History, the view or Settings is in main.ts any more');
 }
 console.log('✓ the viewmodels are modules of their own, and import only downwards');
 
@@ -2031,22 +2076,25 @@ assert.match(settingsTsx, /class="popup"/, 'on the wrapper that can hold one');
   assert.match(settingsTsx, /<dialog id="prefs" class="sheet" ref=\{sheet\} onClose=\{\(\) => \(prefsOpen\.value = null\)\}>/,
     'the dialog tells the signal when it shuts, by Escape or by Done');
   assert.match(settingsTsx, /if \(!dialog\.open\) dialog\.showModal\(\);/, 'and is shown modal');
-  assert.match(mainTs, /function openPrefs\(\) \{\s*if \(prefsOpen\.value === null\) prefsOpen\.value = '';/,
+  const settingsTs = fs.readFileSync(rootUrl('public/app/vm/settings.ts'), 'utf8');
+  assert.match(settingsTs,
+    /function openPrefs\(\) \{\s*if \(prefsOpen\.value === null\) prefsOpen\.value = '';/,
     'opening it is the signal');
-  assert.match(mainTs, /\$\('prefsBtn'\)\.addEventListener\('click', openPrefs\);/, 'from the bar');
-  assert.match(mainTs, /native\?\.onOpenSettings\(\(\) => openPrefs\(\)\);/, 'and from the menu');
+  assert.match(settingsTs, /\$\('prefsBtn'\)\.addEventListener\('click', openPrefs\);/, 'from the bar');
+  assert.match(settingsTs, /native\?\.onOpenSettings\(\(\) => openPrefs\(\)\);/, 'and from the menu');
   const keysTs = fs.readFileSync(rootUrl('public/app/layout/keys.ts'), 'utf8');
   assert.match(keysTs, /e\.key === ',' && \(e\.metaKey \|\| e\.ctrlKey\)\) \{\s*e\.preventDefault\(\);\s*openPrefs\(\);/,
     'and from ⌘, in a tab');
   assert.match(mainTs, /bindKeys\(\{[^}]*\n  openPrefs,\n/, 'which main.ts hands the keys');
-  assert.ok(!/\$<HTMLDialogElement>\('prefs'\)|\$\('set[A-Z]|\$\('update/.test(mainTs),
-    'and main.ts reaches into the sheet for nothing');
+  assert.ok(!/\$<HTMLDialogElement>\('prefs'\)|\$\('set[A-Z]|\$\('update/.test(mainTs + settingsTs),
+    'and neither main.ts nor the viewmodel reaches into the sheet for anything');
   // What the sheet shows is what was applied: written once, at the end of applySettings.
-  assert.match(mainTs, /shownSettings\.value = settings;\s*docMeasure\.value = getComputedStyle\(root\)/,
+  assert.match(settingsTs,
+    /shownSettings\.value = settings;\s*docMeasure\.value = getComputedStyle\(root\)/,
     'the sheet sees each setting as it is applied, and the measure the width came to');
   const fontsTs = fs.readFileSync(rootUrl('public/app/layout/fonts.ts'), 'utf8');
   assert.match(fontsTs, /fontGroups\.value = listed;/, "the machine's fonts go to the popup");
-  assert.match(mainTs, /listFonts\(backend, \(\) => settings\);/,
+  assert.match(mainTs, /await initSettings\(\);\s*(?:\/\/[^\n]*\n\s*)*listFonts\(backend, \(\) => settings\);/,
     'asked for once the settings are in, and reading them as they are when the fonts come');
   assert.match(settingsTsx, /fontGroups\.value\.map\(/, 'which draws them');
   for (const [control, write] of [
@@ -2163,8 +2211,10 @@ console.log('✓ sepia wired through page, head script, stylesheet and shell');
   };
 
   // `applyScheme` out of app.js, over the same fakes.
-  const applySchemeSrc = pageRun.match(/\nfunction applyScheme\(\) \{[\s\S]*?\n\}\n/)?.[0];
-  assert.ok(applySchemeSrc, 'main.ts has applyScheme');
+  const applySchemeSrc = pageRun
+    .match(/\n(?:export )?function applyScheme\(\) \{[\s\S]*?\n\}\n/)?.[0]
+    .replace(/^\nexport /, '\n');
+  assert.ok(applySchemeSrc, 'vm/settings.ts has applyScheme');
   assert.ok(pageJs.includes(`const darkMode = matchMedia('${DARK_QUERY}');`),
     'and reads System off the same query the head script does');
   const appScheme = (appearance, systemDark) => {
@@ -3174,8 +3224,8 @@ for (const [what, re] of [
 }
 assert.match(appJs, /tally\.value = \{[\s\S]*?nav: changeNodes\(\)\.length,/,
   'the count is worked out by paintCount, the reachable changes counted off the page');
-assert.match(appJs, /soloName\.value = v \? versionName\(v\) : null;/,
-  'and the version being read by paintSolo');
+assert.match(appJs, /const v = soloVersion\(state\.data\);\s*return v \? versionName\(v\) : null;/,
+  'and the version being read is worked out of the document held');
 
 // Wiring. The card is a `dl`, and github-markdown-css styles `dl dt` with two
 // type selectors — so every rule here has to carry `.markdown-body` or it is
@@ -6185,7 +6235,9 @@ const memoryKv = () => {
     // that empties the sidebars and not the bar leaves a count over the welcome for no file.
     const closeDocFn = appJs.match(/function closeDocument\([\s\S]*?\n\}/)?.[0] ?? '';
     assert.ok(
-      /paintSolo\(null\);\s+paintCount\(\);\s+paintRuler\(\);/.test(closeDocFn) &&
+      // The version read alone is computed from `state.data`, so letting it go is what clears it.
+      /state\.data = null;/.test(closeDocFn) &&
+        /paintCount\(\);\s+paintRuler\(\);/.test(closeDocFn) &&
         /setLive\(true\);/.test(closeDocFn),
       'and the welcome has no count, arrows, ruler or dropped watch left on the bar from it',
     );

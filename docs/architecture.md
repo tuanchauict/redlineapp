@@ -410,8 +410,8 @@ into lines, and diff the lines.
 
 ## The client
 
-The page's source is the directory `public/app/`: `main.ts`, ~1.6k lines in commented
-sections (painting, the sidebars, tabs, history, settings),
+The page's source is the directory `public/app/`: `main.ts`, ~1.1k lines in commented
+sections (painting, the sidebars, tabs, files, the watch),
 and the modules that have left it so far: `state.ts`, `dom.ts` (`$`, `#doc` and the pane),
 `backend.ts` (the backend, built once, which every module that asks something of it imports),
 `ui/History.tsx`, `ui/Contents.tsx`, `ui/Ruler.tsx`, `ui/Files.tsx`, `ui/TabMenu.tsx`,
@@ -453,14 +453,20 @@ what the chrome shows of it is a signal.
 | `vm/notice.ts` | `notice` and `notify`: one line, said for six seconds. `#notice` stays markup, because it is a live region, and `ui/chrome.ts` keeps it to the signal. |
 | `vm/diagrams.ts` | Mermaid, loaded on first use, and PlantUML, asked of the backend: `drawDiagrams` after `paint`, and `retheme`, which says whether there is a Mermaid to give a new scheme and so whether to repaint. Draws a "before"'s diagrams when it opens. |
 | `vm/changes.ts` | The changes on the page: `changeNodes`, the stops `n`/`p` walk; `paintCount` into `tally`; the ruler, measured by `paintRuler` into `rulerBands` with `rulerCurrent` for the one under the pointer or last landed on; `goToChange` and `goToNode`; and `keepAnchored`. Hears the pointer over a change and watches the article resize. `ui/Changes.tsx` and `ui/Ruler.tsx` read its signals; `main.ts` mounts the ruler with `goToNode` and `hoverMarks`. |
+| `vm/document.ts` | The document as the viewmodels reach it: `load`, `adopt`, `paint` and `rerender`. For now a port — the four are still `main.ts`'s, handed in by `bindDocument` before anything calls them — so that a viewmodel can redraw the document without importing the module that imports it. |
+| `vm/settings.ts` | `settings` (live for an importer, assigned only here), `DEFAULT_SETTINGS`, the baselines a setting picks, `applyScheme` and the `darkMode` listener, `writeSettings`, `stepSize`, `openPrefs` and `initSettings`. Applying them leaves `shownSettings` and `docMeasure` for the sheet. Applies everything but the marks, which are the view's. Wires `prefsBtn` and the menu's Settings…. |
+| `vm/view.ts` | Rendered or raw, and the marks on or off: `toggleView`, which keeps the line of the file at the top across the switch; `setMarks`, the one switch for the marks, and `applyMarks`. Writes the marks to `vm/settings.ts` and hears them back through an effect on `shownSettings`, so Settings never calls in here. Wires `#view`. |
+| `vm/history.ts` | Versions: their names (`versionName`, `isBaseline`), `pickVersion`, reading one by itself (`setSolo`, and `soloName`, a `computed` the bar's solo tag reads), marking read, the version menu, and forgetting (`prune`). `paintHistory` only hands `ui/History.tsx` the payload; the heading's count and buttons are effects in `ui/chrome.ts`. |
 | `vm/acks.ts` | Check-offs over `state.acked`: `applyAcks` writes `chg-ok` and the tag's wording onto the blocks, `setAck`/`clearAcks` take a change at once and then the backend's word for the list, and `tapCheck` is `c`. Imports `changes.ts` to repaint the count and the ruler; nothing imports it back but `main.ts`. Wires the click on a tag. |
 
 Imports point one way, and the suite checks it: a viewmodel reaches `state.ts`, `dom.ts`,
-`backend.ts`, the vendored renderer and its siblings, never `main.ts` or `ui/`, and the
-viewmodels import one another without a cycle. The feature modules still in `main.ts` call into
-each other in circles — `paint` into History, the ruler and find, and nearly all of those back
-into `load` or `paint` — so the ones that leave next are the ones that break a circle by
-becoming a signal the chrome reacts to, not a call `paint` makes; see the
+`backend.ts`, `layout/native.ts` (the shell, which Settings tells), the vendored renderer
+and its siblings, never `main.ts` or `ui/`, and the
+viewmodels import one another without a cycle: history imports the view, the view imports
+settings, and settings imports neither. What each needs of the document comes through
+`vm/document.ts`, not `main.ts`. The circles there were — `paint` into History and the solo tag,
+`setMarks` into Settings, Settings back into the marks — are broken by becoming signals the
+chrome reacts to, not calls `paint` makes; see the
 [design](superpowers/specs/2026-10-12-page-modules-preact-design.md#viewmodels).
 
 The document pane is an **imperative island**. It is `innerHTML` from the payload, through
@@ -471,7 +477,7 @@ Settings, the tabs — was state kept in sync with the DOM by hand, in `classLis
 `textContent =` and `createElement` calls, and a component that re-renders from state replaces
 that code. Preact and `@preact/signals` are in the page for that, and the chrome moves onto them
 a panel at a time. History was the first: `ui/History.tsx` draws the version list from signals
-and re-renders when one changes, and `paintHistory` in `main.ts` only hands it the payload.
+and re-renders when one changes, and `paintHistory` in `vm/history.ts` only hands it the payload.
 Contents is the second, and shows where the line between the two halves falls. `paintToc` stays
 in `main.ts`, because pairing each heading with its node has to happen after the document is
 written and before anything measures it, and it leaves the pairs in `state.toc`; the scroll spy
@@ -494,7 +500,8 @@ what it shows on that first frame:
   path, from `barName`, which `paint` and `showWelcome` set. `ui/Changes.tsx` is the solo tag,
   the count, the checked-off count, the arrows and the divider after them, from `tally` and
   `soloName`: `paintCount`, in `vm/changes.ts`, works the numbers out of the payload and
-  counts how many changes `n`/`p` can reach off the page, and `paintSolo` names the version.
+  counts how many changes `n`/`p` can reach off the page, and `soloName`, a `computed` in
+  `vm/history.ts` over `state.data`, names the version.
   `ui/TabMenu.tsx` is the chevron and its list, which are two mounts sharing `tabMenuAt`
   (where the chevron was when it was pressed, or null): the list's slot is after the
   `<header>`, because `.bar` has a `backdrop-filter`, which makes it the containing block of a
@@ -514,8 +521,8 @@ or shut, so opening it has nothing to fill in.
 Settings and the welcome are hidden at first paint, so both are components whole:
 
 - **`ui/Settings.tsx`** is the `<dialog>` and everything in it, mounted into `#prefsSlot`.
-  `main.ts` keeps `settings` itself — it applies them to `<html>`, stores them, redraws the
-  diagrams a scheme recolours and hears another window change them — and `applySettings`
+  `vm/settings.ts` keeps `settings` itself — it applies them to `<html>`, stores them, redraws
+  the diagrams a scheme recolours and hears another window change them — and applying them
   leaves what the sheet shows in `shownSettings`, with the measured `--doc-width` in
   `docMeasure`, so the sheet always says what the window is. `listFonts` leaves the
   typefaces in `fontGroups`, `checkUpdate` its answer in `update`, `initSettings` the store's
@@ -523,7 +530,7 @@ Settings and the welcome are hidden at first paint, so both are components whole
   scroll to (`'aboutSec'` for Check for Updates…) or `''`. The dialog's own `close` event sets it
   back to null, so Escape and Done are one way shut, and the keys `main.ts` handles ask the
   signal rather than the dialog whether Settings is in front of them. A control calls back into
-  `main.ts` — `write` is `writeSettings` — and never applies anything itself.
+  `vm/settings.ts` — `write` is `writeSettings` — and never applies anything itself.
 - **`ui/Welcome.tsx`** draws `#welcome`'s children from `welcomeView`. The doors behind it
   stay in `src/hosts/web/welcome.ts`, which is in the backend's bundle and not the page's,
   so a signal cannot cross between them: it hands each new view to the page's `show` hook,
@@ -563,7 +570,7 @@ in as callbacks, from `main.ts`.
 - **Light or dark is the page's to draw**, as `data-scheme` on `<html>`, and sepia is
   `data-tint` over light. A browser tab cannot be told it is dark the way the shell
   tells a window, so nothing reads `prefers-color-scheme` but the code that resolves
-  **System**: the head script before first paint and `applyScheme` in `main.ts` after,
+  **System**: the head script before first paint and `applyScheme` in `vm/settings.ts` after,
   which also switch highlight.js's two stylesheets by their `media`. Every dark palette
   is `screen` only, so print stays light. In the app the shell still pins the window's
   theme from the same setting, for the chrome and for what System reads.

@@ -8,3 +8,6 @@ export const $ = <T extends HTMLElement = HTMLElement>(id: string): T =>
 export const doc = $('doc');
 // The scroll area is the document pane, not the page — see `main` in the CSS.
 export const pane = document.querySelector('main');
+
+/** Where the pane's text starts, which is what "at the top" is measured against. */
+export const paneTop = () => pane.getBoundingClientRect().top;
