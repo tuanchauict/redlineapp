@@ -23,6 +23,13 @@ import {
   liveWhy,
   findOpen,
   shut,
+  shownSettings,
+  docMeasure,
+  fontGroups,
+  prefsOpen,
+  storeRoot,
+  update,
+  welcomeView,
 } from './state.js';
 import { mountHistory, askPrune, isBaseline, versionName } from './ui/History.js';
 import { mountContents } from './ui/Contents.js';
@@ -32,6 +39,8 @@ import { mountTabMenu } from './ui/TabMenu.js';
 import { mountName } from './ui/Name.js';
 import { mountChanges } from './ui/Changes.js';
 import { bindChrome } from './ui/chrome.js';
+import { mountWelcome } from './ui/Welcome.js';
+import { mountSettings, cleanFontName, SIZE_MIN, SIZE_MAX } from './ui/Settings.js';
 // Nothing here names the type: the import is for native.ts's own `declare global`, which types
 // `window.mdNative` from what `installNative` leaves, so the page's calls on the shell are
 // checked against what the Tauri host provides. tsc drops it from the emitted file.
@@ -129,15 +138,21 @@ function clearDocId() {
 // What the page shows when it has nothing to read. Only a backend that has to be given
 // something has one -- the web app's -- so a window shown a document by a shell, or a server told
 // one on a command line, never reaches any of this and nothing here has to ask which it is.
+// The backend has the doors and ui/Welcome.tsx draws them, with this in between: what the
+// welcome says goes from one to the other by `welcomeView`.
 const welcomeEl = $('welcome');
-const welcome = backend.welcome?.(welcomeEl, {
+const welcome = backend.welcome?.({
   open: (path) => openFile(path),
   granted: () => reopened(),
-  back: () => backToDocument(),
+  show: (view) => (welcomeView.value = view),
+  showing: () => !welcomeEl.hidden,
   // What it has to say while it is hidden (a folder, a file that is not markdown, one that would
   // not open) goes where the user is looking instead of onto a screen they have not been taken to.
   notify: (text) => notify(text),
 });
+// The browser's file picker, or the input that stands in for one: Open file…, and the page's own
+// ways to it with a document on screen.
+const pickFile = welcome ? mountWelcome(welcomeEl, welcome, () => backToDocument()) : null;
 
 // The file the user went to when it turned out to need asking for again: asked for, it is the
 // thing they wanted, and the document they were reading is not.
@@ -191,11 +206,11 @@ if (welcome) {
   // and not the welcome over the document. What is picked joins the open files, and the one being
   // read stays a click away in them.
   $('newTab').title = 'Open a file (⌘O)';
-  $('newTab').addEventListener('click', () => welcome.pickFile());
+  $('newTab').addEventListener('click', () => pickFile());
   // A step away from the document, and Escape is the step back. Not while Settings is up: the
   // Escape is the dialog's, and closes it alone.
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$<HTMLDialogElement>('prefs').open) backToDocument();
+    if (e.key === 'Escape' && prefsOpen.value === null) backToDocument();
   });
 }
 
@@ -241,7 +256,6 @@ function adopt(data) {
     : renderDocument(md, data.text, data.base, checked);
   state.data = Object.assign(data, rendered);
   state.caps = data.caps ?? null;
-  applyCaps();
   // The id is assigned by the reader when this page did not name one.
   setDocId(data.id);
   // The baseline asked for is not always the one that could be honoured — a
@@ -2377,7 +2391,7 @@ function scrollByKey(e) {
 
 document.addEventListener('keydown', (e) => {
   // Settings is modal: the letters belong to it while it is up.
-  if ($<HTMLDialogElement>('prefs').open) return;
+  if (prefsOpen.value !== null) return;
   if (
     e.metaKey || e.ctrlKey || e.altKey ||
     /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as Element).tagName)
@@ -2502,12 +2516,6 @@ const DEFAULT_SETTINGS = {
 
 let settings = { ...DEFAULT_SETTINGS };
 
-/** A font name goes into a stylesheet, so keep it to what a name can be. */
-const cleanFontName = (s) =>
-  String(s ?? '')
-    .replace(/[\p{C}"'\\;{}]/gu, '')
-    .trim();
-
 /**
  * Whether a named font resolves on this machine, rather than quietly falling
  * back. Measured, not asked: a name the browser does not know renders in the
@@ -2550,17 +2558,6 @@ const FONT_CHOICES = Object.entries({
   // A comma never appears in a font's name, so the list can be written as one.
 }).map(([label, names]): [string, string[]] => [label, names.split(',').map((n) => n.trim())]);
 
-/**
- * What the typeface popup is on. A picked face is stored as `font: 'custom'`
- * with its name beside it — and `custom` with nothing named renders as the
- * system font, so that is what the popup should say it is.
- */
-const fontValue = () => {
-  if (settings.font !== 'custom') return settings.font;
-  const named = cleanFontName(settings.fontName);
-  return named ? `name:${named}` : 'sans';
-};
-
 let fontsListed = false;
 
 /**
@@ -2573,8 +2570,7 @@ let fontsListed = false;
  * wrong. The catalogue above is the fallback, and only then are the names
  * measured, because a guessed list is the only kind that can be wrong.
  *
- * Each entry is drawn in its own face where the platform lets a popup do that,
- * and the specimen under the section answers for it where it does not.
+ * ui/Settings.tsx draws what this finds.
  */
 async function listFonts() {
   if (fontsListed) return;
@@ -2584,35 +2580,15 @@ async function listFonts() {
     ? [['On this machine', installed]]
     : FONT_CHOICES.map(([label, names]) => [label, names.filter(fontInstalled)]);
 
-  const select = $('setFont');
-  const here = new Set();
-  for (const [label, names] of groups) {
-    if (!names.length) continue;
-    const group = el('optgroup');
-    group.label = label;
-    for (const name of names) {
-      here.add(name);
-      const option = el('option', null, name);
-      option.value = `name:${name}`;
-      option.style.fontFamily = JSON.stringify(name);
-      group.append(option);
-    }
-    select.append(group);
-  }
+  const listed = groups.filter(([, names]) => names.length);
 
   // Set on a machine that had the font, opened on one that does not: say so
   // rather than showing the popup as blank and losing what it is set to.
   const named = settings.font === 'custom' && cleanFontName(settings.fontName);
-  if (named && !here.has(named)) {
-    const group = el('optgroup');
-    group.label = 'Not on this machine';
-    const option = el('option', null, named);
-    option.value = `name:${named}`;
-    group.append(option);
-    select.append(group);
+  if (named && !listed.some(([, names]) => names.includes(named))) {
+    listed.push(['Not on this machine', [named]]);
   }
-  // The popup could not be set to the right entry before the entry existed.
-  paintPrefs();
+  fontGroups.value = listed;
 }
 
 /** What **Compare against** in the settings sheet names, as a baseline id. */
@@ -2676,7 +2652,10 @@ function applySettings() {
   // paint — and, in a browser tab, this is the store rather than a mirror.
   prefs.setItem('redline:settings', JSON.stringify(settings));
   setDiff(settings.marks);
-  paintPrefs();
+  // What the sheet shows. The measure comes off the variable the document
+  // reads, so what Settings says a width is can never drift from what it is.
+  shownSettings.value = settings;
+  docMeasure.value = getComputedStyle(root).getPropertyValue('--doc-width').trim();
 }
 
 /** Take a change here first, so the window answers at once, then store it. */
@@ -2686,93 +2665,14 @@ function writeSettings(patch) {
   native?.setSettings(patch);
 }
 
-/** How far the document's own text is allowed to go, in px. */
-const SIZE_MIN = 11;
-const SIZE_MAX = 24;
-
-/** A segmented control is a radio group, read and written by option value. */
-function setSeg(id, value) {
-  for (const input of $(id).querySelectorAll('input')) input.checked = input.value === value;
-}
-
-const onSeg = (id, fn) =>
-  $(id).addEventListener('change', (e) => fn((e.target as HTMLInputElement).value));
-
-function paintPrefs() {
-  setSeg('setAppearance', settings.appearance);
-  setSeg('setReopen', settings.reopenLast ? '1' : '0');
-  setSeg('setFinder', settings.finderOpensIn);
-  $<HTMLSelectElement>('setFont').value = fontValue();
-  $('setSizeOut').textContent = `${settings.textSize} px`;
-  $<HTMLButtonElement>('setSizeDown').disabled = settings.textSize <= SIZE_MIN;
-  $<HTMLButtonElement>('setSizeUp').disabled = settings.textSize >= SIZE_MAX;
-  setSeg('setWidth', settings.width);
-  // Named widths say which is wider, not how wide. The measure comes off the
-  // variable the document reads, so the two can never drift apart.
-  const measure = getComputedStyle(document.documentElement).getPropertyValue('--doc-width');
-  $('setWidthHint').textContent = `${measure.trim()} of text, centred in the window`;
-  $<HTMLInputElement>('setMarks').checked = settings.marks;
-  applyCaps();
-  // A choice the host cannot honour is not left looking made: with no git to read, what the
-  // page compares against is the last read, and that is what the control should say.
-  const git = settings.baseline === 'git' && state.caps?.git;
-  setSeg('setBaseline', git ? 'git' : 'read');
-}
-
-/**
- * Hide what the reader behind this page cannot do. Every host says so in the payload
- * (`caps`), and what the page offers follows it -- the one place it offers git is the
- * baseline control. Called on each payload, and on opening Settings, which on the welcome has
- * no payload to have been told by: unknown is treated as unavailable, because the welcome is
- * only ever the web app's and the web app has no git.
- *
- * PlantUML is not handled here: a diagram that cannot draw already says why where it would have
- * been (`showDiagramError`), and there is no Settings row for it to hide yet.
- */
-function applyCaps() {
-  $('setBaselineGit').hidden = !state.caps?.git;
-}
-
-onSeg('setAppearance', (v) => writeSettings({ appearance: v }));
-onSeg('setReopen', (v) => writeSettings({ reopenLast: v === '1' }));
-onSeg('setFinder', (v) => writeSettings({ finderOpensIn: v }));
-$('setFont').addEventListener('change', (e) => {
-  const picked = (e.target as HTMLSelectElement).value;
-  // A built-in is a stylesheet rule and a picked face is a name; the name is
-  // kept either way, so going to Serif and back does not lose your choice.
-  if (picked.startsWith('name:')) writeSettings({ font: 'custom', fontName: picked.slice(5) });
-  else writeSettings({ font: picked });
-});
-
-const stepSize = (by) => () =>
+const stepSize = (by) =>
   writeSettings({ textSize: Math.min(Math.max(settings.textSize + by, SIZE_MIN), SIZE_MAX) });
 
-$('setSizeDown').addEventListener('click', stepSize(-1));
-$('setSizeUp').addEventListener('click', stepSize(+1));
-
-onSeg('setWidth', (v) => writeSettings({ width: v }));
-$('setMarks').addEventListener('change', (e) =>
-  writeSettings({ marks: (e.target as HTMLInputElement).checked }),
-);
-onSeg('setBaseline', (v) => {
-  writeSettings({ baseline: v });
-  // It says what to compare against from now on, and "now" includes the
-  // document in front of you — otherwise the setting looks like it did nothing.
-  state.baseline = defaultBaseline();
-  load({ keepScroll: true });
-});
-
-const prefsSheet = $<HTMLDialogElement>('prefs');
-
 function openPrefs() {
-  if (prefsSheet.open) return;
-  paintPrefs();
-  prefsSheet.showModal();
+  if (prefsOpen.value === null) prefsOpen.value = '';
 }
 
 $('prefsBtn').addEventListener('click', openPrefs);
-$('prefsDone').addEventListener('click', () => prefsSheet.close());
-$('setReveal').addEventListener('click', () => native?.revealStore());
 
 // The menu sends this in the desktop app; in a browser tab the page has to
 // catch the key itself.
@@ -2794,40 +2694,45 @@ const BREW_UPGRADE = 'brew upgrade --cask redline';
 let updateUrl = '';
 
 async function checkUpdate() {
-  const note = $('updateNote');
-  const button = $<HTMLButtonElement>('checkUpdate');
-  $('updateRow').hidden = true;
   updateUrl = '';
-  note.textContent = 'Checking…';
-  button.disabled = true;
+  update.value = { note: 'Checking…', checking: true };
   try {
     const u = await native.checkUpdate();
     if (!u.newer) {
-      note.textContent = `${u.current} is the newest version`;
+      update.value = { note: `${u.current} is the newest version` };
     } else if (u.brew) {
-      note.textContent = `${u.latest} is out — installed with Homebrew, so upgrade there`;
-      $('updateCmd').textContent = BREW_UPGRADE;
-      $('updateGo').textContent = 'Copy';
-      $('updateRow').hidden = false;
+      update.value = {
+        note: `${u.latest} is out — installed with Homebrew, so upgrade there`,
+        cmd: BREW_UPGRADE,
+        go: 'Copy',
+      };
     } else {
-      note.textContent = `${u.latest} is out`;
-      // The file, so the button says what it fetches before it is pressed.
-      $('updateCmd').textContent = u.url.split('/').pop();
-      $('updateGo').textContent = 'Download';
       updateUrl = u.url;
-      $('updateRow').hidden = !u.url;
+      // The file, so the button says what it fetches before it is pressed.
+      update.value = {
+        note: `${u.latest} is out`,
+        cmd: u.url.split('/').pop(),
+        go: u.url ? 'Download' : null,
+      };
     }
   } catch {
-    note.textContent = 'Could not reach the update server — try again later';
-  } finally {
-    button.disabled = false;
+    update.value = { note: 'Could not reach the update server — try again later' };
   }
 }
 
-if (native) {
-  $('setVersion').textContent = native.version;
-  $('checkUpdate').addEventListener('click', checkUpdate);
-  $('updateGo').addEventListener('click', () => {
+mountSettings($('prefsSlot'), native?.version ?? '', {
+  write: writeSettings,
+  step: stepSize,
+  baseline: (v) => {
+    writeSettings({ baseline: v });
+    // It says what to compare against from now on, and "now" includes the
+    // document in front of you — otherwise the setting looks like it did nothing.
+    state.baseline = defaultBaseline();
+    load({ keepScroll: true });
+  },
+  reveal: () => native?.revealStore(),
+  check: checkUpdate,
+  go: (cmd) => {
     if (updateUrl) {
       native.openExternal(updateUrl);
       return;
@@ -2835,12 +2740,16 @@ if (native) {
     // A clipboard refused is not worth a message: the command is on screen
     // and selectable, so select it and let ⌘C do the rest.
     navigator.clipboard.writeText(BREW_UPGRADE).catch(() => {
-      getSelection().selectAllChildren($('updateCmd'));
+      getSelection().selectAllChildren(cmd);
     });
-  });
+  },
+});
+
+// The menu sends this in the desktop app; the sheet scrolls to About itself,
+// once it is up.
+if (native) {
   native.onCheckUpdate(() => {
-    openPrefs();
-    $('aboutSec').scrollIntoView({ block: 'nearest' });
+    prefsOpen.value = 'aboutSec';
     checkUpdate();
   });
 }
@@ -2869,7 +2778,7 @@ document.addEventListener('keydown', (e) => {
   // up, because the browser's own would open the file as a page of its own, outside Redline.
   if (welcome && e.code === 'KeyO' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
     e.preventDefault();
-    if (!$<HTMLDialogElement>('prefs').open) welcome.pickFile();
+    if (prefsOpen.value === null) pickFile();
   }
 });
 
@@ -2892,7 +2801,7 @@ async function initSettings() {
     applySettings();
   });
 
-  if (native) $('setStore').textContent = await native.storeRoot();
+  if (native) storeRoot.value = await native.storeRoot();
 
   // Started now rather than when the sheet opens: asking the OS costs a third
   // of a second, and a popup that fills in after you have looked at it is a

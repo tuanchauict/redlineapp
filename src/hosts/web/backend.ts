@@ -138,8 +138,8 @@ export interface WebBackend extends Omit<RpcBackend, 'call'> {
   addRoot(handle: FileSystemHandle): Promise<{ rootId: string; name: string; kind: string }>;
   /** A `File` that came with no handle. Answers the path to `open`. */
   addDrop(file: File): Promise<string>;
-  /** Fill the page's empty state; `sync` on what comes back says whether to ask again. */
-  welcome(el: HTMLElement, hooks: Omit<WelcomeDeps, 'backend' | 'win' | 'doc'>): Welcome;
+  /** The doors of the page's empty state; `sync` on what comes back says whether to ask again. */
+  welcome(hooks: Omit<WelcomeDeps, 'backend' | 'win'>): Welcome;
   /** Why a link out of this document will not open, or null if it will. */
   linkNote(path: string | null | undefined): Promise<string | null>;
   openFiles: ReturnType<typeof createOpenFiles>;
@@ -310,11 +310,11 @@ export async function createWebBackend({
     addDrop: (file) => call('addDrop', file),
 
     /**
-     * Fill the page's empty state with the ways to open something, and listen for drops. The page
-     * calls this only when it is here -- no other backend has one -- so that the welcome exists
-     * only in the web app, and `sync` on what comes back says whether to offer to ask again.
+     * The ways to open something from the page's empty state, and the drops onto the window.
+     * The page calls this only when it is here -- no other backend has one -- so that the welcome
+     * exists only in the web app, and `sync` on what comes back says whether to ask again.
      */
-    welcome: (el, hooks) => mountWelcome(el, { backend: api, win, ...hooks }),
+    welcome: (hooks) => mountWelcome({ backend: api, win, ...hooks }),
 
     /**
      * Why a link out of this document will not open, or null if it will. A file granted or

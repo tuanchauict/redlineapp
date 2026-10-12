@@ -73,17 +73,19 @@ src/hosts/web/          the web app's shell: no server, no node, files in Indexe
   worker.ts             the reader, in a SharedWorker: one per origin, a document per tab
   backend.ts            the page's end of it: finds the worker, names it for the build, pings it,
                         asks for permission
-  welcome.ts            the empty state: a file, a drop, the limits, a grant to ask for again
+  welcome.ts            the empty state's doors: a file, a drop, a grant to ask for again; what
+                        they come to is a view the page draws (`public/app/ui/Welcome.tsx`)
   host.js               the shim that makes a page the web app's; `stage-page.mts` puts it over
                         `public/host.js`, with the build's version after it
 
 public/host.js          a classic script, first in the head, empty here; a host's own shim
                         (the web app's is `src/hosts/web/host.js`, put over this one by its build)
-public/index.html       the page: toolbar, two sidebars, document pane, Settings sheet
+public/index.html       the page: toolbar, two sidebars, document pane, the slot for Settings
 public/app/             the whole client, as source: `main.ts` is the page, `state.ts` is what
                         it knows (signals), `ui/` is the panels drawn by components (History,
-                        Contents, the change ruler, Open files, the chevron's menu, and the
-                        bar's name and change count) and `ui/chrome.ts`, which keeps the
+                        Contents, the change ruler, Open files, the chevron's menu, the
+                        bar's name and change count, Settings and the web app's welcome) and
+                        `ui/chrome.ts`, which keeps the
                         bar's fixed buttons to their signals. Checked by `tsconfig.app.json`
                         (`noEmit`, JSX for Preact),
                         and bundled by `build:web` into `app.js` beside it, which is the file
@@ -406,8 +408,8 @@ The page's source is the directory `public/app/`: `main.ts`, ~3.2k lines in comm
 sections (painting, the sidebars, tabs, change navigation, checked changes, find, settings,
 keys), and the modules that have left it so far: `state.ts`, `ui/History.tsx`,
 `ui/Contents.tsx`, `ui/Ruler.tsx`, `ui/Files.tsx`, `ui/TabMenu.tsx`, `ui/Name.tsx`,
-`ui/Changes.tsx`, `ui/TabLabel.tsx` (the name-over-directory label, and `ltrPath`) and
-`ui/chrome.ts`.
+`ui/Changes.tsx`, `ui/TabLabel.tsx` (the name-over-directory label, and `ltrPath`),
+`ui/Settings.tsx`, `ui/Welcome.tsx` and `ui/chrome.ts`.
 `build:web` bundles the directory into the one `public/app.js` that a page loads, so a module
 can leave `main.ts` without a new file for any host to serve: the bundle still imports exactly
 the renderer, DOMPurify, the backend and Mermaid, which `stage-page.mts` versions and the
@@ -458,9 +460,28 @@ what it shows on that first frame:
 
 `ui/Files.tsx` draws Open files from `state.tabs` and `state.docId`, so switching files
 relights a row without anything saying so, and the list is drawn whether the column is open
-or shut, so opening it has nothing to fill in. What is still those `classList`, `hidden =`
-and `replaceChildren` calls over small builders is Settings, the welcome, find's count and
-the version menu. A component imports `state.ts` and never
+or shut, so opening it has nothing to fill in.
+
+Settings and the welcome are hidden at first paint, so both are components whole:
+
+- **`ui/Settings.tsx`** is the `<dialog>` and everything in it, mounted into `#prefsSlot`.
+  `main.ts` keeps `settings` itself — it applies them to `<html>`, stores them, redraws the
+  diagrams a scheme recolours and hears another window change them — and `applySettings`
+  leaves what the sheet shows in `shownSettings`, with the measured `--doc-width` in
+  `docMeasure`, so the sheet always says what the window is. `listFonts` leaves the
+  typefaces in `fontGroups`, `checkUpdate` its answer in `update`, `initSettings` the store's
+  path in `storeRoot`. Whether it is up is `prefsOpen`: null while shut, otherwise a section to
+  scroll to (`'aboutSec'` for Check for Updates…) or `''`. The dialog's own `close` event sets it
+  back to null, so Escape and Done are one way shut, and the keys `main.ts` handles ask the
+  signal rather than the dialog whether Settings is in front of them. A control calls back into
+  `main.ts` — `write` is `writeSettings` — and never applies anything itself.
+- **`ui/Welcome.tsx`** draws `#welcome`'s children from `welcomeView`. The doors behind it
+  stay in `src/hosts/web/welcome.ts`, which is in the backend's bundle and not the page's,
+  so a signal cannot cross between them: it hands each new view to the page's `show` hook,
+  and `main.ts` writes it into the signal. See [The web app's reader](#the-web-apps-reader) below.
+
+What is still those `classList`, `hidden =` and `replaceChildren` calls over small builders is
+find's count and the version menu. A component imports `state.ts` and never
 `main.ts`, which is what lets a panel come out of it without a cycle: what a row *does* comes
 in as callbacks, from `main.ts`.
 
@@ -622,18 +643,22 @@ its connection on `versionchange`. The page learns the build from the shim the b
 - A document from a drop has no handle to keep: `drop:<name>` lives in the worker's memory, and
   does not outlive it.
 - **The welcome is the only door.** A desktop reader is handed a file and a server is told one; a
-  page is handed nothing, so `welcome.ts` (mounted by `backend.welcome(el, hooks)` into
-  `<section id="welcome">`) is how anything gets opened. The page owns *whether* it shows
-  (`showWelcome` and `hideWelcome` in `main.ts`: they hide `#doc` and set `html.welcoming`) and
-  the module owns what is inside; it builds it with `createElement` and `textContent`, because a
-  file name is the user's. It shows when `doc` is `NoDocument` (and then drops `?id=` from the
+  page is handed nothing, so the welcome is how anything gets opened. It is two halves:
+  `welcome.ts`, the doors (`backend.welcome(hooks)`: the picker, the drop, the copy, the grant
+  asked for again), which holds no DOM and reports what it comes to as a `WelcomeView` —
+  `{ canFile, busy, status, reopen, back }` — through the page's `show` hook; and
+  `ui/Welcome.tsx`, which `main.ts` mounts into `<section id="welcome">` and which draws that
+  view, a file name going in as text because it is the user's. The page owns *whether* it shows
+  (`showWelcome` and `hideWelcome` in `main.ts`: they hide `#doc` and set `html.welcoming`, and
+  `showing` tells the doors). It shows when `doc` is `NoDocument` (and then drops `?id=` from the
   address, and empties Contents and History, which are outside `#doc` and would go on listing a
   file the reader has let go of) or `NeedsPermission` (and offers **Reopen** *name*: `reopen()`,
   then the page loads again, or opens the link that was refused). No other backend has a
   `welcome`, which is the whole of why a shell, VS Code and the CLI's tab never show one.
   - **Open, with a document on screen**: ⌘O and **Open file…** at the foot of the open files
-    (`#newTab`, retitled `if (welcome)`) are the file picker itself, `welcome.pickFile()` — the
-    welcome's own **Open file…**, called inside the click or the key, as a picker has to be —
+    (`#newTab`, retitled `if (welcome)`) are the file picker itself, the `pickFile` that
+    `mountWelcome` answers — the welcome's own **Open file…**, the picker or, with none, the
+    component's `<input>`, called inside the click or the key, as a picker has to be —
     and not the welcome over the document: what is picked joins the open files, and the file
     being read stays a click away in them. The bar has no button for it. The welcome still
     comes up over a document for a grant that lapsed on a file that is not the one on screen,
@@ -651,18 +676,20 @@ its connection on `versionchange`. The page learns the build from the shim the b
     as a notice) instead of doing nothing; so does a copy.
   - **The limits**, said in the welcome before a user finds them out one refusal at a time: one
     file at a time, its links not followed, no git, no PlantUML, and a link to the Mac app
-    (`MAC_APP_URL`, the landing page's `#get`, so that it follows each release) in a new tab.
+    (`MAC_APP_URL` in `ui/Welcome.tsx`, the landing page's `#get`, so that it follows each
+    release) in a new tab.
   - **A drop** anywhere on the window — it is on the window, not the welcome, because a file
     dropped on a page that is not listening is opened *by the browser*, in place of the page.
     `getAsFileSystemHandle()` is read first and is the same as a pick; a `File` with no handle is
     a copy. A browser with no handles gives a folder as a `File` named for it, so
     `webkitGetAsEntry()` is read too, in the handler, to refuse it as a folder rather than as
-    not markdown. A drop with a document on screen finds the welcome hidden, and what the
-    welcome would say goes to the page's `notify` hook: a refusal goes to the notice and does
-    not take the user off the document.
-  - **No File System Access** (no `showOpenFilePicker`): `<input type="file">`, and every file is
-    a copy, `drop:<name>` — no watching, no links, and a name is the whole of its identity, so
-    two files of one name are one history. The welcome says so.
+    not markdown. A drop with a document on screen finds the welcome hidden (`showing()` is
+    false), and what the welcome would say goes to the page's `notify` hook: a refusal goes to
+    the notice and does not take the user off the document.
+  - **No File System Access** (no `showOpenFilePicker`, `canFile` false): `<input
+    type="file">`, drawn by the component and handed to `openCopy`, and every file is a copy,
+    `drop:<name>` — no watching, no links, and a name is the whole of its identity, so two files
+    of one name are one history. The welcome says so.
   - A file that is not markdown is refused with a message before anything is granted.
   - After the first document opens from a click the welcome asks for
     `navigator.storage.persist()`, once. It is a request the browser answers from how it has been
@@ -697,9 +724,9 @@ its connection on `versionchange`. The page learns the build from the shim the b
     instead of loading.
   - `⌃⇥` and `⌘W` are the browser's and are not offered; switching and closing are the rows'.
 - **What the host cannot do is not offered** (`caps`, on every payload). `state.caps` is read in
-  `adopt`, and `applyCaps` hides the `git HEAD` option of *Compare against* unless `caps.git`; a
-  saved choice of git is shown as *Last read* where there is none. The option is `hidden` in the
-  markup, so that Settings opened on the welcome, where no payload has said, does not offer it.
+  `adopt`, and `ui/Settings.tsx` hides the `git HEAD` option of *Compare against* unless
+  `caps.git`; a saved choice of git is shown as *Last read* where there is none. No caps counts as
+  none, so that Settings opened on the welcome, where no payload has said, does not offer it.
   PlantUML is not handled: a diagram that cannot draw says why where it would have been
   (`showDiagramError`), and there is no Settings row for it to hide yet.
 - **What is not verified from here:** the pickers, a drop, `persist()` and how a `SharedWorker`

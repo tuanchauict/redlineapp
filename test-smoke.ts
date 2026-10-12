@@ -1044,6 +1044,8 @@ const [pageHtml, pageCss] = await Promise.all(
 // The greps below are about how the page is written, so they read the source: tsc reprints what
 // it emits. What is served is the compiled file, and the checks on that read it instead.
 const pageJs = pageSource();
+// The Settings sheet is a component, so its markup is read from where it is written.
+const settingsTsx = fs.readFileSync(rootUrl('public/app/ui/Settings.tsx'), 'utf8');
 const pageServed = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
 
 // The page has to load from any base URL: the web app may be served under a path, and a VS
@@ -1871,10 +1873,13 @@ console.log('✓ a window only hears the events addressed to it');
 // gone, and what replaced them has to be reachable: a stepper is two buttons
 // and a readout, and the typeface popup is empty markup until the script
 // fills it from the fonts this machine actually resolves.
-assert.ok(!pageHtml.includes('type="range"'), 'no slider for a size counted in whole pixels');
-assert.ok(!pageHtml.includes('id="setFontName"'), 'and no font to spell by hand');
-assert.match(pageHtml, /id="setSizeDown"/, 'text size steps down');
-assert.match(pageHtml, /id="setSizeUp"/, 'and up');
+assert.ok(![pageHtml, settingsTsx].some((src) => src.includes('type="range"')),
+  'no slider for a size counted in whole pixels');
+assert.ok(!settingsTsx.includes('id="setFontName"'), 'and no font to spell by hand');
+assert.match(settingsTsx, /id="setSizeDown"[\s\S]*?disabled=\{s\.textSize <= SIZE_MIN\}/,
+  'text size steps down, as far as the floor');
+assert.match(settingsTsx, /id="setSizeUp"[\s\S]*?disabled=\{s\.textSize >= SIZE_MAX\}/,
+  'and up, as far as the ceiling');
 assert.match(pageJs, /const stepSize =/, 'and the step is bounded, not free');
 assert.match(pageJs, /listFonts/, 'the typeface popup is filled from this machine');
 assert.match(pageJs, /function fontInstalled/, 'with a measured catalogue behind it');
@@ -1885,7 +1890,44 @@ assert.match(pageCss, /\.switch input:checked \+ \.track \{/, 'and an on/off set
 // it, and it can only hang off the wrapper.
 assert.match(pageCss, /\.select \{[^}]*appearance: none/, 'the popup is not the system one');
 assert.match(pageCss, /\.popup::before,/, 'so it draws its own chevron');
-assert.match(pageHtml, /class="popup"/, 'on the wrapper that can hold one');
+assert.match(settingsTsx, /class="popup"/, 'on the wrapper that can hold one');
+// The sheet is a component, shut until asked: a slot in the page, the dialog drawn into it, and
+// one signal between the ways in (⌘,, the button, the menu) and showModal.
+{
+  const mainTs = fs.readFileSync(rootUrl('public/app/main.ts'), 'utf8');
+  assert.match(pageHtml, /<span id="prefsSlot" class="slot"><\/span>/, 'Settings has a slot');
+  assert.ok(!/<dialog/.test(pageHtml), 'and no dialog of its own in the page');
+  assert.match(settingsTsx, /<dialog id="prefs" class="sheet" ref=\{sheet\} onClose=\{\(\) => \(prefsOpen\.value = null\)\}>/,
+    'the dialog tells the signal when it shuts, by Escape or by Done');
+  assert.match(settingsTsx, /if \(!dialog\.open\) dialog\.showModal\(\);/, 'and is shown modal');
+  assert.match(mainTs, /function openPrefs\(\) \{\s*if \(prefsOpen\.value === null\) prefsOpen\.value = '';/,
+    'opening it is the signal');
+  assert.match(mainTs, /\$\('prefsBtn'\)\.addEventListener\('click', openPrefs\);/, 'from the bar');
+  assert.match(mainTs, /native\?\.onOpenSettings\(\(\) => openPrefs\(\)\);/, 'and from the menu');
+  assert.match(mainTs, /e\.key === ',' && \(e\.metaKey \|\| e\.ctrlKey\)\) \{\s*e\.preventDefault\(\);\s*openPrefs\(\);/,
+    'and from ⌘, in a tab');
+  assert.ok(!/\$<HTMLDialogElement>\('prefs'\)|\$\('set[A-Z]|\$\('update/.test(mainTs),
+    'and main.ts reaches into the sheet for nothing');
+  // What the sheet shows is what was applied: written once, at the end of applySettings.
+  assert.match(mainTs, /shownSettings\.value = settings;\s*docMeasure\.value = getComputedStyle\(root\)/,
+    'the sheet sees each setting as it is applied, and the measure the width came to');
+  assert.match(mainTs, /fontGroups\.value = listed;/, "the machine's fonts go to the popup");
+  assert.match(settingsTsx, /fontGroups\.value\.map\(/, 'which draws them');
+  for (const [control, write] of [
+    ['setAppearance', /actions\.write\(\{ appearance: v \}\)/],
+    ['setReopen', /actions\.write\(\{ reopenLast: v === '1' \}\)/],
+    ['setFinder', /actions\.write\(\{ finderOpensIn: v \}\)/],
+    ['setWidth', /actions\.write\(\{ width: v \}\)/],
+    ['setMarks', /actions\.write\(\{ marks: \(e\.target as HTMLInputElement\)\.checked \}\)/],
+    ['setBaseline', /pick=\{actions\.baseline\}/],
+  ] as [string, RegExp][]) {
+    const from = settingsTsx.indexOf(`id="${control}"`);
+    assert.ok(from > 0 && write.test(settingsTsx.slice(from, from + 900)), `${control} is wired`);
+  }
+  assert.match(mainTs, /mountSettings\(\$\('prefsSlot'\), [^\n]*\n  write: writeSettings,\n  step: stepSize,/,
+    'and writes through writeSettings, which applies, stores and tells the shell');
+}
+console.log('✓ the settings sheet is a component, opened by a signal and wired to writeSettings');
 // The specimen is only honest if it reads the same two variables the document
 // does; drawn from settings in script instead, it drifts the first time one
 // of them is set from somewhere else.
@@ -1916,7 +1958,7 @@ console.log('✓ settings controls wired end to end');
 // white flash on every open), a window the shell leaves following a dark
 // system (a dark bar round a cream page), or a cream that reaches paper.
 const prefsRs = fs.readFileSync(rootUrl('shell/src/prefs.rs'), 'utf8');
-assert.match(pageHtml, /name="pAppearance" value="sepia"/, 'sepia can be chosen');
+assert.match(settingsTsx, /\{ value: 'sepia', text: 'Sepia' \}/, 'sepia can be chosen');
 assert.match(
   pageHtml.slice(0, pageHtml.indexOf('</head>')),
   /s\.appearance === "sepia"\) document\.documentElement\.dataset\.tint = "sepia"/,
@@ -2102,13 +2144,13 @@ console.log('✓ sepia wired through page, head script, stylesheet and shell');
   assert.strictEqual(served, keyed, 'the CLI serves the keyed one, not the one in node_modules');
 
   // Shown in a browser tab, where the rest of General is not.
-  const general = pageHtml.match(/<section([^>]*)>\s*<h3>General<\/h3>([\s\S]*?)<\/section>/);
+  const general = settingsTsx.match(/<section([^>]*)>\s*<h3>General<\/h3>([\s\S]*?)<\/section>/);
   assert.ok(general && !general[1].includes('data-shell'),
     "General is not the shell's as a whole");
   const rowOf = (id) => general[2].split('<div class="row"').find((r) => r.includes(`id="${id}"`));
   assert.ok(rowOf('setAppearance').startsWith('>'), 'Appearance shows in a browser tab');
-  assert.ok(rowOf('setReopen').startsWith(' data-shell>'), 'On launch does not');
-  assert.ok(rowOf('setFinder').startsWith(' data-shell>'), 'nor does Files from Finder');
+  assert.ok(rowOf('setReopen').startsWith(' data-shell="">'), 'On launch does not');
+  assert.ok(rowOf('setFinder').startsWith(' data-shell="">'), 'nor does Files from Finder');
 }
 console.log('✓ the scheme is the page\'s: head script and applyScheme agree, every sheet reads it');
 
@@ -5138,7 +5180,7 @@ const memoryKv = () => {
   // Whether a real `showOpenFilePicker`, a real drop or a real `navigator.storage.persist()`
   // behaves as these do is for a person with a browser. (docs/web-app.md, Opening something)
   {
-    const { MAC_APP_URL } = await import('./src/hosts/web/welcome.js');
+    const welcomeTsx = fs.readFileSync(rootUrl('public/app/ui/Welcome.tsx'), 'utf8');
     const { LINK_NOTE } = await import('./src/hosts/web/backend.js');
     const { MD_LINK } = await import('./src/core/links.js');
 
@@ -5186,95 +5228,34 @@ const memoryKv = () => {
     const NOT_A_FOLDER = /opens files, not folders/;
 
     // --- the welcome, through the real backend and worker ------------------------------------
-    // The DOM it touches: elements, text, a class list on <html>, and a click that can be awaited.
-    class El {
-      // The constructor sets these through Object.assign, which the checker cannot follow, so
-      // they are declared here, and `declare` so that nothing is emitted for them.
-      declare tag: string;
-      declare ownerDocument: any;
-      declare parent: El | null;
-      declare children: El[];
-      declare own: string;
-      declare attrs: Record<string, string>;
-      declare listeners: Record<string, Array<(e: object) => unknown>>;
-      declare hidden: boolean;
-      declare className: string;
-      declare clicks: number;
-      constructor(tag, owner?) {
-        Object.assign(this, { tag, ownerDocument: owner, parent: null, children: [], own: '' });
-        Object.assign(this, { attrs: {}, listeners: {}, hidden: false, className: '', clicks: 0 });
-      }
-      get textContent() {
-        return this.own + this.children.map((c) => c.textContent).join('');
-      }
-      set textContent(v) {
-        this.own = String(v);
-        this.children = [];
-      }
-      setAttribute(k, v) {
-        this.attrs[k] = String(v);
-      }
-      removeAttribute(k) {
-        delete this.attrs[k];
-      }
-      addEventListener(type, fn) {
-        (this.listeners[type] ??= []).push(fn);
-      }
-      append(...kids) {
-        for (const k of kids) {
-          // A string is a text node, as `append` makes one.
-          const node = typeof k === 'string' ? Object.assign(new El('#text'), { own: k }) : k;
-          node.parent = this;
-          this.children.push(node);
-        }
-      }
-      replaceChildren(...kids) {
-        this.children = [];
-        this.append(...kids);
-      }
-      fire(type) {
-        return Promise.all((this.listeners[type] ?? []).map((fn) => fn({})));
-      }
-      click() {
-        this.clicks++;
-        return this.fire('click');
-      }
-    }
+    // Its doors, without the page: what it says arrives as a view, which ui/Welcome.tsx draws and
+    // which is read here instead. The DOM it still touches is the class list on <html>, for a drag.
     const fakeDoc = () => {
       const classes = new Set();
-      const d = {
+      return {
         classes,
         documentElement: {
           classList: { add: (c) => classes.add(c), remove: (c) => classes.delete(c) },
         },
-        createElement: (tag) => new El(tag, d),
       };
-      return d;
     };
-    const all = (e) => [e, ...e.children.flatMap(all)];
-    const shown = (e) => !e.hidden && (!e.parent || shown(e.parent));
-    const named = (root, cls) => all(root).filter((e) => e.className.split(' ').includes(cls));
-    const button = (root, text) =>
-      all(root).find((e) => e.tag === 'button' && e.textContent === text);
-    const status = (root) => named(root, 'welcome-status')[0];
 
     type Wiring = { hidden?: boolean; hooks?: object };
     /**
      * A tab showing the welcome, with `extra` as what the browser has on `window`. `shows` is the
      * `?id=` it was loaded with, which the worker is told as the page connects. `wiring` is for a
-     * page that has a document on screen: `hidden` starts the section hidden, as `#welcome` is
-     * then, and `hooks` are the page's own, which a page without a document has no need of.
+     * page that has a document on screen: `hidden` says the welcome is not showing, as `#welcome`
+     * is not then, and `hooks` are the page's own, which a page without a document has no need of.
+     * `seen.view` is what the page would be drawing.
      */
     const mount = async (host, extra, shows = null, wiring: Wiring = {}) => {
       const page = await openPage(host, shows);
       const doc = fakeDoc();
-      const calls = { opened: [], ids: [], granted: 0, back: 0, persist: 0 };
+      const calls = { opened: [], ids: [], granted: 0, persist: 0 };
       Object.assign(page.win, {
         navigator: { storage: { persist: async () => void calls.persist++ } },
         ...extra,
       });
-      const el = doc.createElement('section');
-      el.hidden = Boolean(wiring.hidden);
       // What the page's `openFile` does: ask the backend, and show it if it opens.
       const open = async (path) => {
         try {
@@ -5288,8 +5269,14 @@ const memoryKv = () => {
         }
       };
       const granted = async () => void calls.granted++;
-      const hooks = { open, granted, back: () => void calls.back++, ...wiring.hooks };
-      return { page, doc, el, calls, w: page.backend.welcome(el, hooks) };
+      const seen = { view: null, views: 0 };
+      const show = (view) => {
+        seen.view = view;
+        seen.views++;
+      };
+      const showing = () => !wiring.hidden;
+      const hooks = { open, granted, show, showing, doc: doc as any, ...wiring.hooks };
+      return { page, doc, calls, seen, w: page.backend.welcome(hooks) };
     };
     const dropOf = (page, items, files = [], types = ['Files']) => {
       const e = Object.assign(new Event('drop', { cancelable: true }), {
@@ -5320,36 +5307,44 @@ const memoryKv = () => {
         },
         showOpenFilePicker: (opts) => (picks.push(opts), behave.file()),
       });
-      const fileBtn = button(w.el, 'Open file…');
-      assert.ok(
-        shown(fileBtn) && fileBtn.className.includes('welcome-primary'),
+      const fileBtn = { click: () => w.w.pickFile() };
+      assert.deepStrictEqual(
+        w.seen.view,
+        { canFile: true, busy: false, status: '', reopen: null, back: false },
+        'a browser with a picker is told so as it mounts, with nothing to reopen or go back to',
+      );
+      assert.match(
+        welcomeTsx,
+        /<button type="button" class="welcome-primary" onClick=\{pickFile\}>\s*Open file…/,
         'Open file… is the way in, and the primary button',
       );
+      // The drawn text, with the comments out of it, which talk about folders to say why not.
+      const drawn = welcomeTsx.replace(/\{\/\*[\s\S]*?\*\/\}|\/\/.*$/gm, '');
       assert.ok(
-        !all(w.el).some((e) => /folder/i.test(e.own)),
+        !/folder/i.test(drawn) &&
+          !/showDirectoryPicker/.test(fs.readFileSync(rootUrl('src/hosts/web/welcome.ts'), 'utf8')),
         'and nothing offers a folder, even in a browser that could pick one',
       );
-      assert.deepStrictEqual(
-        [named(w.el, 'welcome-reopen')[0].hidden, button(w.el, 'Back to the document').hidden],
-        [true, true],
-        'nothing to reopen and no document to go back to, until the page says so',
-      );
+      assert.match(welcomeTsx, /<div class="welcome-reopen" hidden=\{!v\.reopen\}>/,
+        'the ask to reopen is hidden until there is a file to ask for');
+      assert.match(welcomeTsx, /class="welcome-secondary" hidden=\{!v\.back\} onClick=\{back\}/,
+        'and Back until there is a document, and goes back to it');
 
       // What the web app cannot do, said before a user finds it out, with the way to what can.
-      const limits = named(w.el, 'welcome-limits')[0];
-      assert.ok(shown(limits) && limits.className.includes('welcome-hint'), 'the limits are said');
+      const limits = drawn.match(/<p class="welcome-hint welcome-limits">([\s\S]*?)<\/p>/)?.[1];
+      assert.ok(limits, 'the limits are said, as a hint');
       assert.match(
-        limits.textContent,
+        limits.replace(/\s+/g, ' '),
         /one file at a time: its links to other files do not open, and there is no git or PlantUML/,
         'which are the ones a reader coming from the Mac app reaches for',
       );
-      const mac = all(limits).find((e) => e.tag === 'a');
-      assert.deepStrictEqual(
-        [mac?.href, mac?.target, mac?.rel, mac?.textContent],
-        [MAC_APP_URL, '_blank', 'noopener', 'Get the Mac app'],
+      assert.match(
+        limits,
+        /<a href=\{MAC_APP_URL\} target="_blank" rel="noopener">\s*Get the Mac app\s*<\/a>/,
         'with a link to the Mac app, in a tab of its own',
       );
-      assert.strictEqual(MAC_APP_URL, 'https://redline.iamtuna.org/#get', "the landing's download");
+      assert.match(welcomeTsx, /export const MAC_APP_URL = 'https:\/\/redline\.iamtuna\.org\/#get';/,
+        "the landing's download");
 
       await fileBtn.click();
       const opts = picks.at(-1);
@@ -5394,15 +5389,16 @@ const memoryKv = () => {
         throw refusal('AbortError');
       };
       await fileBtn.click();
-      assert.ok(!shown(status(w.el)), 'a picker that was cancelled says nothing');
+      assert.strictEqual(w.seen.view.status, '', 'a picker that was cancelled says nothing');
       behave.file = async () => {
         throw refusal('SecurityError');
       };
       await fileBtn.click();
-      assert.match(status(w.el).textContent, /Could not open that: SecurityError/, 'but a refusal');
-      assert.ok(shown(status(w.el)), 'is said');
+      assert.match(w.seen.view.status, /Could not open that: SecurityError/, 'but a refusal is');
+      assert.match(welcomeTsx, /<p class="welcome-status" role="status" hidden=\{!v\.status\}>/,
+        'where the page shows it');
       w.w.sync({});
-      assert.ok(!shown(status(w.el)), 'until the page says it moved on');
+      assert.strictEqual(w.seen.view.status, '', 'until the page says it moved on');
 
       // One at a time: a second click while a picker is up is not a second picker.
       let release;
@@ -5414,16 +5410,16 @@ const memoryKv = () => {
       const first = fileBtn.click();
       const second = fileBtn.click();
       assert.strictEqual(picks.length, before + 1, 'a click while one is open opens no other');
-      assert.strictEqual(w.el.attrs['aria-busy'], 'true', 'and the section says it is busy');
+      assert.strictEqual(w.seen.view.busy, true, 'and the welcome says it is busy');
       release();
       await Promise.all([first, second]);
-      assert.strictEqual(w.el.attrs['aria-busy'], undefined, 'until it is not');
+      assert.strictEqual(w.seen.view.busy, false, 'until it is not');
 
       const opened = w.calls.opened.length;
       const roots = stores.roots.m.size;
       behave.file = async () => [fileOf('logo.png', '')];
       await fileBtn.click();
-      assert.match(status(w.el).textContent, /Redline opens markdown/, 'a picture is refused');
+      assert.match(w.seen.view.status, /Redline opens markdown/, 'a picture is refused');
       assert.deepStrictEqual(
         [w.calls.opened.length, stores.roots.m.size],
         [opened, roots],
@@ -5438,6 +5434,11 @@ const memoryKv = () => {
       assert.strictEqual(picks.length, picked + 1, 'the page can call the picker itself, at once');
       await asked;
       assert.match(w.calls.opened.at(-1), /^web:[^/]+\/single\.md$/, 'and it opens what is picked');
+      // A signal holding the same object would not tell its readers anything had changed.
+      const [last, views] = [w.seen.view, w.seen.views];
+      w.w.sync({});
+      assert.notStrictEqual(w.seen.view, last, 'each view handed over is a new object');
+      assert.strictEqual(w.seen.views, views + 1, 'and is handed over once for each change');
       console.log('✓ the welcome opens a file, offers no folder, and says what the Mac app adds');
     }
 
@@ -5469,8 +5470,8 @@ const memoryKv = () => {
 
       const roots = stores.roots.m.size;
       dropOf(w.page, [item({ getAsFileSystemHandle: async () => folderOf('proj') })]);
-      await until(() => NOT_A_FOLDER.test(status(w.el).textContent), 'a dropped folder refused');
-      assert.match(status(w.el).textContent, /open the folder in the Mac app/, 'with where to');
+      await until(() => NOT_A_FOLDER.test(w.seen.view.status), 'a dropped folder refused');
+      assert.match(w.seen.view.status, /open the folder in the Mac app/, 'with where to');
       assert.deepStrictEqual(
         [w.calls.opened.length, stores.roots.m.size],
         [1, roots],
@@ -5482,7 +5483,7 @@ const memoryKv = () => {
       dropOf(w.page, [
         item({ webkitGetAsEntry: () => ({ isDirectory: true }), getAsFile: () => copy('notes') }),
       ]);
-      await until(() => NOT_A_FOLDER.test(status(w.el).textContent), 'a folder with no handle');
+      await until(() => NOT_A_FOLDER.test(w.seen.view.status), 'a folder with no handle');
       assert.strictEqual(w.calls.opened.length, 1, 'is refused as a folder too');
 
       const fell = copy('fell-back.md', async () => '# Fell\n');
@@ -5509,7 +5510,7 @@ const memoryKv = () => {
       assert.strictEqual(w.calls.opened[3], 'drop:old.md', 'is the same again');
 
       dropOf(w.page, [item({ getAsFile: () => copy('pic.png', async () => '') })]);
-      await until(() => /Redline opens markdown/.test(status(w.el).textContent), 'a refusal');
+      await until(() => /Redline opens markdown/.test(w.seen.view.status), 'a refusal');
       assert.strictEqual(w.calls.opened.length, 4, 'a picture dropped opens nothing');
       assert.deepStrictEqual(unhandled, [], 'and no drop left a rejection nobody handled');
       console.log('✓ a drop is a grant with a handle and a copy without one, and never a folder');
@@ -5518,34 +5519,33 @@ const memoryKv = () => {
     // --- no File System Access: a copy, and one history for a name ---
     {
       const w = await mount(hostW, {});
-      const copyBtn = button(w.el, 'Open file…');
-      assert.ok(copyBtn.className.includes('welcome-primary'), 'the file button is the primary');
+      assert.strictEqual(w.w.canFile, false, 'a browser with no picker is told so');
+      assert.strictEqual(w.seen.view.canFile, false, 'and so is the page');
       assert.match(
-        named(w.el, 'welcome-hint').map((h) => h.textContent).join(' '),
-        /reads a copy[\s\S]*same name[\s\S]*continues its history/,
+        welcomeTsx.replace(/\s+/g, ' '),
+        /\{!v\.canFile && \( <p class="welcome-hint"> This browser cannot keep a link[^<]*reads a copy[^<]*same name[^<]*continues its history/,
         'which says it is a copy, and that a name is a history',
       );
-      assert.ok(shown(named(w.el, 'welcome-limits')[0]), 'and what the web app cannot do too');
-      const input = all(w.el).find((e) => e.tag === 'input');
-      assert.ok(input.hidden, 'the input is not drawn');
-      await copyBtn.click();
-      assert.strictEqual(input.clicks, 1, 'the button is the input\'s');
-      w.w.pickFile();
-      assert.strictEqual(input.clicks, 2, 'and so is the page\'s own way to the picker');
+      // The input is the page's: the button is it, and so is the page's own way to the picker.
+      assert.match(welcomeTsx, /const pickFile = \(\) => \(doors\.canFile \? doors\.pickFile\(\) : input\.current\?\.click\(\)\);/,
+        "with no picker, Open file… is the input's");
+      assert.match(welcomeTsx, /\{!v\.canFile && \(\s*<input\s+ref=\{input\}\s+type="file"\s+hidden/,
+        'which is not drawn');
+      assert.match(welcomeTsx, /const file = field\.files\?\.\[0\];\s*field\.value = '';\s*if \(file\) doors\.openCopy\(file\);/,
+        'and is emptied as it is read, so the same file can be chosen again');
 
       const pick = async (n, body) => {
-        input.files = [{ name: n, text: async () => body, lastModified: 7 }];
-        input.value = 'C:\\fakepath\\' + n;
         const before = w.calls.opened.length;
-        await input.fire('change');
+        await w.w.openCopy({ name: n, text: async () => body, lastModified: 7 } as any);
         await until(() => w.calls.opened.length > before, `${n} to open`);
-        assert.strictEqual(input.value, '', 'the input is emptied, so the same file can be chosen');
       };
       await pick('snap.md', '# Snap\n\nFirst.\n');
       await pick('snap.md', '# Snap\n\nSecond.\n');
       assert.deepStrictEqual(w.calls.opened, ['drop:snap.md', 'drop:snap.md'], 'a copy, by name');
       assert.strictEqual(w.calls.ids[0], w.calls.ids[1], 'and a file of that name is one document');
-      assert.match((await w.page.backend.doc()).text, /Second\./, 'with what it says now');
+      // The copy is replaced in the worker, and read by the reader in its own time.
+      const now = async () => /Second\./.test((await w.page.backend.doc()).text);
+      await until(now, 'what it says now');
       assert.strictEqual(w.calls.persist, 1, 'the storage request is made once here too');
       console.log('✓ with no file picker the welcome takes a copy, and a name is one history');
     }
@@ -5562,21 +5562,25 @@ const memoryKv = () => {
       const w = await mount(hostR, {}, lopen.id);
       await rejection(w.page.backend.doc(), 'NeedsPermission');
       assert.deepStrictEqual(w.page.asked, [{ name: 'l.md' }], 'the page is told which file');
-      const box = named(w.el, 'welcome-reopen')[0];
-      assert.ok(!shown(box), 'the welcome does not ask until the page says to');
+      assert.strictEqual(w.seen.view.reopen, null, 'the welcome does not ask until told to');
       w.w.sync({ reopen: 'l.md' });
-      assert.ok(shown(box), 'the page says so, and it asks');
-      assert.match(box.textContent, /permission to read l\.md again/, 'about that file');
-      const reopen = button(w.el, 'Reopen l.md');
-      assert.ok(reopen, 'with a button that names it');
+      assert.strictEqual(w.seen.view.reopen, 'l.md', 'the page says so, and it asks about it');
+      assert.match(welcomeTsx, /\{v\.reopen && `Redline needs your permission to read \$\{v\.reopen\} again\.`\}/,
+        'by its name');
+      assert.match(
+        welcomeTsx,
+        /onClick=\{\(\) => doors\.reopen\(\)\}>\s*\{v\.reopen && `Reopen \$\{v\.reopen\}`\}/,
+        'with a button that names it, and asks',
+      );
+      const reopen = { click: () => w.w.reopen() };
 
       lapsed.allow = false;
       await reopen.click();
       assert.strictEqual(lapsed.asked, 1, 'a click asks the user');
-      assert.strictEqual(status(w.el).textContent, 'Redline was not given l.md.', 'who says no');
+      assert.strictEqual(w.seen.view.status, 'Redline was not given l.md.', 'who says no');
       assert.deepStrictEqual([w.calls.granted, w.calls.persist], [0, 0], 'is not a grant');
       w.w.sync({ reopen: 'l.md' });
-      assert.ok(!shown(status(w.el)), 'and the page moving on clears what was said about the last');
+      assert.strictEqual(w.seen.view.status, '', 'and the page moving on clears what was said');
 
       lapsed.allow = true;
       await reopen.click();
@@ -5585,12 +5589,9 @@ const memoryKv = () => {
       assert.match((await w.page.backend.doc()).text, /Still here\./, 'and the document is back');
 
       w.w.sync({});
-      assert.ok(!shown(box), 'a page with nothing to reopen hides it');
-      const back = button(w.el, 'Back to the document');
+      assert.strictEqual(w.seen.view.reopen, null, 'a page with nothing to reopen hides it');
       w.w.sync({ back: true });
-      assert.ok(shown(back), 'a page with a document to go back to offers it');
-      await back.click();
-      assert.strictEqual(w.calls.back, 1, 'and takes it');
+      assert.strictEqual(w.seen.view.back, true, 'a page with a document to go back to offers it');
       assert.deepStrictEqual(unhandled, [], 'nothing was left unhandled');
       console.log('✓ the welcome asks again for a lapsed file, and offers the way back');
     }
@@ -5606,8 +5607,7 @@ const memoryKv = () => {
       dropOf(w.page, [item({ getAsFileSystemHandle: async () => folderOf('proj') })]);
       await until(() => said.length === 1, 'a folder dropped on a document to be refused');
       assert.match(said[0], NOT_A_FOLDER, 'is told so by the page');
-      assert.ok(w.el.hidden, 'and the user is not taken off the document');
-      assert.strictEqual(status(w.el).textContent, '', 'nor is it said where it cannot be read');
+      assert.strictEqual(w.seen.view.status, '', 'and not said where it cannot be read');
 
       dropOf(w.page, [item({ getAsFile: () => copy('pic.png', async () => '') })]);
       await until(() => said.length === 2, 'a picture dropped on a document to be refused');
@@ -5619,15 +5619,14 @@ const memoryKv = () => {
       dropOf(w.page, [item({ getAsFile: () => copy('unreadable.md', bad) })]);
       await until(() => said.length === 3, 'a file that will not open to be refused');
       assert.match(said[2], /^Could not open that/, 'and so is a failure');
-      assert.ok(w.el.hidden, 'still without the welcome');
 
       const before = w.calls.opened.length;
       dropOf(w.page, [item({ getAsFile: () => copy('fine.md', async () => '# Fine\n') })]);
       await until(() => w.calls.opened.length === before + 1, 'a markdown file to open');
       assert.deepStrictEqual(
-        [said.length, w.el.hidden],
-        [3, true],
-        'a file that opens is just opened: no notice, and the welcome stays out of the way',
+        [said.length, w.seen.view.status],
+        [3, ''],
+        'a file that opens is just opened: no notice, and nothing for the welcome to say',
       );
       assert.deepStrictEqual(unhandled, [], 'and none of it left a rejection nobody handled');
       console.log('✓ a drop on a document: a notice for a folder or a refusal, never the welcome');
@@ -5830,10 +5829,18 @@ const memoryKv = () => {
     }
 
     assert.ok(
-      /const welcome = backend\.welcome\?\.\(welcomeEl, \{/.test(appJs) &&
-        /open: \(path\) => openFile\(path\),\s*granted: \(\) => reopened\(\),/.test(appJs),
-      'the page gives the backend\'s welcome its section and a way to open what it is handed',
+      /const welcome = backend\.welcome\?\.\(\{/.test(appJs) &&
+        /open: \(path\) => openFile\(path\),\s*granted: \(\) => reopened\(\),/.test(appJs) &&
+        /show: \(view\) => \(welcomeView\.value = view\),/.test(appJs),
+      "the page gives the backend's welcome a way to open what it is handed, and to be drawn",
     );
+    assert.match(
+      appJs,
+      /const pickFile = welcome \? mountWelcome\(welcomeEl, welcome, \(\) => backToDocument\(\)\) : null;/,
+      'which ui/Welcome.tsx draws into the section, and only where there is one',
+    );
+    assert.match(read('./public/app/ui/Welcome.tsx'), /const v = welcomeView\.value;/,
+      'from the view the backend last handed over');
     assert.ok(
       /!welcome \|\| !\['NoDocument', 'NeedsPermission'\]\.includes\(err\?\.name\)/.test(appJs) &&
         new RegExp(
@@ -5849,9 +5856,10 @@ const memoryKv = () => {
     );
     assert.match(appJs, /hideWelcome\(\);\s*(?:\/\/[^\n]*\s*)*paint\((?:\{ reuse: keepScroll \})?\);/,
       'and a document that paints hides it');
-    const hooks = appJs.match(/backend\.welcome\?\.\(welcomeEl, \{([\s\S]*?)\n\}\);/)?.[1] ?? '';
+    const hooks = appJs.match(/backend\.welcome\?\.\(\{([\s\S]*?)\n\}\);/)?.[1] ?? '';
     assert.ok(
-      /notify: \(text\) => notify\(text\),/.test(hooks) && !/show:/.test(hooks),
+      /notify: \(text\) => notify\(text\),/.test(hooks) &&
+        /showing: \(\) => !welcomeEl\.hidden,/.test(hooks),
       'a drop on a document is answered by the notice, and never puts the welcome up',
     );
     assert.match(
@@ -5869,7 +5877,9 @@ const memoryKv = () => {
     );
     assert.ok(
       /\n\.welcome-limits a \{\s*color: var\(--mod\);/.test(pageCss) &&
-        !/\.welcome-(list|folder|files?)\b/.test(pageCss + read('./src/hosts/web/welcome.ts')),
+        !/\.?welcome-(list|folder|files?)\b/.test(
+          pageCss + read('./src/hosts/web/welcome.ts') + read('./public/app/ui/Welcome.tsx'),
+        ),
       'the way to the Mac app is drawn as a link, and the folder list the welcome had is gone',
     );
     assert.match(
@@ -5886,17 +5896,16 @@ const memoryKv = () => {
     );
     assert.match(
       appJs,
-      /e\.key === 'Escape' && !\$<HTMLDialogElement>\('prefs'\)\.open\) backToDocument\(\);/,
+      /e\.key === 'Escape' && prefsOpen\.value === null\) backToDocument\(\);/,
       'Escape goes back to the document, and does not when it is closing Settings',
     );
     assert.match(
       appJs,
-      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(!\$<HTMLDialogElement>\('prefs'\)\.open\) welcome\.pickFile\(\);/,
+      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(prefsOpen\.value === null\) pickFile\(\);/,
       '⌘O is the same, in the web app alone: a window has File ▸ Open…',
     );
-    assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");
     assert.ok(
-      /welcome: \(el, hooks\)/.test(backendSrc) &&
+      /welcome: \(hooks\) => mountWelcome\(\{ backend: api, win, \.\.\.hooks \}\)/.test(backendSrc) &&
         ['./src/hosts/tauri/backend.ts', './public/backend.ts', './src/rpc/client.ts'].every(
           (f) => !/welcome|linkNote/.test(read(f)),
         ),
@@ -5905,24 +5914,20 @@ const memoryKv = () => {
 
     // P7: what the host cannot do is not offered.
     assert.match(
-      pageHtml,
-      /<label id="setBaselineGit" hidden>\s*<input type="radio" name="pBaseline" value="git"/,
-      'the git baseline option is in the page and starts hidden',
+      settingsTsx,
+      /\{ value: 'git', text: 'git HEAD', id: 'setBaselineGit', hidden: !git \}/,
+      'the git baseline option is in the sheet, hidden but where there is git',
     );
-    assert.strictEqual(pageHtml.match(/value="git"/g).length, 1, 'and nothing else offers git');
-    assert.match(
-      appJs,
-      /state\.caps = data\.caps \?\? null;\s*applyCaps\(\);/,
-      'every payload says what the reader can do, and the page follows it',
-    );
-    assert.match(
-      appJs,
-      /function applyCaps\(\) \{\s*\$\('setBaselineGit'\)\.hidden = !state\.caps\?\.git;\s*\}/,
-      'the git option is shown on caps.git and on nothing else',
+    assert.strictEqual((pageHtml + appJs).match(/value: 'git'|value="git"/g).length, 1,
+      'and nothing else offers git');
+    assert.match(appJs, /state\.caps = data\.caps \?\? null;/,
+      'every payload says what the reader can do');
+    assert.match(settingsTsx, /const git = Boolean\(state\.caps\?\.git\);/,
+      'the git option is shown on caps.git and on nothing else, and unknown is none',
     );
     assert.match(
-      appJs,
-      /settings\.baseline === 'git' && state\.caps\?\.git;\s*setSeg\('setBaseline', git \?/,
+      settingsTsx,
+      /value=\{s\.baseline === 'git' && git \? 'git' : 'read'\}/,
       'and a saved choice of git is not shown as made where there is none',
     );
 
@@ -6057,7 +6062,7 @@ const memoryKv = () => {
       appJs,
       new RegExp(
         String.raw`if \(welcome\) \{[\s\S]{0,600}` +
-          String.raw`\$\('newTab'\)\.addEventListener\('click', \(\) => welcome\.pickFile\(\)\);`,
+          String.raw`\$\('newTab'\)\.addEventListener\('click', \(\) => pickFile\(\)\);`,
       ),
       'Open file… at the foot of the list is the file picker too',
     );
@@ -6630,7 +6635,10 @@ const memoryKv = () => {
 
   // What a person would count on: what the web app opens, where the rest is, and how long an
   // edit takes to show. Read from the code that holds the number, the one place it is written.
-  const { MAC_APP_URL } = await import('./src/hosts/web/welcome.js');
+  const MAC_APP_URL = read('./public/app/ui/Welcome.tsx').match(
+    /^export const MAC_APP_URL = '([^']+)';$/m,
+  )?.[1];
+  assert.ok(MAC_APP_URL, 'the Mac app link is read from where the welcome draws it');
   assert.ok(
     !/Open folder|folders down/.test(doc) && /files, not folders/.test(doc),
     'it opens files, and the doc offers no folder',
@@ -7137,14 +7145,16 @@ assert.match(menuRs, /"checkupdate" => win::to_front\(app, "md:check-update"/,
   'and hands it to the window in front');
 assert.match(seamJs, /onCheckUpdate: \(cb\b.*?\) => on\('md:check-update'/, 'which listens for it');
 assert.match(pageJs, /native\.onCheckUpdate\(/, 'and answers it');
-assert.match(pageHtml, /<section id="aboutSec" data-shell>/,
+assert.match(settingsTsx, /<section id="aboutSec" data-shell="">/,
   'in a section only the desktop app shows');
-assert.match(pageJs, /\$\('setVersion'\)\.textContent = native\.version/,
+assert.match(pageJs, /mountSettings\(\$\('prefsSlot'\), native\?\.version \?\? '',/,
   'which says what this is');
+assert.match(settingsTsx, /<span id="setVersion">\{version\}<\/span>/, 'by its version');
 assert.match(hostRs, /version: app\.package_info\(\)\.version\.to_string\(\)/,
   'from the bundle the app was built as');
-assert.match(pageJs, /\$\('checkUpdate'\)\.addEventListener\('click', checkUpdate\)/,
-  'with a button that asks');
+assert.match(pageJs, /\n  check: checkUpdate,\n/, 'with a button that asks');
+assert.match(settingsTsx, /id="checkUpdate"[\s\S]{0,120}?onClick=\{actions\.check\}/,
+  'and the button is wired to it');
 // Counted rather than looked for: the promise is that *nothing else* calls it,
 // so the one call there is has to be the menu's.
 assert.deepStrictEqual(
