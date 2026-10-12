@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { spawn } from 'node:child_process';
 import { createServer } from '../src/hosts/node/server.js';
 import { DocStore } from '../src/reader/store.js';
@@ -18,8 +20,17 @@ Options:
   -h, --help            Show this help
 `;
 
-function parseArgs(argv) {
-  const opts = { file: null, port: 7391, open: true, app: false, plantumlJar: null };
+interface Options {
+  file: string | null;
+  port: number;
+  open: boolean;
+  app: boolean;
+  plantumlJar: string | null;
+  help?: boolean;
+}
+
+function parseArgs(argv: string[]): Options {
+  const opts: Options = { file: null, port: 7391, open: true, app: false, plantumlJar: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-h' || a === '--help') opts.help = true;
@@ -38,7 +49,7 @@ function parseArgs(argv) {
   return opts;
 }
 
-function openBrowser(url, appMode) {
+function openBrowser(url: string, appMode: boolean): void {
   if (appMode && process.platform === 'darwin') {
     for (const app of ['Google Chrome', 'Microsoft Edge', 'Brave Browser']) {
       try {
@@ -59,14 +70,14 @@ function openBrowser(url, appMode) {
   p.unref();
 }
 
-function listen(server, port, attempts = 20) {
+function listen(server: Server, port: number, attempts = 20): Promise<number> {
   return new Promise((resolve, reject) => {
-    const tryPort = (p, left) => {
-      server.once('error', (err) => {
+    const tryPort = (p: number, left: number): void => {
+      server.once('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE' && left > 0) tryPort(p + 1, left - 1);
         else reject(err);
       });
-      server.listen(p, '127.0.0.1', () => resolve(server.address().port));
+      server.listen(p, '127.0.0.1', () => resolve((server.address() as AddressInfo).port));
     };
     tryPort(port, attempts);
   });

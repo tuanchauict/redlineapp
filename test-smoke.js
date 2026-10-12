@@ -73,6 +73,39 @@ import { createRpcBackend } from './src/rpc/client.js';
   console.log('✓ the suite and every npm script run the compiled copy, compiled first');
 }
 
+// bin/ and scripts/ are TypeScript. A .js or .mjs left in either is compiled and never checked
+// (checkJs is off), and nothing else would say it was forgotten. The other half is that every
+// compiled path package.json hands to Node exists: scripts/ is .mts so that what it emits is
+// the .mjs that every npm script, dev.mts and bundle.mts already name, and a file renamed to
+// the wrong extension would otherwise be found by the first person to run that script.
+{
+  for (const dir of ['bin', 'scripts']) {
+    const stray = fs.readdirSync(rootUrl(`${dir}/`)).filter((n) => /\.m?js$/.test(n));
+    assert.deepStrictEqual(stray, [], `${dir}/ holds TypeScript only`);
+  }
+  const pkg = JSON.parse(fs.readFileSync(rootUrl('package.json'), 'utf8'));
+  assert.ok(fs.existsSync(rootUrl(pkg.bin.redline)), `the CLI, ${pkg.bin.redline}, is emitted`);
+  for (const [name, cmd] of Object.entries(pkg.scripts)) {
+    if (!/\bnode out\//.test(cmd)) continue;
+    const named = cmd.match(/\bout\/[\w./-]+\.m?js\b/g);
+    assert.ok(named, `${name} names a compiled file`);
+    for (const rel of named) assert.ok(fs.existsSync(rootUrl(rel)), `${name}: ${rel} is emitted`);
+  }
+  // dev.mts and bundle.mts run their siblings by the compiled name, in a string tsc cannot check.
+  for (const name of ['dev', 'bundle']) {
+    const text = fs.readFileSync(rootUrl(`scripts/${name}.mts`), 'utf8');
+    const siblings = [...text.matchAll(/'([\w-]+\.mjs)'/g)].map((m) => m[1]);
+    assert.ok(siblings.length > 0, `${name}.mts runs a script by name`);
+    for (const script of siblings) {
+      assert.ok(fs.existsSync(rootUrl(`out/scripts/${script}`)), `${name} runs ${script}`);
+    }
+  }
+  // tsc keeps a shebang, and npm marks the bin executable on install.
+  const cli = fs.readFileSync(rootUrl(pkg.bin.redline), 'utf8');
+  assert.ok(cli.startsWith('#!/usr/bin/env node\n'), 'the compiled CLI keeps its shebang');
+  console.log('✓ bin/ and scripts/ are TypeScript, and the compiled paths npm runs exist');
+}
+
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-'));
 process.env.REDLINE_HOME = path.join(tmp, 'home');
 
@@ -307,7 +340,7 @@ assert.match(sanitizeJs, /SANITIZE_DOM: false,\n\s*FORBID_ATTR: \['name'\]/,
   'heading ids keep their anchors, and name is what goes instead');
 assert.ok(fs.readFileSync(rootUrl('public/vendor/sanitize.js'), 'utf8')
   .includes('DOMPurify'), 'build:web bundles DOMPurify into it');
-assert.match(fs.readFileSync(rootUrl('scripts/stage-page.mjs'), 'utf8'),
+assert.match(fs.readFileSync(rootUrl('scripts/stage-page.mts'), 'utf8'),
   /'vendor\/sanitize\.js'/, 'and no host stages a page without it');
 
 // The shell runs only the command lines the reader builds. Each spawn in src/
@@ -816,7 +849,7 @@ console.log('✓ the bar can move the native window');
 
 // The app's icon, at the bar's left edge in a browser tab: the web app's and the CLI's. The
 // file is the favicon's, which every host serves beside the page (`/icon.svg` above,
-// `stage-page.mjs` for the other two), so a relative src holds under any base URL.
+// `stage-page.mts` for the other two), so a relative src holds under any base URL.
 assert.match(
   pageHtml,
   /<header class="bar"[^>]*>\s*(<!--[\s\S]*?-->\s*)?<img class="app-icon" src="icon\.svg" alt=""/,
@@ -5217,11 +5250,11 @@ const memoryKv = () => {
       /__REDLINE_WEB\)[\s\S]*?import\('\.\/vendor\/backend-web\.js'\)/.test(pageBackend),
     'createBackend picks the web backend, after the shell and before http',
   );
-  const buildWeb = read('./scripts/build-web.mjs');
+  const buildWeb = read('./scripts/build-web.mts');
   assert.match(buildWeb, /hosts\/web\/backend\.ts.*backend-web\.js/, 'backend-web.js is built');
   assert.match(buildWeb, /hosts\/web\/worker\.ts.*reader-worker\.js/, 'reader-worker.js is built');
   assert.match(
-    read('./scripts/stage-page.mjs'),
+    read('./scripts/stage-page.mts'),
     /web: \{\s*bundles: \['backend-web\.js', 'reader-worker\.js'\]/,
     'and they are the web host\'s, which is what keeps them out of the desktop app (12e)',
   );
@@ -5549,7 +5582,7 @@ const memoryKv = () => {
 }
 
 // --- 12e. the web app's build: one page staged per host, and the headers a static host needs ---
-// stage-page.mjs is the body of build:dist with the host as a parameter, so the desktop app's page
+// stage-page.mts is the body of build:dist with the host as a parameter, so the desktop app's page
 // has to be what it always was, and the web app's the same page with the other reader in it.
 // build:webapp adds `_headers`, which is what makes a static host say what the CLI's server says.
 // What no test here can say is whether Cloudflare Pages serves Mermaid's .mjs chunks as
@@ -5647,9 +5680,9 @@ const memoryKv = () => {
     /no host called nope/,
     'and a host that is not one of them is an error, not an empty directory',
   );
-  assert.match(read('./scripts/build-dist.mjs'), /stagePage\('shell\/dist', \{ host: 'tauri' \}\)/,
+  assert.match(read('./scripts/build-dist.mts'), /stagePage\('shell\/dist', \{ host: 'tauri' \}\)/,
     'build:dist is stagePage for the Tauri host');
-  assert.match(read('./scripts/build-webapp.mjs'), /stagePage\(dest, \{ host: 'web' \}\)/,
+  assert.match(read('./scripts/build-webapp.mts'), /stagePage\(dest, \{ host: 'web' \}\)/,
     'and build:webapp is stagePage for the web');
   console.log('✓ stage-page gives each host its own reader, and the desktop page is as it was');
 
@@ -5681,7 +5714,7 @@ const memoryKv = () => {
     web,
   ]) assert.doesNotThrow(() => assertSafeDest(dir), `${dir} is somewhere to put a build`);
   assert.doesNotThrow(() => assertSafeDest('/x/..foo', '/x'), '`..foo` inside it is fine');
-  const stageSrc = read('./scripts/stage-page.mjs');
+  const stageSrc = read('./scripts/stage-page.mts');
   const stageBody = stageSrc.slice(stageSrc.indexOf('export function stagePage'));
   assert.ok(
     stageBody.indexOf('assertSafeDest(out);') > 0 &&
@@ -5734,7 +5767,7 @@ const memoryKv = () => {
     'the hash follows the page it is given, so an edit to the head script changes it',
   );
   assert.ok(headerLines.every((l) => l.length <= 2000), 'no line is longer than Pages reads');
-  assert.match(read('./scripts/build-webapp.mjs'),
+  assert.match(read('./scripts/build-webapp.mts'),
     /readFileSync\(path\.join\(staged\.dest, 'index\.html'\)/,
     'and it is read from the staged page, after the shim is over host.js, not from public/');
   assert.ok(/^dist\/$/m.test(read('./.gitignore')), 'dist/web is build output, not source');
@@ -5772,7 +5805,7 @@ const memoryKv = () => {
     assert.strictEqual(held.match(/max-age=(\d+)/)[1], String(365 * 24 * 60 * 60), 'a year');
     assert.strictEqual(rulesOf(headersFile(stagedHtml)).size, 1,
       'with no paths to keep, there is the one rule and no caching, as there was');
-    assert.match(read('./scripts/build-webapp.mjs'),
+    assert.match(read('./scripts/build-webapp.mts'),
       /headersFile\(html, heldPaths\(staged\.dest\)\)/,
       'and build:webapp gives it what it staged');
     console.log('✓ _headers: index.html is revalidated, and every other path is kept for a year');
@@ -6015,7 +6048,7 @@ const memoryKv = () => {
     server.closeAllConnections?.();
     server.close();
   }
-  const serveSrc = read('./scripts/serve-webapp.mjs');
+  const serveSrc = read('./scripts/serve-webapp.mts');
   assert.match(serveSrc, /'127\.0\.0\.1'/, 'on the loopback and nowhere else');
   assert.match(serveSrc, /relative\(root, file\)\.startsWith\('\.\.'\)/, 'serving only the app');
   assert.match(serveSrc, /EADDRINUSE[\s\S]*process\.exit\(1\)/,
@@ -6098,7 +6131,7 @@ const memoryKv = () => {
   assert.ok(doc.includes(`](${MAC_APP_URL})`), 'and links the Mac app where the welcome does');
   assert.match(read('./src/reader/reader.ts'), /^const POLL_MS = 1500;$/m);
   assert.ok(doc.includes('within about a second and a half'), 'a poll of 1500 ms');
-  assert.match(read('./scripts/serve-webapp.mjs'), /^const DEFAULT_PORT = 8081;$/m);
+  assert.match(read('./scripts/serve-webapp.mts'), /^const DEFAULT_PORT = 8081;$/m);
   assert.ok(doc.includes('http://127.0.0.1:8081'), 'and the address the server answers on');
 
   // The open files, under the key the code keeps them by. And the way to another file as the page
@@ -6223,7 +6256,7 @@ const pagesYml = fs.readFileSync(
   rootUrl('.github/workflows/pages.yml'),
   'utf8',
 );
-assert.match(ci, /path: dist\/\*\.dmg/, 'the dmg is kept where bundle.mjs leaves it');
+assert.match(ci, /path: dist\/\*\.dmg/, 'the dmg is kept where bundle.mts leaves it');
 assert.match(ci, /if-no-files-found: error/, 'loudly, rather than uploading nothing');
 
 const workflows = fs.readdirSync(rootUrl('.github/workflows/'));
@@ -6359,7 +6392,7 @@ assert.strictEqual(
 // reach it as a `--config` patch -- tauri.conf.json has the ad hoc `-` in it,
 // and a patch is the one route whose precedence is documented rather than
 // guessed at.
-const bundleJs = fs.readFileSync(rootUrl('scripts/bundle.mjs'), 'utf8');
+const bundleJs = fs.readFileSync(rootUrl('scripts/bundle.mts'), 'utf8');
 assert.match(bundleJs, /APPLE_SIGNING_IDENTITY/, 'the bundle takes an identity from the env');
 assert.match(bundleJs, /signingIdentity: identity/, 'and patches it over the ad hoc one');
 assert.match(bundleJs, /'--config'/, 'through the flag that merges last over first');
@@ -6454,7 +6487,7 @@ console.log('✓ CI tests every change on two OSes, and signs only what a fork c
 // because the page comes out of the binary: `tauri dev` serves shell/dist over
 // a static server of its own, so a page edit is a restage and a ⌘R instead of a
 // relink. Four things hold that up, and three of them break silently.
-const devJs = fs.readFileSync(rootUrl('scripts/dev.mjs'), 'utf8');
+const devJs = fs.readFileSync(rootUrl('scripts/dev.mts'), 'utf8');
 const devScripts = JSON.parse(
   fs.readFileSync(rootUrl('package.json'), 'utf8'),
 ).scripts;
@@ -6685,7 +6718,7 @@ assert.strictEqual(
   'npm run notices',
 );
 // Kept by build:web, so the notices that sit with their code still do.
-assert.match(String(fromRoot('scripts/build-web.mjs')), /legalComments: 'eof'/,
+assert.match(String(fromRoot('scripts/build-web.mts')), /legalComments: 'eof'/,
   "the bundles keep their license comments");
 assert.match(String(fromRoot('public/vendor/sanitize.js')), /@license DOMPurify/,
   'and DOMPurify\'s is in the bundle');
@@ -6866,7 +6899,7 @@ assert.match(siteJs, /pointerdown/, 'and stops for good the first time it is tou
 // is the answer to that, and `presite` is why it is one command -- an unstaged
 // site/ served from here is the page with no icon, which is the same trap one
 // step earlier.
-const serveSite = fs.readFileSync(rootUrl('scripts/serve-site.mjs'), 'utf8');
+const serveSite = fs.readFileSync(rootUrl('scripts/serve-site.mts'), 'utf8');
 const scripts = JSON.parse(
   fs.readFileSync(rootUrl('package.json'), 'utf8'),
 ).scripts;
@@ -7093,7 +7126,7 @@ for (const key of ['⌘B', '⌥⌘B']) {
 // overwrites it on every deploy, so holding the source to it would only make
 // every bump touch site/ for nothing. What the source must have is a link
 // build:site can find.
-const buildSite = fs.readFileSync(rootUrl('scripts/build-site.mjs'), 'utf8');
+const buildSite = fs.readFileSync(rootUrl('scripts/build-site.mts'), 'utf8');
 const RELEASE_DOWNLOADS = 'https://github.com/tuanchauict/redlineapp/releases/download';
 const dmgHref = siteHtml.match(/href="(https:\/\/[^"]+\/v(.+?)\/Redline-(.+?)-universal\.dmg)"/);
 assert.ok(dmgHref, 'the page offers the dmg over plain https');

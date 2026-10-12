@@ -12,7 +12,7 @@
 // `127.0.0.1` count as one, so this works without a certificate.
 //
 // It answers with the headers in `_headers`, which is the whole of what this does that
-// serve-site.mjs does not. A policy that only the deployed copy has is a policy nobody has run:
+// serve-site.mts does not. A policy that only the deployed copy has is a policy nobody has run:
 // the first sign of a directive that blocks the worker would be on the real site.
 //
 // The port is not walked past when it is taken, unlike the landing page's. IndexedDB and the
@@ -22,6 +22,7 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import type { AddressInfo } from 'node:net';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ROOT } from '../src/hosts/node/root.js';
@@ -29,7 +30,7 @@ import { ROOT } from '../src/hosts/node/root.js';
 const WEB = path.join(ROOT, 'dist', 'web');
 const DEFAULT_PORT = 8081;
 
-const MIME = {
+const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -44,14 +45,14 @@ const MIME = {
  * The headers `_headers` puts on every path: the `/*` rule, which is the one build:webapp writes.
  * Read per request, because a rebuild while this runs changes the hash in the policy.
  */
-function ruleHeaders(root) {
-  let text;
+function ruleHeaders(root: string): Record<string, string> {
+  let text: string;
   try {
     text = fs.readFileSync(path.join(root, '_headers'), 'utf8');
   } catch {
     return {};
   }
-  const headers = {};
+  const headers: Record<string, string> = {};
   let inRule = false;
   for (const line of text.split('\n')) {
     if (!line.trim() || line.trim().startsWith('#')) continue;
@@ -70,12 +71,11 @@ function ruleHeaders(root) {
 /**
  * A static server over `root`, not yet listening.
  *
- * @param {string} root  The staged web app.
- * @returns {import('node:http').Server}
+ * @param root  The staged web app.
  */
-export function createWebappServer(root) {
+export function createWebappServer(root: string): http.Server {
   return http.createServer((req, res) => {
-    const send = (code, body, type = MIME['.txt']) => {
+    const send = (code: number, body: string | Buffer, type = MIME['.txt']): void => {
       // Nothing is cached, however briefly. A script held for a minute during a round of edits is
       // a change that looks like it did not land -- and a worker is the one thing the browser
       // already keeps alive on its own.
@@ -90,7 +90,7 @@ export function createWebappServer(root) {
     // A target that does not parse (`//`) or does not decode (`/100%`, `/%E0%A4%A`) throws, and a
     // throw in a request handler is an uncaught exception: one bad request and the server is gone,
     // with the page that was being served from it.
-    let rel;
+    let rel: string;
     try {
       rel = decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname).replace(/^\/+/, '');
     } catch {
@@ -135,7 +135,7 @@ function main() {
   }
 
   const server = createWebappServer(WEB);
-  server.once('error', (err) => {
+  server.once('error', (err: NodeJS.ErrnoException) => {
     if (err.code !== 'EADDRINUSE') throw err;
     console.error(
       `Port ${opts.port} is taken. Another port is another origin, with its own history and ` +
@@ -144,7 +144,7 @@ function main() {
     process.exit(1);
   });
   server.listen(opts.port, '127.0.0.1', () => {
-    const url = `http://127.0.0.1:${server.address().port}/`;
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
     console.log(`redline web   ${WEB}`);
     console.log(`              ${url}   (ctrl-c to stop)`);
 

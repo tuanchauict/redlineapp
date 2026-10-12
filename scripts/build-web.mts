@@ -39,7 +39,7 @@
 // is the step every host runs first:
 //
 //   github-markdown.css  github-markdown-css, with its palette keyed to the
-//                        page's scheme and not the system's (markdown-css.mjs)
+//                        page's scheme and not the system's (markdown-css.mts)
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -62,7 +62,7 @@ const dev = process.argv.includes('--dev');
 
 fs.mkdirSync(VENDOR, { recursive: true });
 
-const kb = (n) => `${(n / 1024).toFixed(0)} KB`;
+const kb = (n: number): string => `${(n / 1024).toFixed(0)} KB`;
 
 for (const { entry, out } of BUNDLES) {
   const outfile = path.join(VENDOR, out);
@@ -96,7 +96,7 @@ for (const { entry, out } of BUNDLES) {
     result.metafile.outputs[path.relative(ROOT, outfile)].inputs,
   ).sort((a, b) => b[1].bytesInOutput - a[1].bytesInOutput);
 
-  const group = (file) => {
+  const group = (file: string): string => {
     const m = /node_modules\/((?:@[^/]+\/)?[^/]+)/.exec(file);
     return m ? m[1] : 'redline';
   };

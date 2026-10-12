@@ -2,12 +2,12 @@ node_modules/
 dist/
 out/
 
-# Built by scripts/build-web.mjs, from src/. Generated rather than committed:
+# Built by scripts/build-web.mts, from src/. Generated rather than committed:
 # it is a third of a megabyte of somebody else's minified code, and every npm
 # script that needs it builds it first.
 public/vendor/
 
-# Copied into the landing page by scripts/build-site.mjs, from assets/.
+# Copied into the landing page by scripts/build-site.mts, from assets/.
 # Generated rather than committed for the same reason: they are bytes this
 # repository already has, and a second copy is a second thing to remember to
 # update. site/images/ held the og:image when that was a screenshot, and stays

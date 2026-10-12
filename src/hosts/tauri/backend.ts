@@ -11,7 +11,7 @@
 // that differs is how the page reaches it and which platform is underneath.
 // Two implementations of the diff would be two products.
 //
-// Bundled to public/vendor/backend-tauri.js by scripts/build-web.mjs, and
+// Bundled to public/vendor/backend-tauri.js by scripts/build-web.mts, and
 // loaded only when the shell has left its facts on the window, so a browser tab
 // never downloads a line of it.
 import type { Backend } from '../../contract/seam.js';

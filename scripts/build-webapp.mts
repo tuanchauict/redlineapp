@@ -2,7 +2,7 @@
 //
 //   npm run build:webapp         # -> dist/web/
 //
-// The page is the one the desktop app embeds, staged by the same code (stage-page.mjs) for a host
+// The page is the one the desktop app embeds, staged by the same code (stage-page.mts) for a host
 // with no server and no shell: the reader runs in a SharedWorker, over the browser's own file
 // access and IndexedDB, so nothing here is anything but files. What this adds to the staging is
 // `_headers`, which is what makes a static host say what the CLI's server says, and how long a
@@ -14,7 +14,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { directives, inlineScriptHashes, serialize } from '../src/core/csp.js';
-import { stagePage, megabytes } from './stage-page.mjs';
+import { stagePage, megabytes, type StagedPage } from './stage-page.mjs';
 
 export const WEB_DIST = 'dist/web';
 
@@ -30,13 +30,13 @@ export const HELD = 'public, max-age=31536000, immutable';
  * (a list of what to revalidate) so that what is forgotten is held less, and not for ever.
  *
  * What it takes for granted is that the page asks for each of them by `?v=`, which
- * `stage-page.mjs` writes into `index.html` and into the imports, and which the tests (12e) read
+ * `stage-page.mts` writes into `index.html` and into the imports, and which the tests (12e) read
  * back out. A file added to `public/` and fetched by a name of its own would be held for a year
  * under a name that does not change.
  *
- * @param {string} dir  The staged page, before `_headers` is in it.
+ * @param dir  The staged page, before `_headers` is in it.
  */
-export function heldPaths(dir) {
+export function heldPaths(dir: string): string[] {
   return fs
     .readdirSync(dir, { withFileTypes: true })
     .filter((e) => e.name !== 'index.html')
@@ -57,10 +57,10 @@ export function heldPaths(dir) {
  * from the staged page rather than from public/: a change to that script changes its hash, and a
  * stale one would block the script the page needs before it can paint.
  *
- * @param {string} html  The staged index.html.
- * @param {string[]} [held]  Paths a browser may keep for a year (`heldPaths`). Default: none.
+ * @param html  The staged index.html.
+ * @param held  Paths a browser may keep for a year (`heldPaths`). Default: none.
  */
-export function headersFile(html, held = []) {
+export function headersFile(html: string, held: string[] = []): string {
   const csp = serialize(
     directives({
       'script-src': ["'self'", ...inlineScriptHashes(html)],
@@ -102,11 +102,10 @@ export function headersFile(html, held = []) {
 /**
  * Stage the page for the web into `dest` and write `_headers` beside it.
  *
- * @param {string} [dest]  Relative to the repository root, or absolute.
- * @returns {{ dest: string, bytes: number, version: string }}  `version` is the `?v=` the page's
- *   files are asked for by.
+ * @param dest  Relative to the repository root, or absolute.
+ * @returns  `version` is the `?v=` the page's files are asked for by.
  */
-export function buildWebapp(dest = WEB_DIST) {
+export function buildWebapp(dest = WEB_DIST): StagedPage {
   const staged = stagePage(dest, { host: 'web' });
   const html = fs.readFileSync(path.join(staged.dest, 'index.html'), 'utf8');
   const headers = headersFile(html, heldPaths(staged.dest));

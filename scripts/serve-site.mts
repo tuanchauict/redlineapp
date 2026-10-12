@@ -19,13 +19,14 @@
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import type { AddressInfo } from 'node:net';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ROOT } from '../src/hosts/node/root.js';
 
 const SITE = path.join(ROOT, 'site');
 
-const MIME = {
+const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -40,12 +41,11 @@ const MIME = {
  * A static server over `root`, not yet listening. A function and not a module-level `const` so
  * that a test can make one, which is how its answer to a bad request is tested at all.
  *
- * @param {string} [root]  Default: site/.
- * @returns {import('node:http').Server}
+ * @param root  Default: site/.
  */
-export function createSiteServer(root = SITE) {
+export function createSiteServer(root = SITE): http.Server {
   return http.createServer((req, res) => {
-    const send = (code, body, type = MIME['.txt']) => {
+    const send = (code: number, body: string | Buffer, type = MIME['.txt']): void => {
       // Nothing is cached, however briefly. A stylesheet held for a minute during
       // a round of edits is a change that looks like it did not land.
       res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' });
@@ -54,7 +54,7 @@ export function createSiteServer(root = SITE) {
 
     // A target that does not parse (`//`) or does not decode (`/100%`) throws, and a throw in a
     // request handler is an uncaught exception: one bad request and the server is gone.
-    let rel;
+    let rel: string;
     try {
       rel = decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname).replace(/^\/+/, '');
     } catch {
@@ -93,13 +93,13 @@ async function main() {
 
   // The same next-free-port walk the reader's own CLI does, for the same reason:
   // a second window on the same page should not be an error message.
-  const port = await new Promise((resolve, reject) => {
-    const tryPort = (p, left) => {
-      server.once('error', (err) => {
+  const port = await new Promise<number>((resolve, reject) => {
+    const tryPort = (p: number, left: number): void => {
+      server.once('error', (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE' && left > 0) tryPort(p + 1, left - 1);
         else reject(err);
       });
-      server.listen(p, '127.0.0.1', () => resolve(server.address().port));
+      server.listen(p, '127.0.0.1', () => resolve((server.address() as AddressInfo).port));
     };
     tryPort(Number.isFinite(opts.port) ? opts.port : 8080, 20);
   });

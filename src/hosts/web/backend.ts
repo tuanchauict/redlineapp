@@ -74,7 +74,7 @@ declare global {
  * does not change between rebuilds at one version -- every round of `npm run webapp`, a redeploy
  * of a release -- and each of those is new reader code that a tab left open would keep alive for
  * the new tabs to join. It is on the window because the staged shim puts it there
- * (`stage-page.mjs`, after `host.js`); a page without one is a page nobody built, which is the
+ * (`stage-page.mts`, after `host.js`); a page without one is a page nobody built, which is the
  * only time it says `dev`.
  */
 export const workerName = (g: { __REDLINE_VERSION?: string } = globalThis): string =>

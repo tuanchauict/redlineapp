@@ -26,7 +26,7 @@ not working.
 | | |
 | --- | --- |
 | `npm run build:ts` | `tsc -b`: compiles `bin/`, `scripts/`, `src/` and the test into `out/`, which mirrors the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`). Gitignored, and what every npm script runs; every other build command runs it first. See [TypeScript](typescript.md) |
-| `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mjs`, which stops the build if a release moves the palettes) |
+| `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mts`, which stops the build if a release moves the palettes) |
 | `npm run build:dist` | Stages `shell/dist`: `public/`, the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
 | `npm run build:webapp` | Stages `dist/web`, the web app: the same page, with the web bundles in and the Tauri backend left out, the web app's `host.js` over the empty one, every file asked for as `?v=<build>`, and a `_headers` file that says what to keep for a year. See [The web app](#the-web-app) |
 
@@ -37,7 +37,7 @@ window already open — and `npm run dev` re-runs them for you on every edit, wh
 it starts. A change to `scripts/` or `src/hosts/node/` while it runs is not picked up until
 the next `npm run build:ts`; a change to `src/` is, because esbuild reads it directly.
 
-`build:dist` and `build:webapp` are both `stagePage` in `scripts/stage-page.mjs`, called
+`build:dist` and `build:webapp` are both `stagePage` in `scripts/stage-page.mts`, called
 for a different host: it is the one place that knows what goes into a page and what only
 one host's page gets. A new host is a row in its `HOSTS` table and one more call.
 
@@ -93,27 +93,27 @@ count as one without a certificate.
   the browser asks about it every time and is told *not modified* until there is a release. A
   release is then seen on the next load, in one request, and a file the browser has is not
   fetched again. The id is a hash of every staged file and of the version (`pageHash` in
-  `stage-page.mjs`, 12 hex): a rebuild that changed nothing is the same id, and a change to
+  `stage-page.mts`, 12 hex): a rebuild that changed nothing is the same id, and a change to
   anything is a new one, for every file. One id for the page and not one per file, because a
   file that imports another has the other's id in its own text, and two that import each other
   have no order to work it out in.
   - **A query is not inherited.** `app.js?v=…` imports `./backend.js`, and a browser asks for
     exactly that, with no query. So the staged `app.js` and `backend.js` have it written into
-    their imports (`MODULES` in `stage-page.mjs`; a build that finds none to write fails, since
+    their imports (`MODULES` in `stage-page.mts`; a build that finds none to write fails, since
     the file has changed shape), and the worker's URL takes its query from its own bundle's
     (`sibling` in `hosts/web/backend.ts`). The bundles import nothing by a path of their own,
     and a test (12e) reads every staged module and fails on one that does.
   - **Mermaid's chunks have no query**, and are held all the same: each is named for a hash of
     what is in it (`chunk-S4TE5DX6.mjs`), so its name is already its version.
   - **What is held is every path at the top but `index.html`** (`heldPaths` in
-    `build-webapp.mjs`). A file added to `public/` and fetched by a name of its own, with no
+    `build-webapp.mts`). A file added to `public/` and fetched by a name of its own, with no
     `?v=`, would be held for a year under a name that never changes; ask for it as the page
     asks for the rest.
   - **Only the web app.** The desktop app has its page inside the binary, and the CLI's server
     holds nothing. `npm run webapp` serves the same URLs and still says `no-store` on each, so
     a round of edits is never a stale one.
 - **The worker is named for the build**, `redline@<version>+<hash>`: the shim that
-  `stage-page.mjs` stages puts `package.json`'s version and a hash of the two staged bundles
+  `stage-page.mts` stages puts `package.json`'s version and a hash of the two staged bundles
   (`vendor/backend-web.js` and `vendor/reader-worker.js`, sha256, 12 hex) on the window, and the
   page reads it. A SharedWorker is found by URL and name, so without that a deploy leaves new
   pages joining the old reader that an old tab keeps alive. The hash is there because the
@@ -220,7 +220,7 @@ npm run dev -- --no-watch    # stage once and leave it alone
 It runs `tauri dev` rather than `cargo run`. With `frontendDist` and no `devUrl`,
 Tauri starts a static server of its own over `shell/dist` (port 1430) and points
 the window at that instead of embedding it — so the page is a file on disk again,
-and **⌘R picks up an edit with no compile**. `scripts/dev.mjs` adds the restaging:
+and **⌘R picks up an edit with no compile**. `scripts/dev.mts` adds the restaging:
 a watch on `public/` and `src/` that re-runs the two build steps. Rust is still a
 recompile, but `tauri dev` watches for that itself and restarts the app.
 
@@ -422,7 +422,7 @@ rather than left for Gatekeeper to ask Apple about at launch.
 There are two bundle steps for one command, because which of them runs is the whole
 difference. Off a pull request the step has the secrets, and the dmg is **signed and
 notarized**; on one it has none and is signed ad hoc. With none of them set either way
-— a fork building its own `main` — `scripts/bundle.mjs` signs ad hoc and still
+— a fork building its own `main` — `scripts/bundle.mts` signs ad hoc and still
 produces a dmg, so that is not a red tick either.
 
 Rust is cached — the registry, and `shell/target` — on a key that is the hash of
@@ -447,7 +447,7 @@ npm run build:site                 # just stage the icon and the og:image
 ```
 
 `presite` runs `build:site`, so `npm run site` is one command and there is no staging
-step to forget. `scripts/serve-site.mjs` is ~60 lines of `node:http` over `site/`,
+step to forget. `scripts/serve-site.mts` is ~60 lines of `node:http` over `site/`,
 loopback only, nothing cached — a stylesheet held for a minute during a round of
 edits is a change that looks like it did not land. It takes the same `-p` / `--port`
 and `--no-open` as the reader's own CLI and walks to the next free port the same way.
@@ -704,7 +704,7 @@ button. `package.json` is ahead of every release from the moment a bump merges
 until the release job is done, so a deploy started by a push in that window would
 link a dmg that is not up yet. That covers a push to `site/`, and one landing
 alongside the tag. So a change merged under `site/`, `assets/icon.svg`, `assets/icon.png`,
-`scripts/build-site.mjs` or `wrangler.toml` is not live until somebody runs the
+`scripts/build-site.mts` or `wrangler.toml` is not live until somebody runs the
 workflow, or the next release does. Run it by hand only while `package.json` names
 a version that is already released.
 
@@ -741,7 +741,7 @@ CLOUDFLARE_ACCOUNT_ID    Workers & Pages, in the sidebar on the right
 ```
 
 It is **two jobs**, the way [the web app's](#publishing-the-web-app) is. `build` runs
-`npm ci` and `npm run build:site` — which compiles `scripts/build-site.mjs` first, so
+`npm ci` and `npm run build:site` — which compiles `scripts/build-site.mts` first, so
 the job needs the repository's dependencies, and `npm ci` runs every dependency's
 install scripts — and uploads `site/`. `deploy` holds the Cloudflare token and runs
 nothing from the repository: it downloads that artifact and hands it to wrangler, with
@@ -819,7 +819,7 @@ other people's code and most of their licenses ask for their notice to go wherev
 the code goes. For the same reason `build:web` keeps each bundle's license comments,
 at the end of the file, rather than minifying them away.
 
-`scripts/notices.mjs` decides what counts as shipped: every non-dev package in
+`scripts/notices.mts` decides what counts as shipped: every non-dev package in
 `package-lock.json`, and every crate the shell links on macOS, followed through
 normal dependencies only. Two of them ask for more than their notice — **elkjs**
 (EPL-2.0, in mermaid's layout engine) and the MPL-2.0 crates under Tauri's HTML
@@ -829,7 +829,7 @@ of the reasons [it is not bundled](diagrams.md#plantuml).
 
 ## Signing
 
-Whoever runs the bundle decides how it is signed, and `scripts/bundle.mjs` says
+Whoever runs the bundle decides how it is signed, and `scripts/bundle.mts` says
 which of the three it did on the line after the file sizes.
 
 | | |

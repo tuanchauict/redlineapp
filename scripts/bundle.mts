@@ -54,7 +54,7 @@ const arch = universal ? 'universal' : process.arch;
 // is a variable people have exported for other reasons entirely. Guessing from
 // it would mean printing "notarized" over a build that was not, which is the
 // one error here that is only discovered on somebody else's Mac.
-const env = (...names) => names.every((name) => process.env[name]);
+const env = (...names: string[]): boolean => names.every((name) => process.env[name]);
 const identity = process.env.APPLE_SIGNING_IDENTITY;
 const notarized = Boolean(
   identity &&
@@ -65,7 +65,8 @@ const signing = identity
   ? ['--config', JSON.stringify({ bundle: { macOS: { signingIdentity: identity } } })]
   : [];
 
-const sh = (cmd, args, cwd = ROOT) => execFileSync(cmd, args, { stdio: 'inherit', cwd });
+const sh = (cmd: string, args: string[], cwd = ROOT) =>
+  execFileSync(cmd, args, { stdio: 'inherit', cwd });
 
 sh('node', [path.join('out', 'scripts', 'build-web.mjs')]);
 sh('node', [path.join('out', 'scripts', 'build-dist.mjs')]);
@@ -107,8 +108,8 @@ sh('cp', ['-R', path.join(built, 'macos', 'Redline.app'), app]);
 fs.copyFileSync(path.join(built, 'dmg', dmgs[0]), dmg);
 
 /** What the app weighs on disk, which is not the sum of its files on APFS. */
-const du = (p) => execFileSync('du', ['-sh', p]).toString().split('\t')[0].trim();
-const mb = (p) => (fs.statSync(p).size / 1e6).toFixed(1);
+const du = (p: string): string => execFileSync('du', ['-sh', p]).toString().split('\t')[0].trim();
+const mb = (p: string): string => (fs.statSync(p).size / 1e6).toFixed(1);
 console.log(`\n  ${path.relative(ROOT, app)}  (${du(app)})`);
 console.log(`  ${path.relative(ROOT, dmg)}  (${mb(dmg)} MB)  ← share this\n`);
 
