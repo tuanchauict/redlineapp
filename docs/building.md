@@ -242,7 +242,7 @@ bundles the page, and then stages. The `app.js` that writes (and its map) is ski
 That this works at all rests on `shell/dist` being **gitignored**, because Tauri's
 watcher honours gitignore and would otherwise see every restage as a reason to
 rebuild the Rust — which is the cost the whole exercise exists to avoid. If a page
-edit ever starts recompiling, that is the rule that broke; `test-smoke.ts` asserts
+edit ever starts recompiling, that is the rule that broke; `test/ci.test.ts` asserts
 it.
 
 Two things differ from the app you ship, and the first one catches everybody:
@@ -275,14 +275,32 @@ drag-region toolbar, the tab strip, the menu wiring, the drop overlay.
 npm test
 ```
 
-One file, `test-smoke.ts`, which `pretest` compiles into `out/` and `node` runs from there
-(`node out/test-smoke.js`), with no test framework. It is type-checked like the rest, as part of
-the node project, so a type error in it stops `pretest`'s `tsc -b` and `npm test` fails before
-it has run anything. Its file lookups go through `rootUrl`, from the repository root, so
-the compiled copy greps the same source the original does. It boots the real
-server on a temp file under a temp `REDLINE_HOME`, edits the file, and asserts on
-what comes back over HTTP — so a passing run means the thing actually works end to
-end, not that its units agree with their mocks.
+A file per topic under `test/`, on Node's own `node:test` and nothing else. `pretest` compiles
+them into `out/test/` with the rest of the node project, and `npm test` is
+`node --test --test-force-exit "out/test/**/*.test.js"`, which runs each file in a process of
+its own and the files side by side. They are type-checked like the code they test, so a type
+error in one stops `pretest`'s `tsc -b` and `npm test` fails before it has run anything.
+
+| Where | What |
+| --- | --- |
+| `test/core/` | the diff, front matter, paths, links: the pure layer, called directly |
+| `test/reader/` | the store, check-offs, and a reader that never spawns a process |
+| `test/server/` | a real server on a temp file: reading, versions, git, documents, assets |
+| `test/page/` | the page's wiring and its helpers run in a `vm`, panel by panel |
+| `test/web/` | the web app: its platform, its reader, its build, and the docs it ships with |
+| `test/*.test.ts` | layers, security, CI, release, the shell, the landing page, the repository |
+| `test/support.ts` | what more than one file needs; the one file here that is not a test |
+
+A file is its own process, so nothing in `support.ts` is state: `scratch()` gives a file its own
+temporary directory and `REDLINE_HOME`, and `serve()` a server on a port of its own, both torn
+down by `after` when the file is done. `--test-force-exit` is there because a reader keeps a
+watch open, and a file whose tests have all passed should not wait for one to be let go of.
+File lookups go through `rootUrl`, from the repository root, so the compiled copy greps the
+same source the original does. The files that boot the real server edit a file under a temp
+`REDLINE_HOME` and assert on what comes back over HTTP — so a passing run means the thing
+actually works end to end, not that its units agree with their mocks. `test/repo.test.ts`
+holds the suite to that shape: every file under `test/` is `support.ts` or a `*.test.ts`, and
+nothing hands node a `.ts` to run.
 
 What it covers: the first clean render; static assets including the mermaid bundle;
 the block diff and the word diff inside a changed block (including that the HTML it
@@ -300,17 +318,17 @@ byte, the bundle carries it with `NOTICE` and the third-party notices, and those
 notices are current with both lockfiles; and that the bundle identifier is still
 `com.redline.reader`, which everything the app remembers is filed under.
 
-It also greps `public/` to check that each of those features is actually **wired up** — the id
-exists, the handler exists, the CSS rule exists. A diff that is correct and unreachable would
-otherwise pass. The page's source is read through `pageSource()`, every `.ts` and `.tsx` under
-`public/app/` as one text, so which module a line lives in is not the assertion's business. What
-is executed, the helpers lifted out of the page and run in a `vm`, is read from
-`public/app/main.ts` and the viewmodels they have moved to (`vm/changes.ts`, `vm/acks.ts`,
-`vm/settings.ts`) with
-its types stripped by esbuild, file by file and with `export` taken off, and not from the
-bundle: in `app.js` Preact sits in beside the page, and esbuild renames a page name wherever it
-meets one of Preact's own. The checks on what is *served* (the four imports, the preference
-fallback) do read `app.js`.
+The files under `test/page/` also grep `public/` to check that each of those features is
+actually **wired up** — the id exists, the handler exists, the CSS rule exists. A diff that is
+correct and unreachable would otherwise pass. The page's source is read through `pageSource()`
+in `support.ts`, every `.ts` and `.tsx` under `public/app/` as one text, so which module a line
+lives in is not the assertion's business. What is executed, the helpers lifted out of the page
+and run in a `vm`, is `pageRun()`: `public/app/main.ts` and the viewmodels they have moved to
+(`vm/changes.ts`, `vm/acks.ts`, `vm/settings.ts`) with their types stripped by esbuild, file by
+file, and `export` taken off by the test that lifts them. Not the bundle: in `app.js` Preact
+sits in beside the page, and esbuild renames a page name wherever it meets one of Preact's
+own. The checks on what is *served* (the four imports, the preference fallback) do read
+`app.js`.
 
 It cannot watch a hostile document fail to run, because there is no DOM here. What
 it checks instead is that each layer from
@@ -358,7 +376,7 @@ a fork's code with a read-only token and nothing else, and never
 `pull_request_target`, which runs it with both. The bundle job's signed step is
 skipped on a pull request, even one from this repository — notarizing is a round trip
 to Apple, and a check that goes red because that service is slow teaches people to
-ignore it — and an ad hoc step runs in its place. `test-smoke.ts` asserts all three:
+ignore it — and an ad hoc step runs in its place. `test/ci.test.ts` asserts all three:
 the trigger, that no step a pull request reaches names an Apple secret, and that the
 test job names no secret at all.
 
@@ -554,7 +572,7 @@ pointer or a key reaches it.
 Three more consequences worth knowing before editing any of it:
 
 - **The three change colours are the reader's**, copied from `public/styles.css`, and
-  `test-smoke.ts` asserts they are still equal. The page is a picture of the product,
+  `test/site.test.ts` asserts they are still equal. The page is a picture of the product,
   and a green that is nearly the product's green is worse than no picture. The raw
   scene's `--syn` is deliberately *not* one of them: a colour that means "changed"
   somewhere on this page cannot also mean "this is a heading".
@@ -565,7 +583,7 @@ Three more consequences worth knowing before editing any of it:
   resolved `var(--fg)` once, and what the heading and the filename inherited is the
   colour it produced, not the reference; redefining the property above them changes
   nothing. So `.sim-tone` sets `color: var(--fg)` itself, and the scene's palette
-  reaches what inherits. `test-smoke.ts` asserts the declaration is still there,
+  reaches what inherits. `test/site.test.ts` asserts the declaration is still there,
   because the failure is dark text on a dark mock and the page it is on looks fine.
 - **No mock may change height.** Both `.split` rows are `align-items: center`, so a
   scene that grows does not only grow — it moves the copy beside it and everything
@@ -580,7 +598,7 @@ Three more consequences worth knowing before editing any of it:
   document, so the space it keeps reads as bottom padding. For the same reason, a
   block in that scene that comes and goes with the baseline carries no `w-del`: a
   `w-del` is `display: none` when its block is not in the baseline, and one word
-  leaving the flow can cost the paragraph a line. `test-smoke.ts` asserts all of it,
+  leaving the flow can cost the paragraph a line. `test/site.test.ts` asserts all of it,
   because the failure is a pulse and there is no browser here to see one in.
 
 The theme is applied by an inline script in the `<head>`, not by the module — the same
@@ -609,7 +627,7 @@ child's reach, which is the whole reason to prefer it.
 
 The same rule also kept the two kinds of band 34px out of line with each other, since
 `max-width` on a child is a content box and `max-width` on `.band` is a border box
-with the padding inside it. `test-smoke.ts` asserts the padding form is still there
+with the padding inside it. `test/site.test.ts` asserts the padding form is still there
 and that no per-child margin has come back.
 
 ### A row of cards has to look like a row
@@ -658,7 +676,7 @@ puts within reach of a stranger: the Homebrew cask, and the dmg on the GitHub
 release beside it. The repository and that dmg are the only `github.com` links the
 page is allowed. There is no install from a checkout either: no `npm install` and no
 `git clone`. Building it is the README's business, not the page's. Both rules are
-asserted in `test-smoke.ts`.
+asserted in `test/site.test.ts`.
 
 **The product the page sells is the app.** `npm start` and the browser tab it opens
 stay exactly where they are — they are how this repository is developed and tested —
@@ -682,7 +700,7 @@ and deserves the sentence it already has at the foot of *Get it*, not a scoreboa
 cell. The other two were `50` commits read in and `6` dependencies, which is the
 repository talking about itself. Counted as a figure, `0` invites the reader to work
 out what large would have meant, and the two numbers beside it answered in a unit
-that has nothing to do with them. `test-smoke.ts` now asserts the page quotes no
+that has nothing to do with them. `test/site.test.ts` now asserts the page quotes no
 count of its own parts, so the next one has to be argued for.
 
 **And it does not print a keyboard map.** Keys are named in the prose of the feature
@@ -748,7 +766,7 @@ dashboard shows it too.
 
 `wrangler.toml` names the project and the directory for a local run. The workflow has no
 checkout to read it from, so it writes the same two on its command line, and
-`test-smoke.ts` fails if they ever differ:
+`test/site.test.ts` fails if they ever differ:
 
 ```toml
 name = "redline"
@@ -775,13 +793,13 @@ It is **two jobs**, the way [the web app's](#publishing-the-web-app) is. `build`
 first, so the job needs the repository's dependencies, and `npm ci` runs every dependency's
 install scripts — and uploads `site/` without its `.ts`, since `landing.ts` sits beside the
 `landing.js` it compiled to and the page needs only the second (`!site/*.ts` in the step's
-`path`; asserted in `test-smoke.ts`, and **not yet run on GitHub**: see [The page
+`path`; asserted in `test/site.test.ts`, and **not yet run on GitHub**: see [The page
 project](typescript.md#the-page-project)). `deploy` holds the Cloudflare token and runs
 nothing from the repository: it downloads that artifact and hands it to wrangler, with
 the project and the directory named on the command line, because it has no checkout and
 so no `wrangler.toml`. An unbuilt `site/` is the page with no icon and no link preview,
 and it would upload perfectly happily — which is why the staging step is asserted in
-`test-smoke.ts` alongside the page itself.
+`test/site.test.ts` alongside the page itself.
 
 `site/_headers` is Cloudflare's own format and is committed rather than copied in;
 nothing in it is cached as immutable, because none of these filenames carries a
@@ -797,7 +815,7 @@ like anything, is unstyled buttons, scenes with no frame, and the diagrams drawi
 SVG's default black. `no-cache` is not `no-store`: both files stay in the browser
 cache, they are just revalidated, and the usual answer is a 304 with no body. Two
 files on a one-page site is not a bandwidth question. Images keep their day, because a
-slightly old icon is still the icon. `test-smoke.ts` asserts the pair — the
+slightly old icon is still the icon. `test/site.test.ts` asserts the pair — the
 `no-cache` and the unversioned filenames — so adding a version string is a line that
 tells you to revisit this.
 
