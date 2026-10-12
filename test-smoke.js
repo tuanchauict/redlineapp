@@ -608,6 +608,47 @@ try {
 }
 console.log('✓ the contract is wired into every host, and can fail');
 
+// The page imports its bundles from ./vendor/, which exists only once build:web has run, so tsc
+// cannot look there. types/vendor/ holds a shim for each, re-exporting the source the bundle is
+// built from, and rootDirs in tsconfig.page.json is what makes `./vendor/render.js` find it. An
+// entry in build-web's BUNDLES that changed while its shim did not would check the page against
+// a module it no longer loads, and nothing else would say so.
+{
+  const text = (f) => fs.readFileSync(rootUrl(f), 'utf8');
+  const bundles = [...text('scripts/build-web.mts').matchAll(/entry: '([^']+)', out: '([^']+)'/g)]
+    .map(([, entry, out]) => ({ entry, out }));
+  assert.ok(bundles.length >= 5, "the walk found build-web's bundles");
+  // The one bundle the page does not import: the web backend starts it as a worker.
+  const notImported = new Set(['reader-worker.js']);
+  for (const { entry, out } of bundles.filter((b) => !notImported.has(b.out))) {
+    const shim = text(`types/vendor/${out.replace(/\.js$/, '.d.ts')}`);
+    assert.ok(
+      shim.includes(`export * from '../../${entry.replace(/\.ts$/, '.js')}';`),
+      `types/vendor/${out.replace(/\.js$/, '.d.ts')} re-exports ${entry}`,
+    );
+  }
+  assert.ok(
+    /export \{ default \} from 'mermaid';/.test(text('types/vendor/mermaid/mermaid.esm.min.d.mts')),
+    'and mermaid, which is not built here, has its own',
+  );
+
+  // The config is JSON, so its reasons are in docs/typescript.md and these are the lines that
+  // would silently stop working: no exclude and `tsc` compiles nothing and exits 0.
+  const page = JSON.parse(text('tsconfig.page.json'));
+  assert.deepStrictEqual(page.exclude, ['node_modules', 'out'],
+    'the page project names its own exclude: outDir "." makes the default exclude the repository');
+  assert.strictEqual(page.compilerOptions.outDir, '.', 'it emits beside its sources');
+  assert.strictEqual(page.compilerOptions.declarationDir, 'out/page-types',
+    'and keeps the .d.ts that composite forces out of public/ and site/');
+  assert.deepStrictEqual(page.compilerOptions.rootDirs, ['public', 'types'],
+    'rootDirs is what resolves ./vendor/*.js to the shims');
+  assert.ok(
+    JSON.parse(text('tsconfig.json')).references.some((r) => r.path === './tsconfig.page.json'),
+    'tsc -b builds it',
+  );
+}
+console.log('✓ the page project has its shims, and each names the bundle it stands for');
+
 // core/paths.js agrees with node:path on the cases it claims. Not claimed: a trailing
 // separator on dirname, and the root of a drive (`C:\a` has dirname `C:`, node says `C:\`).
 // Nothing is resolved against a working directory, so only absolute paths are compared.
