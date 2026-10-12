@@ -45,9 +45,10 @@ type PickerWindow = typeof globalThis & {
 export const MAC_APP_URL = 'https://redline.iamtuna.org/#get';
 
 /**
- * A DOM element with its properties, attributes and children, without a framework. The values of
- * `props` are `any` because every key but `attrs` and `on` is set on the element by name, which no
- * type can follow.
+ * A DOM element with its properties, attributes and children, without a framework. `props` is a
+ * bag of `any` because of the loop, not the call sites: it sets every key but `attrs` and `on`
+ * onto the element by name, which no type can follow. The call sites could be typed later, at the
+ * cost of a few casts in the loop, and the casts erase.
  */
 function h<K extends keyof HTMLElementTagNameMap>(
   doc: Document,
@@ -57,10 +58,13 @@ function h<K extends keyof HTMLElementTagNameMap>(
 ): HTMLElementTagNameMap[K] {
   const el = doc.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
+    // `v` is `any`, and `Object.entries` of an `any` gives `unknown` values, which `setAttribute`
+    // and `addEventListener` will not take: hence the type arguments. `v` is only assigned in the
+    // last branch, so the element is cast to a record of `unknown`.
     if (k === 'attrs') for (const [a, val] of Object.entries<string>(v)) el.setAttribute(a, val);
     else if (k === 'on')
       for (const [ev, fn] of Object.entries<EventListener>(v)) el.addEventListener(ev, fn);
-    else (el as Record<string, any>)[k] = v;
+    else (el as Record<string, unknown>)[k] = v;
   }
   el.append(...kids);
   return el;

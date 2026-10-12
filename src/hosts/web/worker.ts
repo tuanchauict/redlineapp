@@ -390,8 +390,9 @@ export function createWebHost({
 
   // --- what only this host can be asked ------------------------------------
 
-  // What a page is meant to send, as `WebBackend` declares it. The checks inside are for the page
-  // that sends something else.
+  // What a page sends is a wire value: `addRoot` looks at it with `isHandle` at run time, and
+  // `addDrop` for a `text` and a safe name. The parameters are typed `GrantedHandle` and `File` for
+  // the body's benefit, not because the page is known to have sent them.
   const extra = {
     /** Keep a folder or file handle the page was given. Answers `{ rootId, name, kind }`. */
     async addRoot(handle: GrantedHandle) {
