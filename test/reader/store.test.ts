@@ -237,3 +237,38 @@ test('the history store follows the app name', async () => {
     'an explicit REDLINE_HOME still overrides both');
   fs.rmSync(fakeHome, { recursive: true, force: true });
 });
+
+// The sweep and the prune where there is nothing to do, or nothing safe to do. Each on a store
+// of its own, so what is swept is only what is put there.
+test('gc and prune, with nothing to do or no way to be sure', async () => {
+  const { DocStore } = await import('../../src/reader/store.js');
+  const home = (dir: string) => ({
+    ...nodePlatform,
+    env: (n: string) => (n === 'REDLINE_HOME' ? dir : nodePlatform.env(n)),
+  });
+  const fresh = path.join(tmp, 'never-made');
+  await DocStore.gc(home(fresh));
+  assert.ok(!fs.existsSync(fresh), 'a sweep with no store yet is nothing, and makes none');
+
+  const store = path.join(tmp, 'unsure');
+  const at = home(store);
+  const s = await DocStore.open(path.join(tmp, 'unsure.md'), at);
+  await s.record('# One\n');
+  const orphan = path.join(store, 'objects', 'c'.repeat(16) + '.md');
+  fs.writeFileSync(orphan, 'old and unreferenced\n');
+  const old = new Date(Date.now() - 3600e3);
+  fs.utimesSync(orphan, old, old);
+  fs.writeFileSync(path.join(store, 'docs', 'broken.json'), '{ not json');
+  await DocStore.gc(at);
+  assert.ok(fs.existsSync(orphan),
+    'an index that will not read might name anything, so nothing is collected on its account');
+  fs.rmSync(path.join(store, 'docs', 'broken.json'));
+  await DocStore.gc(at);
+  assert.ok(!fs.existsSync(orphan), 'and once it is gone, the sweep goes ahead');
+
+  const { hash: two } = await s.record('# Two\n');
+  const before = fs.readFileSync(s.file, 'utf8');
+  assert.strictEqual(await s.prune('f'.repeat(16)), 0, 'a version not listed forgets nothing');
+  assert.strictEqual(await s.prune(two), 0, 'nor does the newest, which is never forgotten');
+  assert.strictEqual(fs.readFileSync(s.file, 'utf8'), before, 'and the index is not rewritten');
+});
