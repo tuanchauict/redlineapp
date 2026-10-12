@@ -671,6 +671,8 @@ export function fakeWindow({
     NodeFilter: { SHOW_TEXT: 4 },
     URL,
     URLSearchParams,
+    TextEncoder,
+    TextDecoder,
     console,
     setTimeout,
     clearTimeout,
