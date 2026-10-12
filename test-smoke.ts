@@ -138,6 +138,45 @@ interface Reply {
   console.log('✓ the suite and every npm script run the compiled copy, compiled first');
 }
 
+// The ratchet only goes up. A flag that is on must not be switched off to make an error go away:
+// `tsc -b` would pass, and nothing else would say a project had got looser. This is a floor and
+// not a target, so it fails a step backwards and does not ask for a step forward: a project that
+// is not listed is not held to anything. A later PR adds a flag to the table (a new entry for a
+// project, or one more flag in an existing entry) and leaves the logic alone. A strict-family
+// flag a project does not set falls back to `strict`, the way tsc resolves it; a flag outside
+// that family (noUnusedLocals) does not, so an entry for one needs the fallback taken out. Every
+// project extends the base and nothing deeper, so one merge is enough.
+{
+  const FLOOR: Record<string, string[]> = { 'tsconfig.src.json': ['noImplicitAny'] };
+  const read = (f: string) => JSON.parse(fs.readFileSync(rootUrl(f), 'utf8')).compilerOptions;
+  for (const [project, flags] of Object.entries(FLOOR)) {
+    const options = { ...read('tsconfig.base.json'), ...read(project) };
+    for (const flag of flags) {
+      assert.strictEqual(
+        options[flag] ?? options.strict,
+        true,
+        `${project} must have ${flag} on: the ratchet only goes up`,
+      );
+    }
+  }
+  // A flag that is on does not mean the errors were fixed: a comment above the line would keep it
+  // on and hide the error. It reads the .ts and not out/: the shim (a .d.ts) is never emitted,
+  // and a check on how the source is written reads the source. The shim is walked too, since it
+  // is code a reader would take on trust.
+  const sources = fs
+    .readdirSync(rootUrl('src/'), { encoding: 'utf8', recursive: true })
+    .filter((f) => /\.ts$/.test(f));
+  assert.ok(
+    sources.length > 0,
+    'there are sources under src/ to look at (readdirSync recursive needs Node 18.17+)',
+  );
+  const hidden = sources.filter((f) =>
+    /@ts-(nocheck|ignore|expect-error)/.test(fs.readFileSync(rootUrl(`src/${f}`), 'utf8')),
+  );
+  assert.deepStrictEqual(hidden, [], 'no file under src/ turns the check off with a comment');
+  console.log('✓ the ratchet\'s flags are on, and no comment under src/ turns a check off');
+}
+
 // bin/ and scripts/ are TypeScript. A .js or .mjs left in either is compiled and never checked
 // (checkJs is off), and nothing else would say it was forgotten. The other half is that every
 // compiled path package.json hands to Node exists: scripts/ is .mts so that what it emits is
@@ -4425,13 +4464,7 @@ const memoryKv = () => {
       ],
       'the same folder granted twice, even at once, is one root',
     );
-    // `serial` in handles.ts is untyped, so addRoot is declared to resolve to nothing; it resolves
-    // to the root's record.
-    assert.strictEqual(
-      ((await handles.addRoot(other)) as unknown as { rootId: string }).rootId,
-      'root-2',
-      'another is another',
-    );
+    assert.strictEqual((await handles.addRoot(other)).rootId, 'root-2', 'another is another');
     assert.strictEqual(stores.roots.m.size, 2, 'and two are stored');
 
     assert.strictEqual(await handles.permission('root-1'), 'granted', 'a root says what it may');

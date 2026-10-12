@@ -88,7 +88,7 @@ function inlineSvg(svg: string): string {
 }
 
 /** What a host that cannot run a program is given: a renderer that says so and draws nothing. */
-export const NO_PLANTUML: PlantumlRenderer = Object.freeze({
+export const NO_PLANTUML: PlantumlRenderer = Object.freeze<PlantumlRenderer>({
   available: false,
   hint: 'PlantUML needs a program to run, and this host has none.',
   render: async () => null,

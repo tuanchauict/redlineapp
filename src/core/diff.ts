@@ -7,6 +7,7 @@
 // that actually changed are marked; blocks that resist a readable word diff
 // fall back to showing the two versions.
 import { diffArrays, diffWordsWithSpace, diffLines } from 'diff';
+import type MarkdownIt from 'markdown-it';
 import type { AckedVersion } from '../contract/payload.js';
 import {
   splitBlocks,
@@ -19,6 +20,21 @@ import { inlineDiff } from './inline-diff.js';
 import { hashContent } from './hash.js';
 
 const SIMILARITY_THRESHOLD = 0.35;
+
+/** What a change is called in `changes`: an added, removed or modified block. */
+type ChangeKind = 'add' | 'del' | 'mod';
+
+/**
+ * One marked block, as `changes` names it. `key` is the name a check-off is filed under (see
+ * `keyFor`); `block` is the `blockId` of the file's side of it, so a removal, which has none,
+ * does not carry the field. Exported because `renderDocument` hands the list on, and its
+ * declaration has to be able to name the element.
+ */
+export interface Change {
+  kind: ChangeKind;
+  key: string;
+  block?: string;
+}
 
 /** What `renderDiff` knows about check-offs: the change keys and the versions they were made in. */
 export interface Checked {
@@ -57,11 +73,11 @@ function similarity(a: string, b: string): number {
 const TICK =
   '<svg class="i chg-tick" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.4 3 3 6-6.9" /></svg>';
 
-const tagFor = (label) =>
+const tagFor = (label: string) =>
   `<button class="chg-tag" type="button" aria-pressed="false">` +
   `<span class="chg-kind">${label}</span>${TICK}</button>`;
 
-function wrap(kind, key, html, label) {
+function wrap(kind: ChangeKind, key: string, html: string, label: string) {
   return (
     `<div class="chg chg-${kind}" data-chg="${kind}" data-key="${key}">` +
     tagFor(label) +
@@ -82,7 +98,7 @@ function wrap(kind, key, html, label) {
  * that resolved when you read it has to resolve again, or the two renders
  * differ at a tag and the block falls back to the two-panel form.
  */
-function seenBlocks(md, from: AckedVersion[]): { text: string; env: RenderEnv }[] {
+function seenBlocks(md: MarkdownIt, from: AckedVersion[]): { text: string; env: RenderEnv }[] {
   const out = [];
   for (const v of from) {
     const want = new Set(v.blocks);
@@ -106,7 +122,7 @@ function seenBlocks(md, from: AckedVersion[]): { text: string; env: RenderEnv }[
  * than against the baseline, so what comes back is what moved since you saw it.
  */
 export function renderDiff(
-  md,
+  md: MarkdownIt,
   oldSrc: string,
   newSrc: string,
   slugs: string[] = [],
@@ -143,7 +159,7 @@ export function renderDiff(
   };
 
   const stats = { added: 0, removed: 0, modified: 0 };
-  const changes = [];
+  const changes: Change[] = [];
   const parts = diffArrays(
     oldDoc.blocks.map((b) => b.text),
     newDoc.blocks.map((b) => b.text),
@@ -162,12 +178,13 @@ export function renderDiff(
    * Two changes that are word for word the same are told apart by which comes
    * first, so checking one off does not quietly check the other.
    */
-  const taken = new Map();
-  const nameFor = (kind, ...parts) => kind + hashContent(parts.join('\0')).slice(0, 10);
+  const taken = new Map<string, number>();
+  const nameFor = (kind: ChangeKind, ...parts: string[]) =>
+    kind + hashContent(parts.join('\0')).slice(0, 10);
   // `block` is the file's side of the change, for the check-off to remember
   // (see `blockId`). A removal has no side in the file, so nothing to find
   // again, and carries none.
-  const keyFor = (kind, block, ...parts) => {
+  const keyFor = (kind: ChangeKind, block: string | null, ...parts: string[]) => {
     const base = nameFor(kind, ...parts);
     const nth = (taken.get(base) ?? 0) + 1;
     taken.set(base, nth);
@@ -197,7 +214,7 @@ export function renderDiff(
   const claimed = new Set();
   // The best of them at `floor` or above; on a tie the newest check-off, which
   // is the one you read last. Most of the time there is nothing to look at.
-  const lastSeen = (text, floor) => {
+  const lastSeen = (text: string, floor: number) => {
     let best = null;
     let score = -1;
     for (const s of seen) {
@@ -209,7 +226,7 @@ export function renderDiff(
     return best;
   };
 
-  const addBlock = (block) => {
+  const addBlock = (block: Block) => {
     // Checked off as it stands, and so still exactly what was read: leave it.
     const asIs = keys.has(nameFor('add', block.text));
     const last = !asIs && seen.length ? lastSeen(block.text, SIMILARITY_THRESHOLD) : null;
@@ -217,13 +234,13 @@ export function renderDiff(
     stats.added++;
     return wrap('add', keyFor('add', block.text, block.text), renderNew(block), 'added');
   };
-  const delBlock = (text) => {
+  const delBlock = (text: string) => {
     stats.removed++;
     return wrap('del', keyFor('del', null, text), renderOld(text), 'removed');
   };
   // Counted as `modified`, against a checked-off block as much as against the
   // baseline: `~` is what is drawn, so `~` is what the counter says.
-  const modBlock = (before, after, env = oldEnv) => {
+  const modBlock = (before: string, after: Block, env = oldEnv) => {
     stats.modified++;
     const oldHtml = renderOld(before, after.line, env);
     const newHtml = renderNew(after);
@@ -255,7 +272,7 @@ export function renderDiff(
   // the baseline. Only when the block you checked is at least as close to the
   // file as the baseline is — otherwise this is some other block that happens
   // to resemble one you read, and the baseline is the better account of it.
-  const editBlock = (before, after, sim) => {
+  const editBlock = (before: string, after: Block, sim: number) => {
     const asIs = keys.has(nameFor('mod', before, after.text));
     const last = !asIs && seen.length ? lastSeen(after.text, sim) : null;
     return last ? modBlock(last.text, after, last.env) : modBlock(before, after);
@@ -265,7 +282,7 @@ export function renderDiff(
   // aligned pair that is similar enough reads as an edit, not a delete+insert.
   // `removed` is the baseline's text; `added` is blocks of the file, because
   // those are the ones that know which line they are on.
-  const emitRun = (removed, added) => {
+  const emitRun = (removed: string[], added: Block[]) => {
     let out = '';
     const paired = Math.min(removed.length, added.length);
     let i = 0;
@@ -286,7 +303,7 @@ export function renderDiff(
   // The diff is over the block texts, but what gets rendered is the blocks: a
   // run of the file's own blocks, in order, taken as each part claims them.
   let ni = 0;
-  const takeNew = (n) => newDoc.blocks.slice(ni, (ni += n));
+  const takeNew = (n: number) => newDoc.blocks.slice(ni, (ni += n));
 
   let html = '';
   let pendingRemoved = [];
@@ -319,7 +336,7 @@ export function renderRawDiff(oldSrc: string | null, newSrc: string): string {
   // `data-line` is where the line sits in the file, and it is how the contents
   // list finds a heading in this view: there are no ids here to jump to. Only
   // lines that are in the file get one — a removed line is not anywhere in it.
-  const line = (html, { cls = '', chg = '', at = null } = {}) =>
+  const line = (html: string, { cls = '', chg = '', at = null } = {}) =>
     `<span class="raw-line${cls ? ' ' + cls : ''}"` +
     (at == null ? '' : ` data-line="${at}"`) +
     (chg ? ` data-chg="${chg}"` : '') +

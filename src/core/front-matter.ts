@@ -44,13 +44,18 @@ export interface FrontRow {
   value: FrontValue;
 }
 
-const indentOf = (line) => /^[ \t]*/.exec(line)[0].length;
+/** Where the readers have got to, threaded by hand because they recurse into one another. */
+interface Cursor {
+  at: number;
+}
+
+const indentOf = (line: string) => /^[ \t]*/.exec(line)[0].length;
 
 /** Blank lines and whole-line comments are structure, not content. */
-const skip = (line) => !line.trim() || /^[ \t]*#/.test(line);
+const skip = (line: string) => !line.trim() || /^[ \t]*#/.test(line);
 
 /** The next line with something on it, or -1. */
-function next(lines, from) {
+function next(lines: string[], from: number) {
   for (let i = from; i < lines.length; i++) if (!skip(lines[i])) return i;
   return -1;
 }
@@ -62,11 +67,16 @@ function next(lines, from) {
  * else is left as the author typed it, because a visible backslash is better
  * than a guess at what it meant.
  */
-function scalar(s) {
+function scalar(s: string) {
   const t = s.trim();
   const q = t.length > 1 && (t[0] === '"' || t[0] === "'") && t.at(-1) === t[0] ? t[0] : '';
   if (q === '"') {
-    return t.slice(1, -1).replace(/\\(.)/g, (_, c) => ({ n: '\n', t: '\t' })[c] ?? c);
+    // The lookup is indexed by any character, not only its two keys; `?? c` handles the rest.
+    return t.slice(1, -1).replace(
+      /\\(.)/g,
+      (_: string, c: string) =>
+        ({ n: '\n', t: '\t' } as Record<string, string | undefined>)[c] ?? c,
+    );
   }
   if (q === "'") return t.slice(1, -1).replace(/''/g, "'");
   // In a plain scalar YAML really does treat ` #` as the start of a comment,
@@ -75,7 +85,7 @@ function scalar(s) {
 }
 
 /** `[a, b, c]` as its items: commas, except inside quotes or brackets. */
-function flow(s) {
+function flow(s: string) {
   const out = [];
   let depth = 0;
   let quote = '';
@@ -108,7 +118,7 @@ function flow(s) {
  * reads as a paragraph, a literal one is usually a snippet and its shape is
  * half of what it says.
  */
-function block(lines, folded) {
+function block(lines: string[], folded: boolean) {
   const indents = lines.filter((l) => l.trim()).map(indentOf);
   const cut = indents.length ? Math.min(...indents) : 0;
   const out = lines.map((l) => l.slice(cut));
@@ -122,7 +132,7 @@ function block(lines, folded) {
 }
 
 /** Everything after a `key:`, which may be on the line or under it. */
-function readValue(lines, cur, indent, rest): FrontValue {
+function readValue(lines: string[], cur: Cursor, indent: number, rest: string): FrontValue {
   const fold = BLOCK.exec(rest);
   if (fold) {
     const taken = [];
@@ -157,7 +167,7 @@ function readValue(lines, cur, indent, rest): FrontValue {
 }
 
 /** `- a`, `- b` at one indent. */
-function readList(lines, cur, indent): FrontValue {
+function readList(lines: string[], cur: Cursor, indent: number): FrontValue {
   const items = [];
   while (cur.at < lines.length) {
     if (skip(lines[cur.at])) {
@@ -177,7 +187,7 @@ function readList(lines, cur, indent): FrontValue {
 }
 
 /** `key: value` pairs at one indent, with their values. */
-function readMap(lines, cur, indent): FrontRow[] {
+function readMap(lines: string[], cur: Cursor, indent: number): FrontRow[] {
   const rows: FrontRow[] = [];
   while (cur.at < lines.length) {
     const line = lines[cur.at];

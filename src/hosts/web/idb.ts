@@ -47,7 +47,7 @@ function openDb(): Promise<IDBDatabase> {
     req.onerror = () => reject(req.error);
   });
   // A failed open is not kept, so that a later call tries again.
-  opening.catch(() => (opening = null));
+  opening.catch((): null => (opening = null));
   return opening;
 }
 

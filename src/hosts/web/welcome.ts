@@ -32,16 +32,39 @@ type DroppableItem = DataTransferItem & {
   getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
 };
 
+// Not in lib.dom either: the File System Access API's picker, which only a Chromium window has,
+// and which `canFile` asks for by looking.
+type PickerWindow = typeof globalThis & {
+  showOpenFilePicker?: (options: {
+    types?: { description?: string; accept: Record<string, string[]> }[];
+    excludeAcceptAllOption?: boolean;
+  }) => Promise<FileSystemFileHandle[]>;
+};
+
 /** Where the Mac app is to be had: the landing page's download, which follows each release. */
 export const MAC_APP_URL = 'https://redline.iamtuna.org/#get';
 
-/** A DOM element with its properties, attributes and children, without a framework. */
-function h(doc, tag, props = {}, ...kids) {
+/**
+ * A DOM element with its properties, attributes and children, without a framework. `props` is a
+ * bag of `any` because of the loop, not the call sites: it sets every key but `attrs` and `on`
+ * onto the element by name, which no type can follow. The call sites could be typed later, at the
+ * cost of a few casts in the loop, and the casts erase.
+ */
+function h<K extends keyof HTMLElementTagNameMap>(
+  doc: Document,
+  tag: K,
+  props: Record<string, any> = {},
+  ...kids: (Node | string)[]
+): HTMLElementTagNameMap[K] {
   const el = doc.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
-    if (k === 'attrs') for (const [a, val] of Object.entries(v)) el.setAttribute(a, val);
-    else if (k === 'on') for (const [ev, fn] of Object.entries(v)) el.addEventListener(ev, fn);
-    else el[k] = v;
+    // `v` is `any`, and `Object.entries` of an `any` gives `unknown` values, which `setAttribute`
+    // and `addEventListener` will not take: hence the type arguments. `v` is only assigned in the
+    // last branch, so the element is cast to a record of `unknown`.
+    if (k === 'attrs') for (const [a, val] of Object.entries<string>(v)) el.setAttribute(a, val);
+    else if (k === 'on')
+      for (const [ev, fn] of Object.entries<EventListener>(v)) el.addEventListener(ev, fn);
+    else (el as Record<string, unknown>)[k] = v;
   }
   el.append(...kids);
   return el;
@@ -63,7 +86,7 @@ const NOT_A_FOLDER =
 
 export interface WelcomeDeps {
   backend: {
-    addRoot(handle: any): Promise<{ rootId: string }>;
+    addRoot(handle: FileSystemHandle): Promise<{ rootId: string }>;
     addDrop(file: File): Promise<string>;
     reopen(): Promise<boolean>;
   };
@@ -80,7 +103,7 @@ export interface WelcomeDeps {
    */
   notify?: ((text: string) => void) | null;
   /** Pickers, `navigator`, and what fires `dragover`. */
-  win?: typeof globalThis;
+  win?: PickerWindow;
   doc?: Document;
 }
 
@@ -108,7 +131,7 @@ export function mountWelcome(
     hidden: true,
     attrs: { role: 'status' },
   });
-  const say = (text) => {
+  const say = (text: string) => {
     // The status line is inside the section, so while that is hidden nobody can read it: a drop
     // onto a page with a document open that cannot be opened would otherwise say nothing at all.
     if (text && el.hidden && notify) return notify(text);
@@ -120,7 +143,7 @@ export function mountWelcome(
    * One thing at a time, and a picker that was cancelled is not a failure. Runs `fn` before it
    * awaits anything, so a picker is still called inside the click that asked for it.
    */
-  async function run(fn) {
+  async function run(fn: () => void | Promise<void>) {
     if (busy) return;
     busy = true;
     el.setAttribute('aria-busy', 'true');
@@ -144,19 +167,19 @@ export function mountWelcome(
     }
   }
 
-  async function openPath(path) {
+  async function openPath(path: string) {
     if (await open(path)) afterOpen();
     else say('Could not open that file.');
   }
 
-  async function openHandle(handle) {
+  async function openHandle(handle: FileSystemHandle) {
     if (handle.kind === 'directory') return say(NOT_A_FOLDER);
     if (!MD_LINK.test(handle.name)) return say(NOT_MARKDOWN);
     const { rootId } = await backend.addRoot(handle);
     await openPath(webPath(rootId, handle.name));
   }
 
-  async function openCopy(file) {
+  async function openCopy(file: File) {
     if (!MD_LINK.test(file.name)) return say(NOT_MARKDOWN);
     await openPath(await backend.addDrop(file));
   }
@@ -198,7 +221,7 @@ export function mountWelcome(
   // --- a grant that lapsed -----------------------------------------------------------------
 
   const reopenText = h(doc, 'p', { className: 'welcome-reopen-text' });
-  let reopenName = null;
+  let reopenName: string | null = null;
   const reopenBtn = h(doc, 'button', {
     type: 'button',
     className: 'welcome-primary',
@@ -281,8 +304,8 @@ export function mountWelcome(
   // without one.
   const root = doc.documentElement;
   let depth = 0;
-  const carriesFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
-  const over = (e) => {
+  const carriesFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+  const over = (e: DragEvent) => {
     if (!carriesFiles(e)) return;
     e.preventDefault();
     root.classList.add('dropping');
@@ -310,7 +333,7 @@ export function mountWelcome(
     const item = [...(e.dataTransfer.items ?? [])].find(
       (i): i is DroppableItem => i.kind === 'file',
     );
-    const handle = Promise.resolve(item?.getAsFileSystemHandle?.() ?? null).catch(() => null);
+    const handle = Promise.resolve(item?.getAsFileSystemHandle?.() ?? null).catch((): null => null);
     const folder = item?.webkitGetAsEntry?.()?.isDirectory === true;
     const file = item?.getAsFile?.() ?? e.dataTransfer.files?.[0] ?? null;
     run(async () => {

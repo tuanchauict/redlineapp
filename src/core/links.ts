@@ -21,7 +21,7 @@ const ROOTS = [
 export const MD_LINK = /\.(md|markdown|mdown|mkd|mdx|txt)$/i;
 
 /** `[prefix, rest]` -- the root `..` cannot pop, and everything after it. */
-function splitRoot(dir) {
+function splitRoot(dir: string) {
   for (const re of ROOTS) {
     const m = re.exec(dir);
     if (m) return [m[0], dir.slice(m[0].length)];

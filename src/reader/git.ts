@@ -33,7 +33,7 @@ const TIMEOUT_MS = 15000;
  * opens, it is simply never tracked. The reader tells the two apart by identity, to say in the
  * payload whether git is something this host can do at all.
  */
-export const NO_GIT: Git = Object.freeze({
+export const NO_GIT: Git = Object.freeze<Git>({
   info: async () => null,
   show: async () => null,
   log: async () => [],

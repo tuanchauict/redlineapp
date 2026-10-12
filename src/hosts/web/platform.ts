@@ -32,7 +32,7 @@ const paths = makePaths('/');
 // from here; the reader treats a null as "back in a moment" and reads again.
 const NOT_THERE = new Set(['NotFoundError', 'TypeMismatchError', 'NotReadableError']);
 
-const notThere = async (fn) => {
+const notThere = async <T>(fn: () => Promise<T>): Promise<T | null> => {
   try {
     return await fn();
   } catch (err) {
@@ -48,12 +48,16 @@ type Route =
   | { kind: 'store'; path: string }
   | { kind: 'none' };
 
+/** The `web:` kind of `Route`: what a handle is looked up by. */
+type WebRoute = Extract<Route, { kind: 'web' }>;
+
 export interface WebPlatformDeps {
   /** The `files` store, as `idb.ts` makes it. */
   kv: Kv;
   /**
    * The granted directory or file handle for a root, or null for one that is not known. May wait.
-   * Not typed beyond `any`: the File System Access handles are not in `lib.dom` yet.
+   * Typed `any` because what supplies it, `handles.root`, answers `any` (its maps and `Kv` are
+   * untyped). `lib.dom` does have `FileSystemDirectoryHandle` and `FileSystemFileHandle`.
    */
   root: (rootId: string) => any | Promise<any>;
   /** Dropped files by name, which is what follows `drop:`. A `File` is one. */
@@ -74,7 +78,7 @@ export function createWebPlatform({ kv, root, drops }: WebPlatformDeps): Platfor
    * a path that is not absolute -- there is no working directory to resolve against -- and two
    * spellings of one file must not survive this, since the store keys a document on the answer.
    */
-  function resolve(p) {
+  function resolve(p: string) {
     const prefix = /^(?:web:[^/\\]*|drop:)/.exec(p ?? '');
     if (!prefix) return paths.resolve(p);
     // Rooted for the walk, which is what stops a `..` at the prefix.
@@ -96,14 +100,18 @@ export function createWebPlatform({ kv, root, drops }: WebPlatformDeps): Platfor
   }
 
   /** The store path `p` names, or an error: the one place a write is allowed. */
-  function mine(what, p, rule = `Redline writes only under ${STORE_ROOT}/, never to a document`) {
+  function mine(
+    what: string,
+    p: string,
+    rule = `Redline writes only under ${STORE_ROOT}/, never to a document`,
+  ) {
     const r = route(p);
     if (r.kind !== 'store') throw new Error(`${what} ${p}: ${rule}`);
     return r.path;
   }
 
   /** The file handle a `web:` path names, or null. */
-  async function handleOf({ rootId, rel }) {
+  async function handleOf({ rootId, rel }: WebRoute) {
     const top = await root(rootId);
     if (!top) return null;
     // A file that was granted by itself has no parent to walk from: it is its own name, and
@@ -117,7 +125,7 @@ export function createWebPlatform({ kv, root, drops }: WebPlatformDeps): Platfor
   }
 
   /** `use` on the `File` behind a `web:` path, or null when there is none. */
-  const onFile = (r, use) =>
+  const onFile = <T>(r: WebRoute, use: (file: File) => T) =>
     notThere(async () => {
       const handle = await handleOf(r);
       return handle ? use(await handle.getFile()) : null;
