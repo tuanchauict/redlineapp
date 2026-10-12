@@ -321,7 +321,7 @@ assert.deepStrictEqual(shellConf.app.security.dangerousDisableAssetCspModificati
 // Sanitized where it goes in. Every innerHTML in the page is named here: the
 // two that carry what a document said go through DOMPurify, and the rest are
 // the page's own constant markup. A new one has to be one or the other.
-const appJs = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
+const appJs = fs.readFileSync(rootUrl('public/app.ts'), 'utf8');
 assert.match(appJs, /import \{ sanitizeDocument, sanitizeSvg \} from '\.\/vendor\/sanitize\.js';/,
   'the page loads the sanitizer');
 assert.match(appJs, /const source = raw \? d\.rawHtml : d\.html;[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);/,
@@ -667,6 +667,12 @@ for (const dir of ['public', 'site']) {
     );
   }
 }
+// The three are compiled beside their sources and must never be committed: a tracked copy would
+// go stale against its .ts and look exactly like the change not working.
+const ignored = fs.readFileSync(rootUrl('.gitignore'), 'utf8').split('\n');
+for (const f of ['public/app.js', 'public/backend.js', 'site/landing.js']) {
+  assert.ok(ignored.includes(f), `${f} is generated, and gitignored`);
+}
 console.log('✓ every page source has been compiled in place');
 
 // core/paths.js agrees with node:path on the cases it claims. Not claimed: a trailing
@@ -815,20 +821,24 @@ console.log('✓ core/links.js: the CLI cases are unchanged, the others work');
 // dropped it silently stops doing anything, which nothing else catches. It has
 // no button of its own — the newest row in the history is where it is thrown
 // from, so the bar carries no version list and it has to be in the sidebar.
-const [pageHtml, pageCss, pageJs] = await Promise.all(
-  ['/', '/styles.css', '/app.js'].map(async (p) => (await fetch(base + p)).text()),
+const [pageHtml, pageCss] = await Promise.all(
+  ['/', '/styles.css'].map(async (p) => (await fetch(base + p)).text()),
 );
+// The greps below are about how the page is written, so they read the source: tsc reprints what
+// it emits. What is served is the compiled file, and the checks on that read it instead.
+const pageJs = fs.readFileSync(rootUrl('public/app.ts'), 'utf8');
+const pageServed = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
 
 // The page has to load from any base URL: the web app may be served under a path, and a VS
 // Code webview's files live under a `vscode-cdn.net` URL, where `/app.js` is the wrong root.
 // The `/api/...` URLs in backend.js stay absolute, because only this server answers them.
 assert.ok(!/(?:href|src)="\//.test(pageHtml), 'the page names its files relative to itself');
-assert.ok(!pageJs.includes("import('/"), 'and so does the lazy mermaid import');
-assert.match(pageJs, /import\('\.\/vendor\/mermaid\//, 'which is still the vendored one');
+assert.ok(!pageServed.includes("import('/"), 'and so does the lazy mermaid import');
+assert.match(pageServed, /import\('\.\/vendor\/mermaid\//, 'which is still the vendored one');
 // Every preference goes through one name, so a host without localStorage can supply a store
 // of its own. The one line that names localStorage is the fallback, in each file.
 const bareStorage = (src) => src.match(/\blocalStorage\b/g)?.length ?? 0;
-for (const [name, src] of [['index.html', pageHtml], ['app.js', pageJs]]) {
+for (const [name, src] of [['index.html', pageHtml], ['app.js', pageServed]]) {
   assert.ok(!/\blocalStorage\./.test(src), `${name} reaches no preference through localStorage`);
   assert.match(
     src,
@@ -1128,16 +1138,21 @@ assert.match(
 );
 assert.match(pageCss, /\.ruler-current \{/, 'and the stylesheet gives that mark its own look');
 
+// What runs in a vm has to be JavaScript, and annotated TypeScript is not: `fn`, `konst` and
+// `applySchemeSrc` lift their text out of the compiled page, where the greps for how the source
+// is written read the .ts.
+const pageRun = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
+
 // Stepping through the changes, run over fakes the way `applyScheme` is below: the arrows, `n`,
 // `p` and the count on the bar all go through `goToChange`, and what it has to get right is
 // *which* change, which needs only rectangles and a list.
 {
   const vm = await import('node:vm');
   const { renderRawDiff } = await import('./src/core/diff.js');
-  const fn = (name) => pageJs.match(new RegExp(`\\nfunction ${name}\\(.*?\\n\\}\\n`, 's'))?.[0];
+  const fn = (name) => pageRun.match(new RegExp(`\\nfunction ${name}\\(.*?\\n\\}\\n`, 's'))?.[0];
   // One line ending in `;`, or an arrow function that closes with `};` in the first column.
   const konst = (name) =>
-    pageJs.match(new RegExp(`\\nconst ${name} = (?:[^\\n]*;|[\\s\\S]*?\\n\\};)\\n`))?.[0];
+    pageRun.match(new RegExp(`\\nconst ${name} = (?:[^\\n]*;|[\\s\\S]*?\\n\\};)\\n`))?.[0];
   for (const name of ['stepIndex', 'goToChange', 'changeNodes']) {
     assert.ok(fn(name), `app.js has ${name}`);
   }
@@ -1148,7 +1163,7 @@ assert.match(pageCss, /\.ruler-current \{/, 'and the stylesheet gives that mark 
   // The count and the arrows reach it, and the count says which kind it was pressed on.
   assert.match(
     pageJs,
-    /\$\('count'\)\.addEventListener\('click', \(e\) => \{\s+goToChange\(e\.shiftKey \? -1 : 1, e\.target\.closest\('\[data-kind\]'\)\?\.dataset\.kind\);/,
+    /\$\('count'\)\.addEventListener\('click', \(e\) => \{\s+goToChange\(\s*e\.shiftKey \? -1 : 1,\s*\(e\.target as Element\)\.closest<HTMLElement>\('\[data-kind\]'\)\?\.dataset\.kind,\s*\);/,
     'pressing the count steps through the changes, ⇧ backwards, of the kind pressed on',
   );
   assert.ok(!/\$\('count'\)\.addEventListener\('click', \(\) => setTocSide/.test(pageJs),
@@ -1704,7 +1719,7 @@ console.log('✓ sepia wired through page, head script, stylesheet and shell');
   };
 
   // `applyScheme` out of app.js, over the same fakes.
-  const applySchemeSrc = pageJs.match(/\nfunction applyScheme\(\) \{[\s\S]*?\n\}\n/)?.[0];
+  const applySchemeSrc = pageRun.match(/\nfunction applyScheme\(\) \{[\s\S]*?\n\}\n/)?.[0];
   assert.ok(applySchemeSrc, 'app.js has applyScheme');
   assert.ok(pageJs.includes(`const darkMode = matchMedia('${DARK_QUERY}');`),
     'and reads System off the same query the head script does');
@@ -5449,12 +5464,12 @@ const memoryKv = () => {
     );
     assert.match(
       appJs,
-      /e\.key === 'Escape' && !\$\('prefs'\)\.open\) backToDocument\(\);/,
+      /e\.key === 'Escape' && !\$<HTMLDialogElement>\('prefs'\)\.open\) backToDocument\(\);/,
       'Escape goes back to the document, and does not when it is closing Settings',
     );
     assert.match(
       appJs,
-      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(!\$\('prefs'\)\.open\) welcome\.pickFile\(\);/,
+      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(!\$<HTMLDialogElement>\('prefs'\)\.open\) welcome\.pickFile\(\);/,
       '⌘O is the same, in the web app alone: a window has File ▸ Open…',
     );
     assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");

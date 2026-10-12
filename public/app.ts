@@ -8,8 +8,20 @@ import {
 } from './vendor/render.js';
 import { sanitizeDocument, sanitizeSvg } from './vendor/sanitize.js';
 import { createBackend } from './backend.js';
+import type { MdNative } from '../src/hosts/tauri/native.js';
 
-const $ = (id) => document.getElementById(id);
+// The desktop build's half of the shell, typed from what `installNative` leaves, so a call the
+// page makes on it is checked against what the Tauri host provides. native.ts says the same of
+// `Window`; the page program sees that only through this import, so it is said here too.
+declare global {
+  interface Window {
+    mdNative?: MdNative;
+  }
+}
+
+// Every id is in index.html, so the element is there, and the caller is the one that knows
+// which kind it is: `$<HTMLInputElement>('font')`.
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 const doc = $('doc');
 // The scroll area is the document pane, not the page — see `main` in the CSS.
 const pane = document.querySelector('main');
@@ -226,7 +238,7 @@ if (welcome) {
   // A step away from the document, and Escape is the step back. Not while Settings is up: the
   // Escape is the dialog's, and closes it alone.
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('prefs').open) backToDocument();
+    if (e.key === 'Escape' && !$<HTMLDialogElement>('prefs').open) backToDocument();
   });
 }
 
@@ -409,7 +421,7 @@ const kept = [
  * apart by which of them it is in reading order, which is the one place position is used: they
  * are the same to the reader, so no other answer is any better.
  */
-function* keptElements() {
+function* keptElements(): Generator<[(typeof kept)[number], Element, string]> {
   for (const kind of kept) {
     const seen = new Map();
     for (const el of doc.querySelectorAll(kind.selector)) {
@@ -931,11 +943,11 @@ applyTocH();
 const SHUT_KEY = 'redline:shut';
 
 const shutNow = () =>
-  [...document.querySelectorAll('.side-twist')]
+  [...document.querySelectorAll<HTMLElement>('.side-twist')]
     .filter((b) => b.getAttribute('aria-expanded') === 'false')
     .map((b) => b.dataset.shut);
 
-for (const twist of document.querySelectorAll('.side-twist')) {
+for (const twist of document.querySelectorAll<HTMLElement>('.side-twist')) {
   const open = !document.documentElement.classList.contains(`shut-${twist.dataset.shut}`);
   twist.setAttribute('aria-expanded', String(open));
   twist.addEventListener('click', () => {
@@ -1100,7 +1112,7 @@ function showDiagramError(pre, message) {
 const drawDiagrams = (root = doc) => Promise.all([drawMermaid(root), drawPlantuml(root)]);
 
 // `toggle` does not bubble, so listen in the capture phase.
-doc.addEventListener('toggle', (e) => drawDiagrams(e.target), true);
+doc.addEventListener('toggle', (e) => drawDiagrams(e.target as HTMLElement), true);
 
 // Heard on System, which follows it, and also when the shell pins or unpins the
 // window, which moves what it reports: a scheme picked by name does not move
@@ -1376,7 +1388,7 @@ function queueSpy() {
  * alone — a fragment in the URL would be one more thing a reload has to undo.
  */
 doc.addEventListener('click', (e) => {
-  const a = e.target.closest('a[href^="#"]');
+  const a = (e.target as Element).closest('a[href^="#"]');
   const id = a && decodeURIComponent(a.getAttribute('href').slice(1));
   if (!id) return;
   const head = (state.data?.toc ?? []).find((h) => h.id === id);
@@ -1407,7 +1419,7 @@ doc.addEventListener('click', (e) => {
  * files it has open, so the one you came from is still a click away.
  */
 doc.addEventListener('click', (e) => {
-  const a = e.target.closest?.('a[href]');
+  const a = (e.target as Element).closest?.('a[href]');
   const href = a?.getAttribute('href')?.trim();
   if (!href || href.startsWith('#')) return; // in-page jumps are handled above
 
@@ -1471,7 +1483,7 @@ function notify(text) {
 // the app is showing, and everything about versions is here.
 
 const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-const AGO = [
+const AGO: [Intl.RelativeTimeFormatUnit, number][] = [
   ['year', 31557600],
   ['month', 2629800],
   ['week', 604800],
@@ -1528,7 +1540,7 @@ function bytes(n) {
   return `${(n / 1048576).toFixed(1)} MB`;
 }
 
-const el = (tag, className, text) => {
+const el = (tag, className?, text?) => {
   const n = document.createElement(tag);
   if (className) n.className = className;
   if (text != null) n.textContent = text;
@@ -1770,7 +1782,7 @@ $('soloTag').addEventListener('click', () => setSolo(false));
  * is the changes that came after, and with the marks off the click would look
  * like it had missed — the same reason picking a row turns them on.
  */
-async function markRead(at) {
+async function markRead(at?) {
   const y = pane.scrollTop;
   state.pruneAsk = null;
   if (at) setMarks(true, { redraw: false });
@@ -1783,7 +1795,7 @@ async function markRead(at) {
 function askPrune(hash) {
   state.pruneAsk = hash;
   paintHistory(state.data);
-  $('histList').querySelector('.ask-go')?.focus();
+  $('histList').querySelector<HTMLElement>('.ask-go')?.focus();
 }
 
 /**
@@ -1938,8 +1950,8 @@ $('verMenu').addEventListener('keydown', (e) => {
   // between items rather than scrolling the document, and a letter is not a
   // command to the page behind it — `m` would mark the newest version read.
   e.stopPropagation();
-  const items = [...$('verMenu').querySelectorAll('button:not(:disabled)')];
-  const at = items.indexOf(document.activeElement);
+  const items = [...$('verMenu').querySelectorAll<HTMLElement>('button:not(:disabled)')];
+  const at = items.indexOf(document.activeElement as HTMLElement);
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
     const step = e.key === 'ArrowDown' ? 1 : -1;
@@ -2012,7 +2024,7 @@ for (const [on, when] of [
   [false, 'pointerleave'],
   [true, 'focus'],
   [false, 'blur'],
-]) {
+] as [boolean, string][]) {
   $('histClear').addEventListener(when, () => {
     $('histList').children[1]?.classList.toggle('cutting', on);
   });
@@ -2041,7 +2053,7 @@ const continuesRun = (n) => {
  * so stepping past them would be stepping past something the bar says is there.
  */
 function changeNodes() {
-  return [...doc.querySelectorAll('[data-chg], .raw-del')].filter(
+  return [...doc.querySelectorAll<HTMLElement>('[data-chg], .raw-del')].filter(
     (n) => !n.classList.contains('chg-ok') && !continuesRun(n),
   );
 }
@@ -2098,9 +2110,11 @@ function paintCount() {
 // you scroll.
 
 const ruler = $('ruler');
+// A mark carries the blocks it stands for, set by `paintRuler` (see `_nodes` there).
+type RulerMark = HTMLElement & { _nodes: HTMLElement[] };
 
 /** Everything the ruler stands for: marked blocks rendered, marked lines raw. */
-const rulerNodes = () => doc.querySelectorAll('[data-chg], .raw-del');
+const rulerNodes = () => doc.querySelectorAll<HTMLElement>('[data-chg], .raw-del');
 
 // `.chg:hover` tints the paragraph itself in pure CSS, since tag and text are
 // right there together — but the ruler mark for it lives in a different part
@@ -2110,16 +2124,16 @@ const rulerNodes = () => doc.querySelectorAll('[data-chg], .raw-del');
 // `leave`, which is what makes delegating them possible at all.
 let hoverNode = null;
 doc.addEventListener('pointerover', (e) => {
-  const node = e.target.closest('[data-chg], .raw-del');
+  const node = (e.target as Element).closest('[data-chg], .raw-del');
   if (node === hoverNode) return;
   hoverNode = node;
   highlightRulerCurrent();
 });
 doc.addEventListener('pointerout', (e) => {
-  const node = e.target.closest('[data-chg], .raw-del');
+  const node = (e.target as Element).closest('[data-chg], .raw-del');
   // Moving between two elements inside the same block re-fires over/out on
   // its descendants; only actually leaving the block should drop the mark.
-  if (node !== hoverNode || node?.contains(e.relatedTarget)) return;
+  if (node !== hoverNode || node?.contains(e.relatedTarget as Node)) return;
   hoverNode = null;
   highlightRulerCurrent();
 });
@@ -2133,7 +2147,7 @@ doc.addEventListener('pointerout', (e) => {
 // current without having to learn that a band is more than one node.
 let hoverMark = null;
 ruler.addEventListener('pointerover', (e) => {
-  const mark = e.target.closest('.ruler-mark');
+  const mark = (e.target as Element).closest<RulerMark>('.ruler-mark');
   if (!mark || mark === hoverMark) return;
   hoverMark = mark;
   for (const node of mark._nodes) node.classList.add('chg-hot');
@@ -2141,8 +2155,8 @@ ruler.addEventListener('pointerover', (e) => {
   highlightRulerCurrent();
 });
 ruler.addEventListener('pointerout', (e) => {
-  const mark = e.target.closest('.ruler-mark');
-  if (mark !== hoverMark || mark?.contains(e.relatedTarget)) return;
+  const mark = (e.target as Element).closest<RulerMark>('.ruler-mark');
+  if (mark !== hoverMark || mark?.contains(e.relatedTarget as Node)) return;
   hoverMark = null;
   for (const node of mark._nodes) node.classList.remove('chg-hot');
   hoverNode = null;
@@ -2154,7 +2168,7 @@ ruler.addEventListener('pointerout', (e) => {
 // own -- a raw-removed line, an already-checked change -- still scrolls,
 // just with nothing for `c` to act on once it arrives (see `goToNode`).
 ruler.addEventListener('click', (e) => {
-  const mark = e.target.closest('.ruler-mark');
+  const mark = (e.target as Element).closest<RulerMark>('.ruler-mark');
   if (!mark) return;
   const node = mark._nodes[0];
   state.changeIndex = changeNodes().indexOf(node);
@@ -2236,7 +2250,7 @@ function paintRuler() {
 // already drawn, which is what makes losing it fade rather than snap.
 function highlightRulerCurrent() {
   const current = hoverNode ?? (state.diff ? changeNodes()[state.changeIndex] : undefined);
-  for (const mark of ruler.children) {
+  for (const mark of ruler.children as HTMLCollectionOf<RulerMark>) {
     mark.classList.toggle('ruler-current', !!current && mark._nodes.includes(current));
   }
 }
@@ -2277,13 +2291,13 @@ const TICK_SVG =
   '<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.4 3 3 6-6.9" /></svg>';
 
 /** Every marked block the checked state applies to. The raw view has none. */
-const ackNodes = () => [...doc.querySelectorAll('.chg[data-key]')];
+const ackNodes = () => [...doc.querySelectorAll<HTMLElement>('.chg[data-key]')];
 
 function applyAcks() {
   for (const node of ackNodes()) {
     const on = state.acked.has(node.dataset.key);
     node.classList.toggle('chg-ok', on);
-    const tag = node.querySelector(':scope > .chg-tag');
+    const tag = node.querySelector<HTMLElement>(':scope > .chg-tag');
     if (!tag) continue;
     tag.title = on ? 'Bring this change back (c)' : 'Checked — put this mark away (c)';
     tag.setAttribute('aria-label', tag.title);
@@ -2362,8 +2376,8 @@ function tapCheck() {
 // The word in the margin naming the change is the button that puts it away —
 // delegated, because the marks are re-rendered whole on every change to the file.
 doc.addEventListener('click', (e) => {
-  const tag = e.target.closest('.chg-tag');
-  const key = tag && tag.closest('[data-key]')?.dataset.key;
+  const tag = (e.target as Element).closest('.chg-tag');
+  const key = tag && tag.closest<HTMLElement>('[data-key]')?.dataset.key;
   if (!key) return;
   setAck(key, !state.acked.has(key));
 });
@@ -2594,7 +2608,7 @@ function stepFind(step) {
 function openFind() {
   $('findBar').hidden = false;
   $('find').setAttribute('aria-pressed', 'true');
-  const input = $('findInput');
+  const input = $<HTMLInputElement>('findInput');
   input.focus();
   input.select();
   if (input.value) runFind(input.value);
@@ -2616,7 +2630,7 @@ $('find').addEventListener('click', toggleFind);
 $('findClose').addEventListener('click', closeFind);
 $('findNext').addEventListener('click', () => stepFind(1));
 $('findPrev').addEventListener('click', () => stepFind(-1));
-$('findInput').addEventListener('input', (e) => runFind(e.target.value));
+$('findInput').addEventListener('input', (e) => runFind((e.target as HTMLInputElement).value));
 $('findInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
@@ -2632,7 +2646,10 @@ document.addEventListener('keydown', (e) => e.key === 'Escape' && closeFind());
 // gap between them for the next of any, with ⇧ to go back. The versions it was counted against
 // are in the right column, which has a button and a key of its own.
 $('count').addEventListener('click', (e) => {
-  goToChange(e.shiftKey ? -1 : 1, e.target.closest('[data-kind]')?.dataset.kind);
+  goToChange(
+    e.shiftKey ? -1 : 1,
+    (e.target as Element).closest<HTMLElement>('[data-kind]')?.dataset.kind,
+  );
 });
 
 $('next').addEventListener('click', () => goToChange(1));
@@ -2698,7 +2715,7 @@ function lastWhere(n, holds) {
  * "before" inside a rewrite — which is the point, since neither is a place the
  * other view could show you.
  */
-const anchors = () => doc.querySelectorAll('[data-line]');
+const anchors = () => doc.querySelectorAll<HTMLElement>('[data-line]');
 
 /** Where the top edge of the pane is, as a line of the file, fractionally. */
 function sourceAt() {
@@ -2801,7 +2818,7 @@ function setDiff(on, { redraw = true } = {}) {
  * history, `d`, ⇧⌘D, or the Settings checkbox. It is remembered, so a document
  * opens the way you left the last one.
  */
-function setMarks(on, opts) {
+function setMarks(on, opts?) {
   if (on === state.diff) return;
   setDiff(on, opts);
   writeSettings({ marks: on });
@@ -2845,8 +2862,8 @@ function scrollByKey(e) {
 
 document.addEventListener('keydown', (e) => {
   // Settings is modal: the letters belong to it while it is up.
-  if ($('prefs').open) return;
-  if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if ($<HTMLDialogElement>('prefs').open) return;
+  if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as Element).tagName)) return;
   if (scrollByKey(e)) return e.preventDefault();
   const key = e.key.toLowerCase();
   if (key === 'r') toggleView();
@@ -2874,7 +2891,7 @@ const native = window.mdNative;
 // tabs say to show, and whichever of the two happened to resolve last would
 // win, even if it was the guess.
 let openedFirstTab = () => {};
-const firstTabShown = new Promise((resolve) => {
+const firstTabShown = new Promise<void>((resolve) => {
   openedFirstTab = resolve;
 });
 if (native) {
@@ -3014,7 +3031,7 @@ const FONT_CHOICES = Object.entries({
   Japanese: `Hiragino Maru Gothic ProN, Hiragino Mincho ProN, Hiragino Sans, Noto Sans JP,
     Noto Serif JP, Yu Gothic, Yu Mincho`,
   // A comma never appears in a font's name, so the list can be written as one.
-}).map(([label, names]) => [label, names.split(',').map((n) => n.trim())]);
+}).map(([label, names]): [string, string[]] => [label, names.split(',').map((n) => n.trim())]);
 
 /**
  * What the typeface popup is on. A picked face is stored as `font: 'custom'`
@@ -3046,7 +3063,7 @@ async function listFonts() {
   if (fontsListed) return;
   fontsListed = true;
   const installed = await backend.fonts().catch(() => []);
-  const groups = installed.length
+  const groups: [string, string[]][] = installed.length
     ? [['On this machine', installed]]
     : FONT_CHOICES.map(([label, names]) => [label, names.filter(fontInstalled)]);
 
@@ -3109,8 +3126,8 @@ function applyScheme() {
   const look = settings.appearance;
   const scheme = look === 'dark' || (look === 'system' && darkMode.matches) ? 'dark' : 'light';
   root.dataset.scheme = scheme;
-  $('hljsLight').media = scheme === 'dark' ? 'print' : 'all';
-  $('hljsDark').media = scheme === 'dark' ? 'screen' : 'not all';
+  $<HTMLLinkElement>('hljsLight').media = scheme === 'dark' ? 'print' : 'all';
+  $<HTMLLinkElement>('hljsDark').media = scheme === 'dark' ? 'screen' : 'not all';
   return scheme !== was;
 }
 
@@ -3161,22 +3178,23 @@ function setSeg(id, value) {
   for (const input of $(id).querySelectorAll('input')) input.checked = input.value === value;
 }
 
-const onSeg = (id, fn) => $(id).addEventListener('change', (e) => fn(e.target.value));
+const onSeg = (id, fn) =>
+  $(id).addEventListener('change', (e) => fn((e.target as HTMLInputElement).value));
 
 function paintPrefs() {
   setSeg('setAppearance', settings.appearance);
   setSeg('setReopen', settings.reopenLast ? '1' : '0');
   setSeg('setFinder', settings.finderOpensIn);
-  $('setFont').value = fontValue();
+  $<HTMLSelectElement>('setFont').value = fontValue();
   $('setSizeOut').textContent = `${settings.textSize} px`;
-  $('setSizeDown').disabled = settings.textSize <= SIZE_MIN;
-  $('setSizeUp').disabled = settings.textSize >= SIZE_MAX;
+  $<HTMLButtonElement>('setSizeDown').disabled = settings.textSize <= SIZE_MIN;
+  $<HTMLButtonElement>('setSizeUp').disabled = settings.textSize >= SIZE_MAX;
   setSeg('setWidth', settings.width);
   // Named widths say which is wider, not how wide. The measure comes off the
   // variable the document reads, so the two can never drift apart.
   const measure = getComputedStyle(document.documentElement).getPropertyValue('--doc-width');
   $('setWidthHint').textContent = `${measure.trim()} of text, centred in the window`;
-  $('setMarks').checked = settings.marks;
+  $<HTMLInputElement>('setMarks').checked = settings.marks;
   applyCaps();
   // A choice the host cannot honour is not left looking made: with no git to read, what the
   // page compares against is the last read, and that is what the control should say.
@@ -3202,7 +3220,7 @@ onSeg('setAppearance', (v) => writeSettings({ appearance: v }));
 onSeg('setReopen', (v) => writeSettings({ reopenLast: v === '1' }));
 onSeg('setFinder', (v) => writeSettings({ finderOpensIn: v }));
 $('setFont').addEventListener('change', (e) => {
-  const picked = e.target.value;
+  const picked = (e.target as HTMLSelectElement).value;
   // A built-in is a stylesheet rule and a picked face is a name; the name is
   // kept either way, so going to Serif and back does not lose your choice.
   if (picked.startsWith('name:')) writeSettings({ font: 'custom', fontName: picked.slice(5) });
@@ -3216,7 +3234,9 @@ $('setSizeDown').addEventListener('click', stepSize(-1));
 $('setSizeUp').addEventListener('click', stepSize(+1));
 
 onSeg('setWidth', (v) => writeSettings({ width: v }));
-$('setMarks').addEventListener('change', (e) => writeSettings({ marks: e.target.checked }));
+$('setMarks').addEventListener('change', (e) =>
+  writeSettings({ marks: (e.target as HTMLInputElement).checked }),
+);
 onSeg('setBaseline', (v) => {
   writeSettings({ baseline: v });
   // It says what to compare against from now on, and "now" includes the
@@ -3225,7 +3245,7 @@ onSeg('setBaseline', (v) => {
   load({ keepScroll: true });
 });
 
-const prefsSheet = $('prefs');
+const prefsSheet = $<HTMLDialogElement>('prefs');
 
 function openPrefs() {
   if (prefsSheet.open) return;
@@ -3258,7 +3278,7 @@ let updateUrl = '';
 
 async function checkUpdate() {
   const note = $('updateNote');
-  const button = $('checkUpdate');
+  const button = $<HTMLButtonElement>('checkUpdate');
   $('updateRow').hidden = true;
   updateUrl = '';
   note.textContent = 'Checking…';
@@ -3332,7 +3352,7 @@ document.addEventListener('keydown', (e) => {
   // up, because the browser's own would open the file as a page of its own, outside Redline.
   if (welcome && e.code === 'KeyO' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
     e.preventDefault();
-    if (!$('prefs').open) welcome.pickFile();
+    if (!$<HTMLDialogElement>('prefs').open) welcome.pickFile();
   }
 });
 
@@ -3367,7 +3387,7 @@ async function initSettings() {
 
 // Only the broken state has anything to say, so only the broken state gets a
 // name: while the watch is up there is nothing on the bar to read or announce.
-function setLive(on, why) {
+function setLive(on, why?) {
   const live = $('live');
   live.classList.toggle('off', !on);
   live.title = on ? '' : why;
