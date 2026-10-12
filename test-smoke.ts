@@ -1776,6 +1776,11 @@ console.log('✓ the layout is its own modules, wired from main.ts');
     'and the disclosures at their tops wired');
   assert.match(mainTs, /^setSide\(state\.side, false\);\nsetTocSide\(state\.tocSide, false\);$/m,
     'which main.ts lays out once from what the head script put on the root');
+  assert.match(mainTs, /\n  baseline: chooseBaseline,\n  reveal: [^\n]*\n  check: checkUpdate,\n  go: getUpdate,\n/,
+    'Settings is handed the baseline choice and the update check from their viewmodels');
+  assert.match(vm('settings.ts'),
+    /export function chooseBaseline\(v\) \{[\s\S]{0,300}?state\.baseline = defaultBaseline\(\);\s*load\(\{ keepScroll: true \}\);/,
+    'a baseline chosen is the document in front of you compared again');
   assert.match(vm('diagrams.ts'), /doc\.addEventListener\('toggle', \(e\) => drawDiagrams\(/,
     'a diagram is drawn when its "before" opens');
   assert.match(vm('settings.ts'),
