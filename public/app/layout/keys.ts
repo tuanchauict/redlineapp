@@ -65,7 +65,10 @@ export function bindKeys({
     else if (key === 'p' || key === 'k') goToChange(-1);
     else if (key === 'm') tapMarkRead();
     // Next to n and p on purpose: working through a set of edits is n, c, n, c.
-    else if (key === 'c') e.shiftKey ? clearAcks() : tapCheck();
+    else if (key === 'c') {
+      if (e.shiftKey) clearAcks();
+      else tapCheck();
+    }
     else return;
     e.preventDefault();
   });

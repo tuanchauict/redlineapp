@@ -8,7 +8,7 @@
 
 // The part of an address that `..` must never pop. Tried in this order; the first to match wins.
 const ROOTS = [
-  /^[a-z][a-z0-9+.\-]*:\/\/[^/\\]*/i, // scheme://authority
+  /^[a-z][a-z0-9+.-]*:\/\/[^/\\]*/i, // scheme://authority
   /^web:[^/\\]*/, // web:<rootId>
   /^[a-zA-Z]:(?=[/\\]|$)/, // C:
 ];

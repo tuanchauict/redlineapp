@@ -25,7 +25,7 @@ const readable = (s) => {
 };
 
 // A scheme, or the `//host` form that borrows the page's own.
-export const HAS_SCHEME = /^[a-z][a-z0-9+.\-]*:|^\/\//i;
+export const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:|^\/\//i;
 
 /**
  * A destination written the way the document's author would recognise it: a URL

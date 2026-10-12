@@ -132,7 +132,7 @@ test('contract/ is types only, and imported as such', async () => {
     const text = fs.readFileSync(path.join(SRC, f), 'utf8');
     if (f.startsWith('contract/')) {
       for (const m of text.matchAll(VALUE_EXPORT)) notTypes.push(`src/${f} exports a value: ${m[1]}`);
-      for (const m of text.matchAll(VALUE_IMPORT)) {
+      for (const _ of text.matchAll(VALUE_IMPORT)) {
         notTypes.push(`src/${f} has an import that is not \`import type\``);
       }
     }

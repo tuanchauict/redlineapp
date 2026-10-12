@@ -81,7 +81,7 @@ async function findRenderer(
 /** Strip the XML prolog/doctype so the SVG can be inlined into the page. */
 function inlineSvg(svg: string): string {
   return svg
-    .replace(/^﻿/, '')
+    .replace(/^\uFEFF/, '')
     .replace(/<\?xml[\s\S]*?\?>\s*/i, '')
     .replace(/<!DOCTYPE[\s\S]*?>\s*/i, '')
     .trim();
