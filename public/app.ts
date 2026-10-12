@@ -1413,7 +1413,8 @@ doc.addEventListener('click', (e) => {
  * files it has open, so the one you came from is still a click away.
  */
 doc.addEventListener('click', (e) => {
-  // The `?.` stays: a click target need not be an Element (the document is not one).
+  // Inside #doc the target is always an Element; the `?.` is the JavaScript's own guard, kept
+  // so that the conversion changes no behaviour.
   const a = (e.target as Element).closest?.('a[href]');
   const href = a?.getAttribute('href')?.trim();
   if (!href || href.startsWith('#')) return; // in-page jumps are handled above
