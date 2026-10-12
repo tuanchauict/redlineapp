@@ -6710,6 +6710,7 @@ assert.ok(
 assert.match(devJs, /tauri\.kill\(sig\)/, 'ctrl-c reaches the window');
 assert.match(devJs, /tauri\.kill\('SIGKILL'\)/, 'and a child that ignores it gets no third chance');
 assert.ok(/tsc\?\.kill\(sig\)/.test(devJs), 'and takes the compiler down with the window');
+assert.match(devJs, /tsc\?\.kill\(\)/, 'and when the window is closed instead of interrupted');
 console.log('✓ the dev loop serves the page instead of embedding it, and shuts down');
 
 // A run started on a `vN.N.N` tag, or with Deploy ticked, is a release: the

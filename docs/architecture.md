@@ -392,7 +392,7 @@ into lines, and diff the lines.
 
 ## The client
 
-One module, ~1.4k lines, organised in commented sections: state, painting,
+One module, `public/app.ts`, ~3.5k lines, organised in commented sections: state, painting,
 tabs, change navigation, checked changes, contents, history, settings, keys. There
 is no component model — the document pane is `innerHTML` from the payload, through
 `sanitizeDocument` on the way in, and everything else is a handful of

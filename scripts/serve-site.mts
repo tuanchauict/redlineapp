@@ -12,10 +12,14 @@
 // theme toggle, the copy buttons, the reveal and all five animations are
 // silently dead. That failure looks exactly like the script being broken.
 //
-// Nothing is watched and nothing is rebuilt while this runs. It does not need
-// to be: the page is served as it is written, so editing index.html, the
-// stylesheet or the module and reloading is the whole loop. Only the icon and
-// the og:image are staged, and those change about once a year.
+// Nothing is watched and nothing is rebuilt while this runs. The html and the
+// stylesheet are served as they are written, so editing either and reloading is
+// the whole loop. The module is the exception, because it is TypeScript: what is
+// served is site/landing.js, compiled when `presite` ran, so an edit to
+// landing.ts needs `npm run build:ts` (or `npx tsc -b --watch` alongside) before
+// a reload shows it, and a reload alone shows the last compile, which looks
+// exactly like the edit not working. Only the icon and the og:image are staged,
+// and those change about once a year.
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';

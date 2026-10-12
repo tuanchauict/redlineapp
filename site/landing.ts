@@ -1,8 +1,9 @@
 /* Redline — the landing page's behaviour.
  *
  * The theme toggle, the copy buttons, the scroll reveal, the hero demo loop,
- * and four scenes further down the page. No dependencies and no build step —
- * this file is served as it is written, the same way the reader itself is.
+ * and four scenes further down the page. No dependencies and no bundler —
+ * `tsc` takes the types off in place and site/landing.js is served as it is
+ * emitted, the same way the reader's own page is.
  *
  * Nothing here draws anything. Every scene is already in the markup, in the
  * state it starts in; what these functions do is move one attribute or one

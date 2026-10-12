@@ -3,9 +3,11 @@
 //   npm run build:site
 //
 // The page in site/ is hand-written and ships as it is written -- there is no
-// bundler here and nothing is compiled. What this script does is copy in the
-// one thing the page points at that belongs to the project rather than to the
-// page: the app icon, in both of the forms it is committed in.
+// bundler here, and its one module, landing.ts, is compiled in place by build:ts,
+// which `npm run build:site` runs first and this script does not. What this
+// script does is copy in the one thing the page points at that belongs to the
+// project rather than to the page: the app icon, in both of the forms it is
+// committed in.
 //
 //   icon.svg   assets/   the favicon, the nav mark, the footer mark
 //   icon.png   assets/   the og:image, the card a link preview draws
