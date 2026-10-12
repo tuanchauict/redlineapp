@@ -1,16 +1,16 @@
 // The change ruler: where the changes are in the file, down the track the scrollbar runs in.
 //
 // Drawn from `rulerBands` and `rulerCurrent`, and re-rendered when either changes. Measuring
-// is not here: `paintRuler` in main.ts reads every marked block's rectangle in the document it
-// has just written, merges touching ones and scales them to the track, and that has to follow
-// the write in order, which an effect does not promise. So main.ts hands over finished bands,
-// and this places them.
+// is not here: `paintRuler` in vm/changes.ts reads every marked block's rectangle in the
+// document `paint` has just written, merges touching ones and scales them to the track, and that
+// has to follow the write in order, which an effect does not promise. So the viewmodel hands
+// over finished bands, and this places them.
 //
 // Keyed by position, so a repaint keeps the elements already on screen and only moves them.
 // That is what lets a mark that stops being current fade (`.ruler-mark`'s opacity transition)
 // rather than snap: a freshly made element has no "before" for a transition to start from.
 import { render } from 'preact';
-import { rulerBands, rulerCurrent } from '../state.js';
+import { rulerBands, rulerCurrent } from '../vm/changes.js';
 
 export interface RulerActions {
   /** Land on this node, the way `n`/`p` would. */

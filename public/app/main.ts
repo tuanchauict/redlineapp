@@ -6,10 +6,7 @@ import {
   shownHistory,
   menuFor,
   cutFrom,
-  rulerBands,
-  rulerCurrent,
   barName,
-  tally,
   soloName,
   tabMenuAt,
   liveWhy,
@@ -42,6 +39,17 @@ import { notify } from './vm/notice.js';
 import { hidePeek, linkTarget, HAS_SCHEME } from './vm/peek.js';
 import { sepia, retheme, drawDiagrams } from './vm/diagrams.js';
 import { findOpen, refind, openFind } from './vm/find.js';
+import {
+  changeNodes,
+  paintCount,
+  paintRuler,
+  hoverMarks,
+  forgetHover,
+  goToNode,
+  goToChange,
+  keepAnchored,
+} from './vm/changes.js';
+import { applyAcks, clearAcks, tapCheck } from './vm/acks.js';
 
 const darkMode = matchMedia('(prefers-color-scheme: dark)');
 
@@ -390,7 +398,7 @@ function paint({ reuse = false } = {}) {
     // The link that was under the pointer is about to stop existing, and a node
     // that is gone never reports the pointer leaving it.
     hidePeek();
-    hoverNode = null;
+    forgetHover();
     // Read before the nodes go, and only for this document: what was done to the one on screen
     // was done to that text, and another file's elements are not these however they are named.
     const saved = painted.id === state.docId ? readKept() : null;
@@ -1098,375 +1106,17 @@ mountHistory($('histList'), {
   prune,
 });
 
-/** What a marked node is, which the raw view's removed lines — marked by a class — do not say. */
-const changeKind = (n) => n.dataset.chg || 'del';
+// ---------- changes ----------
 
-/**
- * A raw line that carries on from the marked line above it. The raw view marks lines, not
- * blocks, so a rewritten paragraph is a run of them — one change to the eye and to the count,
- * which `n` and the arrows would otherwise take a press per line to get through.
- */
-const continuesRun = (n) => {
-  const above = n.previousElementSibling;
-  return (
-    n.classList.contains('raw-line') &&
-    !!above?.matches('[data-chg], .raw-del') &&
-    changeKind(above) === changeKind(n)
-  );
-};
-
-/**
- * The changes still asking to be looked at — a checked one is not one of them — one node each.
- * Removed lines in the raw view are among them: they are counted, and the ruler marks them,
- * so stepping past them would be stepping past something the bar says is there.
- */
-function changeNodes() {
-  return [...doc.querySelectorAll<HTMLElement>('[data-chg], .raw-del')].filter(
-    (n) => !n.classList.contains('chg-ok') && !continuesRun(n),
-  );
-}
-
-function paintCount() {
-  // Counted from the list the payload carries rather than from the page, so the
-  // number is the same in either view: the raw view is the file's own lines and
-  // has no blocks to check off, and it should not therefore disagree about how
-  // much of the document is still unread.
-  const changes = state.data?.changes ?? [];
-  const live = changes.filter((c) => !state.acked.has(c.key));
-  const of = (kind) => live.reduce((n, c) => n + (c.kind === kind ? 1 : 0), 0);
-  // How many `n` and `p` can reach is the page's to say, not the payload's: a change inside a
-  // run is reached with the run. ui/Changes.tsx draws the rest from this.
-  tally.value = {
-    add: of('add'),
-    mod: of('mod'),
-    del: of('del'),
-    live: live.length,
-    done: changes.length - live.length,
-    nav: changeNodes().length,
-  };
-}
-
-// ---------- change ruler ----------
-
-// Where the changes are in the file, down the track the scrollbar runs in —
-// the overview an editor draws on its own scrollbar.
-//
-// The marks in the margin only speak for the screen you are on, and the count
-// on the bar only says how many there are altogether. Neither answers the
-// question you actually have about a file someone has handed you to review:
-// is it edited throughout, or is it three paragraphs near the end. A column of
-// marks at document scale answers it at a glance, and keeps answering it while
-// you scroll.
-
-// The marks themselves are drawn by ui/Ruler.tsx; what is here is the measuring, and what a
-// mark does when it is pointed at.
-const ruler = $('ruler');
-
-/** Everything the ruler stands for: marked blocks rendered, marked lines raw. */
-const rulerNodes = () => doc.querySelectorAll<HTMLElement>('[data-chg], .raw-del');
-
-// `.chg:hover` tints the paragraph itself in pure CSS, since tag and text are
-// right there together — but the ruler mark for it lives in a different part
-// of the DOM, out of any CSS selector's reach, so naming it needs JS. Delegated
-// on `doc` rather than bound per node, because the blocks are replaced whole on
-// every paint (see `paint`); `pointerover`/`pointerout` bubble, unlike `enter`/
-// `leave`, which is what makes delegating them possible at all.
-let hoverNode = null;
-doc.addEventListener('pointerover', (e) => {
-  const node = (e.target as Element).closest('[data-chg], .raw-del');
-  if (node === hoverNode) return;
-  hoverNode = node;
-  highlightRulerCurrent();
-});
-doc.addEventListener('pointerout', (e) => {
-  const node = (e.target as Element).closest('[data-chg], .raw-del');
-  // Moving between two elements inside the same block re-fires over/out on
-  // its descendants; only actually leaving the block should drop the mark.
-  if (node !== hoverNode || node?.contains(e.relatedTarget as Node)) return;
-  hoverNode = null;
-  highlightRulerCurrent();
-});
-
-// The same hover, the other way: a mark stands for a whole band of blocks —
-// forty merged lines are one mark — so hovering it tints every one of them,
-// not only the one `hoverNode` below points at. `.chg-hot` is what lets a
-// class toggled from here reach `.chg:hover`'s own styling, a rule this
-// subtree has no selector that reaches. `hoverNode` is still set, to one
-// node of the band, purely so `highlightRulerCurrent` keeps this same mark
-// current without having to learn that a band is more than one node.
-let hoverBand: HTMLElement[] | null = null;
-function hoverMarks(nodes: HTMLElement[] | null) {
-  for (const node of hoverBand ?? []) node.classList.remove('chg-hot');
-  hoverBand = nodes;
-  for (const node of nodes ?? []) node.classList.add('chg-hot');
-  hoverNode = nodes?.[0] ?? null;
-  highlightRulerCurrent();
-}
-
-mountRuler(ruler, {
+// The count, `n`/`p`, the ruler and check-offs are vm/changes.ts and vm/acks.ts. The ruler's
+// marks are mounted here, because a viewmodel does not import the components that draw it.
+mountRuler($('ruler'), {
   go: (node) => {
     state.changeIndex = changeNodes().indexOf(node);
     goToNode(node);
   },
   hover: hoverMarks,
 });
-
-function paintRuler() {
-  const on = state.diff && !!state.data;
-  ruler.hidden = !on;
-  if (!on) return void (rulerBands.value = []);
-
-  const span = pane.scrollHeight;
-  const track = ruler.clientHeight;
-  // Nothing to scale against yet — a document mid-layout, or a window with no
-  // height. The observer below brings us back once there is.
-  if (span <= 0 || track <= 0) return void (rulerBands.value = []);
-
-  // Rects are viewport coordinates; this is where the top of the scrolled
-  // content sits in them, so subtracting it gives an offset into the document.
-  const origin = pane.getBoundingClientRect().top - pane.scrollTop;
-  // Scaled against scrollHeight, tail padding included, because the ruler is
-  // only worth anything if a mark is level with the thumb that reaches it.
-  const at = (y) => (y / span) * track;
-
-  const bands = [];
-  for (const node of rulerNodes()) {
-    const rect = node.getBoundingClientRect();
-    // A checked-off deletion is taken out of the layout altogether; it has no
-    // place on the ruler either.
-    if (rect.height <= 0) continue;
-    // Raw removed lines are the one marked thing the markup does not name,
-    // having no block to belong to — they are removals all the same.
-    const kind = node.dataset.chg || 'del';
-    const ok = node.classList.contains('chg-ok');
-    const top = at(rect.top - origin);
-    const bottom = at(rect.bottom - origin);
-    const last = bands.at(-1);
-    // Forty consecutive changed lines are one change to the eye and forty
-    // nodes to the DOM. Touching bands of the same kind merge, or the ruler
-    // becomes a dotted line whose gaps mean nothing.
-    if (last && last.kind === kind && last.ok === ok && top <= last.bottom + 1) {
-      last.bottom = Math.max(last.bottom, bottom);
-      last.nodes.push(node);
-    } else {
-      bands.push({ kind, ok, top, bottom, nodes: [node] });
-    }
-  }
-
-  rulerBands.value = bands.map(({ kind, ok, top, bottom, nodes }) => {
-    // Floored to something you can see: one edited line in a long file is a
-    // fraction of a pixel, and being seeable is the whole job.
-    const height = Math.max(3, bottom - top);
-    return { kind, ok, top: Math.max(0, Math.min(top, track - height)), height, nodes };
-  });
-  highlightRulerCurrent();
-}
-
-// The one change `n`/`p` last took you to, or the one the pointer is over
-// right now — so the ruler can answer "where am I" as well as "where are
-// the changes", the way the scrollbar thumb answers it for scroll position.
-// Hover and `n`/`p` don't move a single mark or change how many there are,
-// so they come here and not to `paintRuler`: nothing is measured again.
-function highlightRulerCurrent() {
-  rulerCurrent.value =
-    hoverNode ?? (state.diff ? changeNodes()[state.changeIndex] : undefined) ?? null;
-}
-
-// Every call measures every change, and the things that move them — a diagram
-// finishing, a window resizing, a disclosure opening — move them in bursts.
-let ruling = false;
-function queueRuler() {
-  if (ruling) return;
-  ruling = true;
-  requestAnimationFrame(() => {
-    ruling = false;
-    paintRuler();
-  });
-}
-
-// The document's height is what the ruler divides up, and it settles well
-// after paint: diagrams render, fonts swap, images arrive, a "before" is
-// opened. Watching the article covers all of them without any of them having
-// to know the ruler exists.
-new ResizeObserver(queueRuler).observe(doc);
-// The track's own height is the window's, which the article's box never
-// reports.
-addEventListener('resize', queueRuler);
-
-// ---------- checked-off changes ----------
-
-// A change you have looked at and are done with. Its mark goes, it stops being
-// counted, and n/p walk past it — so reading a heavily edited file is a matter
-// of working down the marks until there are none left, rather than reading
-// around a page of highlighting that stays exactly as loud as when you started.
-//
-// Not the same as marking the version read, which says "all of this is seen"
-// and moves what everything is measured from. This says "that bit is seen", one
-// block at a time, and the file has still moved.
-
-/** Every marked block the checked state applies to. The raw view has none. */
-const ackNodes = () => [...doc.querySelectorAll<HTMLElement>('.chg[data-key]')];
-
-function applyAcks() {
-  for (const node of ackNodes()) {
-    const on = state.acked.has(node.dataset.key);
-    node.classList.toggle('chg-ok', on);
-    const tag = node.querySelector<HTMLElement>(':scope > .chg-tag');
-    if (!tag) continue;
-    tag.title = on ? 'Bring this change back (c)' : 'Checked — put this mark away (c)';
-    tag.setAttribute('aria-label', tag.title);
-    tag.setAttribute('aria-pressed', String(on));
-  }
-}
-
-/** Take the server's word for the list, which is the copy that outlives the tab. */
-function adoptAcks(acked) {
-  state.acked = new Set(acked);
-  if (state.data) state.data.acked = acked;
-  applyAcks();
-  paintCount();
-  paintRuler();
-}
-
-async function setAck(key, on) {
-  // Taken here first so the click answers at once, and anchored because putting
-  // a deleted block away takes it out of the page and moves the text below it.
-  keepAnchored(() => {
-    if (on) state.acked.add(key);
-    else state.acked.delete(key);
-    applyAcks();
-    paintCount();
-  });
-  paintRuler();
-  // What the change was, as well as its name: the version this page is showing
-  // and the change's own block in it, so that if the block is edited later it
-  // comes back marked against what was read here (see `reader.ack`).
-  const block = state.data?.changes?.find((c) => c.key === key)?.block;
-  adoptAcks(await backend.ack({ key, on, at: state.data?.hash, block }));
-}
-
-async function clearAcks() {
-  if (!state.acked.size) return;
-  keepAnchored(() => {
-    state.acked.clear();
-    applyAcks();
-    paintCount();
-  });
-  paintRuler();
-  adoptAcks(await backend.ack({ clear: true }));
-}
-
-/**
- * The change `c` acts on: the one under the pointer, which is also the one the
- * ruler is showing as current; otherwise the one you were last taken to, and
- * otherwise the first one still on screen — so a run of them is n, c, n, c
- * without having to find and point at each mark.
- */
-function changeUnderCursor() {
-  // `hoverNode` can outlive its block: putting a deleted change away takes the
-  // block out of the page, and a node that is gone never reports the pointer
-  // leaving it. It is also any marked block, raw-view lines included.
-  if (hoverNode?.isConnected && hoverNode.matches('.chg[data-key]')) return hoverNode;
-  const nav = changeNodes();
-  const at = nav[state.changeIndex];
-  if (at?.dataset.key) return at;
-  const top = pane.getBoundingClientRect().top;
-  return ackNodes().find((n) => n.getBoundingClientRect().bottom > top + 8) ?? null;
-}
-
-function tapCheck() {
-  if (!state.diff) return;
-  const node = changeUnderCursor();
-  if (!node) return;
-  const on = !state.acked.has(node.dataset.key);
-  // The list it is in is about to be one shorter. Without this, `n` would step
-  // over whichever change moves up into the place this one had. The node may
-  // be any change, not only the one `n` is on, so it is counted by where it is.
-  const at = changeNodes().indexOf(node);
-  if (on && at >= 0 && at <= state.changeIndex) state.changeIndex--;
-  setAck(node.dataset.key, on);
-}
-
-// The word in the margin naming the change is the button that puts it away —
-// delegated, because the marks are re-rendered whole on every change to the file.
-doc.addEventListener('click', (e) => {
-  const tag = (e.target as Element).closest('.chg-tag');
-  const key = tag && tag.closest<HTMLElement>('[data-key]')?.dataset.key;
-  if (!key) return;
-  setAck(key, !state.acked.has(key));
-});
-
-
-// ---------- change navigation ----------
-
-/**
- * The landing behaviour `n`/`p` and a ruler click share: scroll, flash, and
- * bring the ruler's own idea of "current" along with it. Takes any node, not
- * only one `changeNodes()` knows about -- a raw-removed line or an
- * already-checked change lands here too, just without a `changeIndex` to show
- * for it.
- */
-function goToNode(node) {
-  landedAt = performance.now();
-  node.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  for (const n of doc.querySelectorAll('.flash')) n.classList.remove('flash');
-  node.classList.add('flash');
-  setTimeout(() => node.classList.remove('flash'), 1200);
-  // The smooth scroll above repaints the ruler as it goes, but only once it has
-  // moved far enough to fire a scroll event -- which a change already on screen
-  // never does, leaving the mark unhighlighted until the next unrelated repaint.
-  // Flip the class directly rather than repainting, so the mark fades up
-  // instead of snapping in on a freshly rebuilt element.
-  highlightRulerCurrent();
-}
-
-// A landing starts a smooth scroll, and for the length of it the change is not yet on screen. A
-// second press in that time has to go on from the change just chosen, not from wherever the
-// scroll has got to — which is how rapid presses used to land back on the one before.
-const LANDING_MS = 1500;
-let landedAt = -Infinity;
-
-/**
- * Which of `stops` a step lands on. It goes on from the change you were last taken to for as
- * long as the reader is still there — it is on screen, or the scroll to it is still under way.
- * Otherwise the reader has moved: a scroll, the ruler, a reload that put the page back to
- * nothing chosen. Then it is the first change from the top of the window, or the last one
- * before it, so that a step is a step from where you are and not from where you were.
- */
-function stepIndex(stops, current, step) {
-  const view = pane.getBoundingClientRect();
-  const from = stops.indexOf(current);
-  if (from >= 0) {
-    const rect = current.getBoundingClientRect();
-    const here = rect.bottom > view.top && rect.top < view.bottom;
-    if (here || performance.now() - landedAt < LANDING_MS) {
-      return (from + step + stops.length) % stops.length;
-    }
-  }
-  const top = (n) => n.getBoundingClientRect().top;
-  if (step > 0) {
-    const next = stops.findIndex((n) => top(n) >= view.top);
-    return next < 0 ? 0 : next;
-  }
-  const before = stops.findLastIndex((n) => top(n) < view.top);
-  return before < 0 ? stops.length - 1 : before;
-}
-
-/**
- * `kind` is for the count on the bar, which is a count of one kind at a time. A view with none
- * of that kind — the raw view has no *changed*, only lines added and removed — goes through
- * all of them rather than nowhere, since a figure that does nothing when pressed reads as broken.
- */
-function goToChange(step, kind = null) {
-  if (!state.diff) return;
-  const nodes = changeNodes();
-  if (!nodes.length) return;
-  const ofKind = kind ? nodes.filter((n) => changeKind(n) === kind) : nodes;
-  const stops = ofKind.length ? ofKind : nodes;
-  const node = stops[stepIndex(stops, nodes[state.changeIndex], step)];
-  state.changeIndex = nodes.indexOf(node);
-  goToNode(node);
-}
 
 // ---------- events ----------
 
@@ -1588,25 +1238,6 @@ function spanOf(nodes, i, line) {
 
 const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
 
-const ANCHORABLE = 'h1,h2,h3,h4,h5,h6,p,ul,ol,pre,table,blockquote,.raw-line:not(.raw-del)';
-
-/**
- * Run `fn`, then scroll so the block you were looking at is where you left it.
- * Hiding the marks removes whole deleted blocks, so the text below them moves.
- */
-function keepAnchored(fn) {
-  // Anchor on a leaf that exists in both states: the wrappers themselves stop
-  // generating a box, and anything inside a deletion is about to disappear.
-  const anchor = [...doc.querySelectorAll(ANCHORABLE)].find(
-    (el) => !el.closest('.chg-del, .chg-before') && el.getBoundingClientRect().bottom > 0,
-  );
-  const was = anchor?.getBoundingClientRect().top;
-  fn();
-  if (anchor?.isConnected) {
-    const now = anchor.getBoundingClientRect().top;
-    if (now !== was) pane.scrollBy(0, now - was);
-  }
-}
 
 function setDiff(on, { redraw = true } = {}) {
   if (on === state.diff) return;

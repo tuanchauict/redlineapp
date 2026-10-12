@@ -410,8 +410,8 @@ into lines, and diff the lines.
 
 ## The client
 
-The page's source is the directory `public/app/`: `main.ts`, ~2.0k lines in commented
-sections (painting, the sidebars, tabs, change navigation, checked changes, settings),
+The page's source is the directory `public/app/`: `main.ts`, ~1.6k lines in commented
+sections (painting, the sidebars, tabs, history, settings),
 and the modules that have left it so far: `state.ts`, `dom.ts` (`$`, `#doc` and the pane),
 `backend.ts` (the backend, built once, which every module that asks something of it imports),
 `ui/History.tsx`, `ui/Contents.tsx`, `ui/Ruler.tsx`, `ui/Files.tsx`, `ui/TabMenu.tsx`,
@@ -452,6 +452,8 @@ what the chrome shows of it is a signal.
 | `vm/peek.ts` | The link peek: where the link under the pointer goes, filled and measured at once, so it stays imperative. `hidePeek` for `paint`; `linkTarget` and `HAS_SCHEME` for the link click in `main.ts`. Wires its own listeners. |
 | `vm/notice.ts` | `notice` and `notify`: one line, said for six seconds. `#notice` stays markup, because it is a live region, and `ui/chrome.ts` keeps it to the signal. |
 | `vm/diagrams.ts` | Mermaid, loaded on first use, and PlantUML, asked of the backend: `drawDiagrams` after `paint`, and `retheme`, which says whether there is a Mermaid to give a new scheme and so whether to repaint. Draws a "before"'s diagrams when it opens. |
+| `vm/changes.ts` | The changes on the page: `changeNodes`, the stops `n`/`p` walk; `paintCount` into `tally`; the ruler, measured by `paintRuler` into `rulerBands` with `rulerCurrent` for the one under the pointer or last landed on; `goToChange` and `goToNode`; and `keepAnchored`. Hears the pointer over a change and watches the article resize. `ui/Changes.tsx` and `ui/Ruler.tsx` read its signals; `main.ts` mounts the ruler with `goToNode` and `hoverMarks`. |
+| `vm/acks.ts` | Check-offs over `state.acked`: `applyAcks` writes `chg-ok` and the tag's wording onto the blocks, `setAck`/`clearAcks` take a change at once and then the backend's word for the list, and `tapCheck` is `c`. Imports `changes.ts` to repaint the count and the ruler; nothing imports it back but `main.ts`. Wires the click on a tag. |
 
 Imports point one way, and the suite checks it: a viewmodel reaches `state.ts`, `dom.ts`,
 `backend.ts`, the vendored renderer and its siblings, never `main.ts` or `ui/`, and the
@@ -462,23 +464,23 @@ becoming a signal the chrome reacts to, not a call `paint` makes; see the
 [design](superpowers/specs/2026-10-12-page-modules-preact-design.md#viewmodels).
 
 The document pane is an **imperative island**. It is `innerHTML` from the payload, through
-`sanitizeDocument` on the way in, written by markdown-it and the diff; a component never
-diffs inside it, which is also what keeps the per-block rendering and the tag-for-tag word
-diff ([The diff](#the-diff)) out of a framework's reach. The chrome around it — the sidebars,
-History, Settings, the tabs — was state kept in sync with the DOM by hand, in `classList`,
-`hidden =`, `textContent =` and `createElement` calls, and a component that re-renders from
-state replaces that code. Preact and `@preact/signals` are in the page for that, and the
-chrome moves onto them a panel at a time. History was the first: `ui/History.tsx` draws the
-version list from signals and re-renders when one changes, and `paintHistory` in `main.ts`
-only hands it the payload. Contents is the second, and shows where the line between the two
-halves falls. `paintToc` stays in `main.ts`, because pairing each heading with its node has to
-happen after the document is written and before anything measures it, and it leaves the
-pairs in `state.toc`; the scroll spy only sets `state.tocAt`; `ui/Contents.tsx` draws the
-rows, lights the one at `tocAt` and scrolls it into view. The change ruler is split the same
-way: `paintRuler` measures and leaves finished bands in `rulerBands`, `highlightRulerCurrent`
-names the current node in `rulerCurrent`, and `ui/Ruler.tsx` places the marks, keyed by
-position so a repaint moves the elements on screen rather than replacing them, which is what
-lets a mark that stops being current fade.
+`sanitizeDocument` on the way in, written by markdown-it and the diff; a component never diffs
+inside it, which is also what keeps the per-block rendering and the tag-for-tag word diff ([The
+diff](#the-diff)) out of a framework's reach. The chrome around it — the sidebars, History,
+Settings, the tabs — was state kept in sync with the DOM by hand, in `classList`, `hidden =`,
+`textContent =` and `createElement` calls, and a component that re-renders from state replaces
+that code. Preact and `@preact/signals` are in the page for that, and the chrome moves onto them
+a panel at a time. History was the first: `ui/History.tsx` draws the version list from signals
+and re-renders when one changes, and `paintHistory` in `main.ts` only hands it the payload.
+Contents is the second, and shows where the line between the two halves falls. `paintToc` stays
+in `main.ts`, because pairing each heading with its node has to happen after the document is
+written and before anything measures it, and it leaves the pairs in `state.toc`; the scroll spy
+only sets `state.tocAt`; `ui/Contents.tsx` draws the rows, lights the one at `tocAt` and scrolls
+it into view. The change ruler is split the same way: `paintRuler` (in `vm/changes.ts`) measures
+and leaves finished bands in `rulerBands`, `highlightRulerCurrent` names the current node in
+`rulerCurrent`, and `ui/Ruler.tsx` places the marks, keyed by position so a repaint moves the
+elements on screen rather than replacing them, which is what lets a mark that stops being
+current fade.
 
 The bar and the left column came next, and they add the one rule that was not needed
 inside a sidebar: **what is on screen in the first frame stays markup.** `index.html` is
@@ -489,16 +491,16 @@ what it shows on that first frame:
 - What is hidden or blank until a document arrives is a component, mounted into an empty
   `<span class="slot">` that is `display: contents`, so what it draws lays out as the bar's
   own children and every `.bar` selector still finds it. `ui/Name.tsx` is the name over its
-  path, from `barName`, which `paint` and `showWelcome` set. `ui/Changes.tsx` is the solo
-  tag, the count, the checked-off count, the arrows and the divider after them, from
-  `tally` and `soloName`: `paintCount` works the numbers out of the payload and counts how
-  many changes `n`/`p` can reach off the page, and `paintSolo` names the version.
+  path, from `barName`, which `paint` and `showWelcome` set. `ui/Changes.tsx` is the solo tag,
+  the count, the checked-off count, the arrows and the divider after them, from `tally` and
+  `soloName`: `paintCount`, in `vm/changes.ts`, works the numbers out of the payload and
+  counts how many changes `n`/`p` can reach off the page, and `paintSolo` names the version.
   `ui/TabMenu.tsx` is the chevron and its list, which are two mounts sharing `tabMenuAt`
   (where the chevron was when it was pressed, or null): the list's slot is after the
-  `<header>`, because `.bar` has a `backdrop-filter`, which makes it the containing block of
-  a `position: fixed` child, and a menu drawn inside it would be placed against the bar.
-  An effect shuts the menu when the chevron goes, so the chevron coming back does not bring
-  it back open.
+  `<header>`, because `.bar` has a `backdrop-filter`, which makes it the containing block of a
+  `position: fixed` child, and a menu drawn inside it would be placed against the bar. An
+  effect shuts the menu when the chevron goes, so the chevron coming back does not bring it
+  back open.
 - What is on screen from the start — the view and find buttons, the two column toggles, the
   dot, the sidebar disclosures — stays in `index.html` and is kept to its signal by an
   `effect` in `ui/chrome.ts`: `state.view`, `findOpen`, `state.side`, `state.tocSide`,
@@ -528,7 +530,7 @@ Settings and the welcome are hidden at first paint, so both are components whole
   and `main.ts` writes it into the signal. See [The web app's reader](#the-web-apps-reader) below.
 
 What is still those `classList`, `hidden =` and `replaceChildren` calls over small builders is
-find's count and the version menu. A component imports `state.ts` and never
+the version menu. A component imports `state.ts` and never
 `main.ts`, which is what lets a panel come out of it without a cycle: what a row *does* comes
 in as callbacks, from `main.ts`.
 
@@ -566,7 +568,7 @@ in as callbacks, from `main.ts`.
   is `screen` only, so print stays light. In the app the shell still pins the window's
   theme from the same setting, for the chrome and for what System reads.
 - **Scroll position is preserved** across re-renders, view switches and tab
-  switches; `keepAnchored` is the helper, and anything that adds or removes text
+  switches; `keepAnchored` (`vm/changes.ts`) is the helper, and anything that adds or removes text
   above the reader's place goes through it.
 - The contents list caches the heading node it points at when it is built, because
   the scroll spy runs on every frame the document moves and cannot be measuring by

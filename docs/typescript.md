@@ -293,13 +293,13 @@ for how the *source* is written therefore reads the `.ts`: `appJs` in `test-smok
 `pageSource()`, every `.ts` and `.tsx` under `public/app/` joined into one text, so a grep does
 not care which module a line is in. The `Backend` signatures are read from `public/backend.ts`
 and the landing page's checks from `site/landing.ts`. Anything that is *executed* or *served*
-reads built JavaScript, because annotated TypeScript is not JavaScript and what shipped is
-what is worth checking: the `import()` of `public/backend.js`, the URL checks and the staged
-output, which read `app.js`. The helpers lifted out of the page and run in a `vm` (`pageRun`)
-are the one exception: they are read from `public/app/main.ts` with its types stripped by
-esbuild's `transformSync`, and not from the bundle, because in the bundle esbuild renames a
-page name that collides with one of Preact's, and a lifted function would then call a helper
-the `vm`'s fakes do not name.
+reads built JavaScript, because annotated TypeScript is not JavaScript and what shipped is what
+is worth checking: the `import()` of `public/backend.js`, the URL checks and the staged output,
+which read `app.js`. The helpers lifted out of the page and run in a `vm` (`pageRun`) are the
+one exception: they are read from `public/app/main.ts` and the viewmodels they have moved to,
+with their types stripped by esbuild's `transformSync`, and not from the bundle, because in the
+bundle esbuild renames a page name that collides with one of Preact's, and a lifted function
+would then call a helper the `vm`'s fakes do not name.
 
 The `innerHTML` allow-list is a read of the source, and it is a security check, since every
 assignment has to be sanitised or on a short list. Its regex finds `x.innerHTML =` and
