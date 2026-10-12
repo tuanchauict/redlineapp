@@ -443,8 +443,8 @@ const pageSource = () => {
     .join('\n');
 };
 const appJs = pageSource();
-assert.match(appJs, /import \{ sanitizeDocument \} from '\.\.\/vendor\/sanitize\.js';/,
-  'the page loads the sanitizer');
+assert.match(appJs, /import \{ sanitizeDocument \} from '\.\.\/\.\.\/vendor\/sanitize\.js';/,
+  'the page loads the sanitizer, in vm/core.ts');
 assert.match(appJs, /import \{ sanitizeSvg \} from '\.\.\/\.\.\/vendor\/sanitize\.js';/,
   'and vm/diagrams.ts its other half');
 assert.match(appJs, /const source = raw \? d\.rawHtml : d\.html;[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);/,
@@ -1692,7 +1692,7 @@ console.log('✓ both sidebars resize, and leave the document room');
 {
   const mainTs = fs.readFileSync(rootUrl('public/app/main.ts'), 'utf8');
   const layout = (f) => fs.readFileSync(rootUrl(`public/app/layout/${f}`), 'utf8');
-  assert.match(mainTs, /^import \{ applyWidths \} from '\.\/layout\/widths\.js';$/m,
+  assert.match(mainTs, /^import '\.\/layout\/widths\.js';$/m,
     'main.ts loads the widths');
   assert.match(mainTs, /^import '\.\/layout\/toc-height\.js';$/m, 'and the height');
   assert.match(mainTs, /^bindKeys\(\{$/m, 'binds the keys');
@@ -1724,11 +1724,11 @@ console.log('✓ the layout is its own modules, wired from main.ts');
     for (const spec of specs) {
       assert.ok(
         spec === '@preact/signals' ||
-          /^\.\.\/(state|dom|backend|layout\/native)\.js$/.test(spec) ||
+          /^\.\.\/(state|dom|backend|layout\/(native|widths))\.js$/.test(spec) ||
           /^\.\.\/\.\.\/vendor\//.test(spec) ||
           /^\.\/[\w-]+\.js$/.test(spec),
         `vm/${f} imports ${spec}: a viewmodel reaches only the state, the DOM, the backend, ` +
-          'the shell, the vendored renderer and its siblings',
+          'the shell, the column widths, the vendored renderer and its siblings',
       );
     }
     const siblings = specs.flatMap((s) => /^\.\/([\w-]+)\.js$/.exec(s)?.[1] ?? []);
@@ -1749,13 +1749,22 @@ console.log('✓ the layout is its own modules, wired from main.ts');
     assert.ok(!/from '\.\.\/main\.js'/.test(fs.readFileSync(rootUrl(`public/app/ui/${f}`), 'utf8')),
       `ui/${f} does not import main.ts`);
   }
-  // Each is reached. find.ts, peek.ts and diagrams.ts wire their own listeners as they load, so
-  // one dropped from main.ts would be a feature gone with nothing failing to compile.
+  // Each is reached. Most wire their own listeners as they load, so one that main.ts no longer
+  // loads, by itself or through another viewmodel, is a feature gone with nothing failing to
+  // compile.
   const mainTs = fs.readFileSync(rootUrl('public/app/main.ts'), 'utf8');
+  const reached = new Set<string>();
+  const reach = (name: string) => {
+    if (reached.has(name)) return;
+    reached.add(name);
+    for (const next of graph.get(name) ?? []) reach(next);
+  };
+  for (const spec of imports(mainTs)) {
+    const name = /^\.\/vm\/([\w-]+)\.js$/.exec(spec)?.[1];
+    if (name) reach(name);
+  }
   for (const f of vms) {
-    const name = f.replace(/\.ts$/, '');
-    assert.match(mainTs, new RegExp(`^import [^;]*from '\\./vm/${name}\\.js';$`, 'ms'),
-      `main.ts imports vm/${f}`);
+    assert.ok(reached.has(f.replace(/\.ts$/, '')), `main.ts loads vm/${f}`);
   }
   assert.match(mainTs, /^import \{ backend \} from '\.\/backend\.js';$/m,
     'and the backend, which is a module under all of them');
@@ -1764,8 +1773,23 @@ console.log('✓ the layout is its own modules, wired from main.ts');
   assert.match(vm('peek.ts'), /doc\.addEventListener\('pointerover'/, 'the peek hears the links');
   assert.match(vm('peek.ts'), /pane\.addEventListener\('scroll', hidePeek\);/,
     'and goes when the document scrolls');
-  assert.match(mainTs, /pane\.addEventListener\('scroll', queueSpy\);/,
+  assert.match(vm('contents.ts'), /pane\.addEventListener\('scroll', queueSpy\);/,
     'as Contents follows it, on a listener of its own');
+  assert.match(vm('contents.ts'), /doc\.addEventListener\('click', \(e\) => \{\n  const a = \(e\.target as Element\)\.closest\('a\[href\^="#"\]'\);/,
+    'and takes the document\'s links to its own headings');
+  assert.match(vm('sidebars.ts'), /\$\('side'\)\.addEventListener\('click', \(\) => setSide\(!state\.side\)\);/,
+    'the columns are opened from their buttons');
+  assert.match(vm('sidebars.ts'), /\$\('tocBtn'\)\.addEventListener\('click', \(\) => setTocSide\(/,
+    'both of them');
+  assert.match(vm('sidebars.ts'), /querySelectorAll<HTMLElement>\('\.side-twist'\)/,
+    'and the disclosures at their tops wired');
+  assert.match(mainTs, /^setSide\(state\.side, false\);\nsetTocSide\(state\.tocSide, false\);$/m,
+    'which main.ts lays out once from what the head script put on the root');
+  assert.match(mainTs, /\n  baseline: chooseBaseline,\n  reveal: [^\n]*\n  check: checkUpdate,\n  go: getUpdate,\n/,
+    'Settings is handed the baseline choice and the update check from their viewmodels');
+  assert.match(vm('settings.ts'),
+    /export function chooseBaseline\(v\) \{[\s\S]{0,300}?state\.baseline = defaultBaseline\(\);\s*load\(\{ keepScroll: true \}\);/,
+    'a baseline chosen is the document in front of you compared again');
   assert.match(vm('diagrams.ts'), /doc\.addEventListener\('toggle', \(e\) => drawDiagrams\(/,
     'a diagram is drawn when its "before" opens');
   assert.match(vm('settings.ts'),
@@ -1792,8 +1816,8 @@ console.log('✓ the layout is its own modules, wired from main.ts');
   assert.match(vm('acks.ts'), /doc\.addEventListener\('click'/, 'a tag in the margin checks off');
   // `hoverNode` is read by acks.ts through the live binding, and only its own module may assign
   // it -- an assignment anywhere else is a TypeError at run time, and a silent one in a listener.
-  assert.ok(!/hoverNode =/.test(vm('acks.ts') + mainTs), 'and the hover is changes.ts\'s to set');
-  assert.match(mainTs, /hidePeek\(\);\s*forgetHover\(\);/,
+  assert.ok(!/hoverNode =/.test(vm('acks.ts') + vm('core.ts') + mainTs), 'and the hover is changes.ts\'s to set');
+  assert.match(vm('core.ts'), /hidePeek\(\);\s*forgetHover\(\);/,
     'which paint has forget the node it is about to replace');
   const moved = 'paintRuler|paintCount|changeNodes|goToChange|keepAnchored|setAck|tapCheck';
   assert.ok(!new RegExp(`^(?:async )?function (?:${moved})\\(`, 'm').test(mainTs),
@@ -1807,12 +1831,13 @@ console.log('✓ the layout is its own modules, wired from main.ts');
       `ui/${f} reads them from there`);
   }
 
-  // History, the view and Settings. Each redraws the document, which is still main.ts's, so
-  // they reach it through vm/document.ts, which main.ts fills before anything can call it.
-  assert.match(mainTs, /^bindDocument\(\{ load, adopt, paint, rerender \}\);$/m,
-    'main.ts hands the document core to the port');
-  assert.ok(mainTs.indexOf('bindDocument(') < mainTs.indexOf('bindNative({'),
-    'before the shell, or anything else, can ask for a load');
+  // History, the view and Settings. Each redraws the document, and is drawn by it, so they
+  // reach the core through vm/document.ts, which vm/core.ts fills as it is imported.
+  assert.match(vm('core.ts'), /^bindDocument\(\{ load, adopt, paint, rerender \}\);$/m,
+    'the core hands itself to the port');
+  assert.ok(!/bindDocument/.test(mainTs), 'and main.ts has nothing to do with it');
+  assert.ok(!/from '\.\/core\.js'/.test(vm('history.ts') + vm('view.ts') + vm('settings.ts')),
+    'which is what keeps the core out of the modules it draws');
   for (const f of ['history.ts', 'view.ts', 'settings.ts']) {
     assert.match(vm(f), /^import \{[^}]*\} from '\.\/document\.js';$/m, `${f} redraws through it`);
   }
@@ -3214,7 +3239,10 @@ for (const [what, re] of [
   assert.match(appJs, re, `${what} follows its signal`);
 }
 {
-  const main = fs.readFileSync(rootUrl('public/app/main.ts'), 'utf8');
+  // main.ts and the viewmodels: everything that is not the effect keeping the attribute.
+  const main = ['main.ts', ...fs.readdirSync(rootUrl('public/app/vm/')).map((f) => `vm/${f}`)]
+    .map((f) => fs.readFileSync(rootUrl(`public/app/${f}`), 'utf8'))
+    .join('\n');
   assert.ok(
     !/\$\('(side|tocBtn|view|find|live)'\)\.(setAttribute|title|classList)/.test(main) &&
       !/\$\('findBar'\)\.hidden =/.test(main) &&
@@ -6018,7 +6046,9 @@ const memoryKv = () => {
 
     assert.ok(
       /const welcome = backend\.welcome\?\.\(\{/.test(appJs) &&
-        /open: \(path\) => openFile\(path\),\s*granted: \(\) => reopened\(\),/.test(appJs) &&
+        /open: \(path\) => doors\.open\(path\),\s*granted: \(\) => doors\.granted\(\),/.test(appJs) &&
+        /bindWelcome\(\{ open: \(path\) => openFile\(path\), granted: \(\) => reopened\(\) \}\);/
+          .test(appJs) &&
         /show: \(view\) => \(welcomeView\.value = view\),/.test(appJs),
       "the page gives the backend's welcome a way to open what it is handed, and to be drawn",
     );
@@ -6070,6 +6100,17 @@ const memoryKv = () => {
         ),
       'the way to the Mac app is drawn as a link, and the folder list the welcome had is gone',
     );
+    {
+      const files = read('./public/app/vm/files.ts');
+      assert.ok(
+        /^bindWelcome\(\{ open: \(path\) => openFile\(path\)/m.test(files) &&
+          /^doc\.addEventListener\('click', /m.test(files) &&
+          /import \{ scrollMemory, selectTab, closeTab \} from '\.\/vm\/files\.js';/.test(
+            read('./public/app/main.ts'),
+          ),
+        'vm/files.ts opens the welcome\'s files and takes the links out, and main.ts mounts its rows',
+      );
+    }
     assert.match(
       appJs,
       /const why = await backend\.linkNote\?\.\(state\.data\?\.path\);\s*if \(why\) notify\(why\);/,

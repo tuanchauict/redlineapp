@@ -19,7 +19,7 @@ import { prefs, state, shownSettings, docMeasure, prefsOpen, storeRoot } from '.
 import { $ } from '../dom.js';
 import { native } from '../layout/native.js';
 import { sepia, retheme } from './diagrams.js';
-import { paint } from './document.js';
+import { load, paint } from './document.js';
 
 /** How far the document's own text is allowed to go, in px. */
 export const SIZE_MIN = 11;
@@ -126,6 +126,15 @@ export function writeSettings(patch) {
   settings = { ...settings, ...patch };
   applySettings();
   native?.setSettings(patch);
+}
+
+/** **Compare against**, chosen in the sheet. */
+export function chooseBaseline(v) {
+  writeSettings({ baseline: v });
+  // It says what to compare against from now on, and "now" includes the
+  // document in front of you — otherwise the setting looks like it did nothing.
+  state.baseline = defaultBaseline();
+  load({ keepScroll: true });
 }
 
 export const stepSize = (by) =>
