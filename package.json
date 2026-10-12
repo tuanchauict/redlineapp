@@ -33,7 +33,7 @@
     "notices": "npm run build:ts && node out/scripts/notices.mjs",
     "bundle": "npm run build:ts && node out/scripts/bundle.mjs",
     "pretest": "npm run build:web",
-    "test": "node --test --test-force-exit \"out/test/**/*.test.js\" && node out/test-smoke.js"
+    "test": "node --test --test-force-exit \"out/test/**/*.test.js\""
   },
   "engines": {
     "node": ">=18"

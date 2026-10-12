@@ -61,12 +61,11 @@ test('docs/web-app.md agrees with the code it describes, is linked, cites no pla
       ? []
       : fs.readdirSync(here(`${dir}/`), { withFileTypes: true }).flatMap((e) =>
         skip.has(e.name) ? [] : e.isDirectory() ? files(`${dir}/${e.name}`) : [`${dir}/${e.name}`]);
-  const dirs = ['src', 'public', 'scripts', 'shell/src', 'docs', 'site', '.github', 'skills'];
+  const dirs = ['src', 'public', 'scripts', 'shell/src', 'docs', 'site', '.github', 'skills', 'test'];
   const cited = [
     ...dirs.flatMap(files),
     'README.md',
     'CLAUDE.md',
-    'test-smoke.ts',
   ].filter((f) => fs.existsSync(here(f)) && plan.test(read(`./${f}`)));
   assert.deepStrictEqual(cited, [], 'nothing cites the plan, which only the author can read');
 });

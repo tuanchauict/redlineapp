@@ -140,176 +140,174 @@ test('sepia wired through page, head script, stylesheet and shell', async () => 
 // for one frame, on every open), a stylesheet still keyed to the media query, a highlight.js sheet
 // left on, a dark palette that reaches paper, or diagrams drawn for the system's scheme.
 test('the scheme is the page\'s: head script and applyScheme agree, every sheet reads it', async () => {
-  {
-    const vm = await import('node:vm');
-    const DARK_QUERY = '(prefers-color-scheme: dark)';
-    const headScript = pageHead.match(/<script>([\s\S]*?)<\/script>/)[1];
-    const fakeLinks = () => ({ hljsLight: { media: '' }, hljsDark: { media: '' } });
-    const seen = (html, links) => ({
-      scheme: html.dataset.scheme,
-      tint: html.dataset.tint,
-      light: links.hljsLight.media,
-      dark: links.hljsDark.media,
+  const vm = await import('node:vm');
+  const DARK_QUERY = '(prefers-color-scheme: dark)';
+  const headScript = pageHead.match(/<script>([\s\S]*?)<\/script>/)[1];
+  const fakeLinks = () => ({ hljsLight: { media: '' }, hljsDark: { media: '' } });
+  const seen = (html, links) => ({
+    scheme: html.dataset.scheme,
+    tint: html.dataset.tint,
+    light: links.hljsLight.media,
+    dark: links.hljsDark.media,
+  });
+
+  // The head script as it runs before first paint, over a fake of what it touches.
+  const runHead = (appearance, systemDark) => {
+    const store = new Map();
+    if (appearance) store.set('redline:settings', JSON.stringify({ appearance }));
+    const links = fakeLinks();
+    const html = {
+      dataset: {},
+      style: { setProperty() {} },
+      classList: { add() {}, contains: () => false },
+      matches: () => false,
+    };
+    vm.runInNewContext(headScript, {
+      __REDLINE_PREFS: {
+        getItem: (k) => store.get(k) ?? null,
+        setItem: (k, v) => store.set(k, v),
+        removeItem: (k) => store.delete(k),
+      },
+      location: { search: '' },
+      URLSearchParams,
+      innerWidth: 1200,
+      innerHeight: 800,
+      matchMedia: (q) => {
+        assert.strictEqual(q, DARK_QUERY, 'the head script asks the one query');
+        return { matches: systemDark };
+      },
+      document: { documentElement: html, getElementById: (id) => links[id] },
     });
+    return seen(html, links);
+  };
 
-    // The head script as it runs before first paint, over a fake of what it touches.
-    const runHead = (appearance, systemDark) => {
-      const store = new Map();
-      if (appearance) store.set('redline:settings', JSON.stringify({ appearance }));
-      const links = fakeLinks();
-      const html = {
-        dataset: {},
-        style: { setProperty() {} },
-        classList: { add() {}, contains: () => false },
-        matches: () => false,
-      };
-      vm.runInNewContext(headScript, {
-        __REDLINE_PREFS: {
-          getItem: (k) => store.get(k) ?? null,
-          setItem: (k, v) => store.set(k, v),
-          removeItem: (k) => store.delete(k),
-        },
-        location: { search: '' },
-        URLSearchParams,
-        innerWidth: 1200,
-        innerHeight: 800,
-        matchMedia: (q) => {
-          assert.strictEqual(q, DARK_QUERY, 'the head script asks the one query');
-          return { matches: systemDark };
-        },
-        document: { documentElement: html, getElementById: (id) => links[id] },
-      });
-      return seen(html, links);
-    };
+  // `applyScheme` out of app.js, over the same fakes.
+  const applySchemeSrc = pageRun()
+    .match(/\n(?:export )?function applyScheme\(\) \{[\s\S]*?\n\}\n/)?.[0]
+    .replace(/^\nexport /, '\n');
+  assert.ok(applySchemeSrc, 'vm/settings.ts has applyScheme');
+  assert.ok(pageJs.includes(`const darkMode = matchMedia('${DARK_QUERY}');`),
+    'and reads System off the same query the head script does');
+  const appScheme = (appearance, systemDark) => {
+    const links = fakeLinks();
+    const html = { dataset: {} };
+    const ctx = vm.createContext({
+      settings: { appearance },
+      darkMode: { matches: systemDark },
+      $: (id) => links[id],
+      document: { documentElement: html },
+    });
+    vm.runInContext(applySchemeSrc, ctx);
+    const moved = vm.runInContext('applyScheme()', ctx);
+    return { ...seen(html, links), moved, again: vm.runInContext('applyScheme()', ctx), ctx };
+  };
 
-    // `applyScheme` out of app.js, over the same fakes.
-    const applySchemeSrc = pageRun()
-      .match(/\n(?:export )?function applyScheme\(\) \{[\s\S]*?\n\}\n/)?.[0]
-      .replace(/^\nexport /, '\n');
-    assert.ok(applySchemeSrc, 'vm/settings.ts has applyScheme');
-    assert.ok(pageJs.includes(`const darkMode = matchMedia('${DARK_QUERY}');`),
-      'and reads System off the same query the head script does');
-    const appScheme = (appearance, systemDark) => {
-      const links = fakeLinks();
-      const html = { dataset: {} };
-      const ctx = vm.createContext({
-        settings: { appearance },
-        darkMode: { matches: systemDark },
-        $: (id) => links[id],
-        document: { documentElement: html },
-      });
-      vm.runInContext(applySchemeSrc, ctx);
-      const moved = vm.runInContext('applyScheme()', ctx);
-      return { ...seen(html, links), moved, again: vm.runInContext('applyScheme()', ctx), ctx };
-    };
-
-    const ON_DARK = { scheme: 'dark', light: 'print', dark: 'screen' };
-    const ON_LIGHT = { scheme: 'light', light: 'all', dark: 'not all' };
-    for (const [appearance, systemDark, want] of [
-      ['system', false, ON_LIGHT],
-      ['system', true, ON_DARK],
-      ['light', true, ON_LIGHT],
-      ['sepia', true, ON_LIGHT],
-      ['dark', false, ON_DARK],
-      ['dark', true, ON_DARK],
-    ] as [string, boolean, typeof ON_DARK][]) {
-      const head = runHead(appearance, systemDark);
-      const app = appScheme(appearance, systemDark);
-      const label = `${appearance} on a ${systemDark ? 'dark' : 'light'} system`;
-      assert.deepStrictEqual(
-        { scheme: head.scheme, light: head.light, dark: head.dark },
-        want,
-        `${label}: the head script draws it ${want.scheme}, highlight.js's dark sheet screen-only`,
-      );
-      assert.deepStrictEqual(
-        { scheme: app.scheme, light: app.light, dark: app.dark },
-        want,
-        `${label}: and applyScheme agrees with it`,
-      );
-      assert.strictEqual(head.tint, appearance === 'sepia' ? 'sepia' : undefined,
-        `${label}: tinted only for sepia`);
-    }
+  const ON_DARK = { scheme: 'dark', light: 'print', dark: 'screen' };
+  const ON_LIGHT = { scheme: 'light', light: 'all', dark: 'not all' };
+  for (const [appearance, systemDark, want] of [
+    ['system', false, ON_LIGHT],
+    ['system', true, ON_DARK],
+    ['light', true, ON_LIGHT],
+    ['sepia', true, ON_LIGHT],
+    ['dark', false, ON_DARK],
+    ['dark', true, ON_DARK],
+  ] as [string, boolean, typeof ON_DARK][]) {
+    const head = runHead(appearance, systemDark);
+    const app = appScheme(appearance, systemDark);
+    const label = `${appearance} on a ${systemDark ? 'dark' : 'light'} system`;
     assert.deepStrictEqual(
-      { scheme: runHead(null, true).scheme, light: runHead(null, false).scheme },
-      { scheme: 'dark', light: 'light' },
-      'with nothing saved, the head script follows the system, as the default System does',
+      { scheme: head.scheme, light: head.light, dark: head.dark },
+      want,
+      `${label}: the head script draws it ${want.scheme}, highlight.js's dark sheet screen-only`,
     );
-    // Whether it moved is what decides a repaint, so a second call with nothing changed says no
-    // and a pinned scheme the system moves under says no too.
-    const moving = appScheme('system', false);
-    assert.ok(moving.moved && !moving.again, 'applyScheme says when the scheme moved, and only then');
-    moving.ctx.darkMode.matches = true;
-    assert.strictEqual(vm.runInContext('applyScheme()', moving.ctx), true, 'System follows it');
-    moving.ctx.settings.appearance = 'dark';
-    moving.ctx.darkMode.matches = false;
-    assert.strictEqual(vm.runInContext('applyScheme()', moving.ctx), false,
-      'a pinned Dark does not move with the system');
-
-    // Wired: on every setting, and on the system's change, with diagrams redrawn only on a move.
-    const applySettingsSrc = pageJs.match(/\nfunction applySettings\(\) \{[\s\S]*?\n\}\n/)[0];
-    assert.match(applySettingsSrc, /const schemeMoved = applyScheme\(\);/,
-      'applySettings applies the scheme');
-    assert.match(applySettingsSrc, /if \(\(sepia\(\) !== wasSepia \|\| schemeMoved\) && retheme\(\)\)/,
-      'and redraws diagrams when it or the tint moved');
-    assert.match(pageJs, /export function retheme\(\) \{\s*if \(!mermaid\) return false;/,
-      'once Mermaid has drawn something in the old colours');
-    assert.match(
-      pageJs,
-      /darkMode\.addEventListener\('change', \(\) => \{\s*if \(!applyScheme\(\)\) return;/,
-      "the system's change goes through applyScheme, and repaints only if the scheme moved",
+    assert.deepStrictEqual(
+      { scheme: app.scheme, light: app.light, dark: app.dark },
+      want,
+      `${label}: and applyScheme agrees with it`,
     );
-    assert.ok(
-      pageJs.includes("const dark = () => document.documentElement.dataset.scheme === 'dark';"),
-      'diagrams read the scheme off the page',
-    );
-    assert.match(pageJs, /theme: dark\(\) \? 'dark' : 'default'/, 'and Mermaid is drawn in it');
-    assert.ok(!/darkMode\.matches \?/.test(pageJs), "and not in the system's");
-
-    // The stylesheets read the attribute, and none of them the media query.
-    assert.match(pageHtml, /<link id="hljsLight" rel="stylesheet" href="vendor\/hljs-light\.css" \/>/,
-      "highlight.js's light sheet has an id for the scheme to switch");
-    assert.match(pageHtml, /<link id="hljsDark" rel="stylesheet" href="vendor\/hljs-dark\.css" \/>/,
-      'and so does its dark one, neither with a media query of its own');
-    assert.ok(pageHead.indexOf('id="hljsDark"') < pageHead.indexOf('<script>'),
-      'both are in the head before the script that looks them up');
-    assert.match(pageCss, /@media screen \{\s*:root\[data-scheme="dark"\] \{\s*color-scheme: dark;/,
-      "the page's dark palette is keyed to the attribute, on screen only, with the browser's own");
-    assert.ok(!pageCss.includes('prefers-color-scheme'), 'and styles.css asks no media query');
-
-    // github-markdown-css, keyed by build:web.
-    const require = createRequire(import.meta.url);
-    const shipped = fs.readFileSync(
-      require.resolve('github-markdown-css/github-markdown.css'),
-      'utf8',
-    );
-    const keyed = keyToScheme(shipped);
-    assert.ok(!keyed.includes('prefers-color-scheme'), 'the markdown palette follows no media query');
-    const darkBody = keyed.match(
-      /@media screen \{\s*:root\[data-scheme="dark"\] \.markdown-body \{([^}]*)\}\s*\}/,
-    )?.[1];
-    const lightBody = keyed.match(
-      /(?:^|\n)\.markdown-body \{([^}]*color-scheme: light;[^}]*)\}/,
-    )?.[1];
-    assert.ok(darkBody?.includes('--bgColor-default:'),
-      'its dark palette is under data-scheme, on screen');
-    assert.ok(lightBody?.includes('--bgColor-default:'), 'and its light one is the default');
-    const names = (body) => [...body.matchAll(/(--[\w-]+):/g)].map((m) => m[1]).sort().join();
-    assert.strictEqual(names(darkBody), names(lightBody),
-      'the dark palette sets every variable the light one does, so nothing light shows through');
-    assert.throws(() => keyToScheme('.markdown-body { color: red; }'), /found none/,
-      'a release with the palettes moved stops the build');
-    assert.throws(() => keyToScheme(shipped + shipped), /found dark, dark, light, light/,
-      'and so does one with more than the two');
-    const served = await (await fetch(base + '/vendor/github-markdown.css')).text();
-    assert.strictEqual(served, keyed, 'the CLI serves the keyed one, not the one in node_modules');
-
-    // Shown in a browser tab, where the rest of General is not.
-    const general = settingsTsx.match(/<section([^>]*)>\s*<h3>General<\/h3>([\s\S]*?)<\/section>/);
-    assert.ok(general && !general[1].includes('data-shell'),
-      "General is not the shell's as a whole");
-    const rowOf = (id) => general[2].split('<div class="row"').find((r) => r.includes(`id="${id}"`));
-    assert.ok(rowOf('setAppearance').startsWith('>'), 'Appearance shows in a browser tab');
-    assert.ok(rowOf('setReopen').startsWith(' data-shell="">'), 'On launch does not');
-    assert.ok(rowOf('setFinder').startsWith(' data-shell="">'), 'nor does Files from Finder');
+    assert.strictEqual(head.tint, appearance === 'sepia' ? 'sepia' : undefined,
+      `${label}: tinted only for sepia`);
   }
+  assert.deepStrictEqual(
+    { scheme: runHead(null, true).scheme, light: runHead(null, false).scheme },
+    { scheme: 'dark', light: 'light' },
+    'with nothing saved, the head script follows the system, as the default System does',
+  );
+  // Whether it moved is what decides a repaint, so a second call with nothing changed says no
+  // and a pinned scheme the system moves under says no too.
+  const moving = appScheme('system', false);
+  assert.ok(moving.moved && !moving.again, 'applyScheme says when the scheme moved, and only then');
+  moving.ctx.darkMode.matches = true;
+  assert.strictEqual(vm.runInContext('applyScheme()', moving.ctx), true, 'System follows it');
+  moving.ctx.settings.appearance = 'dark';
+  moving.ctx.darkMode.matches = false;
+  assert.strictEqual(vm.runInContext('applyScheme()', moving.ctx), false,
+    'a pinned Dark does not move with the system');
+
+  // Wired: on every setting, and on the system's change, with diagrams redrawn only on a move.
+  const applySettingsSrc = pageJs.match(/\nfunction applySettings\(\) \{[\s\S]*?\n\}\n/)[0];
+  assert.match(applySettingsSrc, /const schemeMoved = applyScheme\(\);/,
+    'applySettings applies the scheme');
+  assert.match(applySettingsSrc, /if \(\(sepia\(\) !== wasSepia \|\| schemeMoved\) && retheme\(\)\)/,
+    'and redraws diagrams when it or the tint moved');
+  assert.match(pageJs, /export function retheme\(\) \{\s*if \(!mermaid\) return false;/,
+    'once Mermaid has drawn something in the old colours');
+  assert.match(
+    pageJs,
+    /darkMode\.addEventListener\('change', \(\) => \{\s*if \(!applyScheme\(\)\) return;/,
+    "the system's change goes through applyScheme, and repaints only if the scheme moved",
+  );
+  assert.ok(
+    pageJs.includes("const dark = () => document.documentElement.dataset.scheme === 'dark';"),
+    'diagrams read the scheme off the page',
+  );
+  assert.match(pageJs, /theme: dark\(\) \? 'dark' : 'default'/, 'and Mermaid is drawn in it');
+  assert.ok(!/darkMode\.matches \?/.test(pageJs), "and not in the system's");
+
+  // The stylesheets read the attribute, and none of them the media query.
+  assert.match(pageHtml, /<link id="hljsLight" rel="stylesheet" href="vendor\/hljs-light\.css" \/>/,
+    "highlight.js's light sheet has an id for the scheme to switch");
+  assert.match(pageHtml, /<link id="hljsDark" rel="stylesheet" href="vendor\/hljs-dark\.css" \/>/,
+    'and so does its dark one, neither with a media query of its own');
+  assert.ok(pageHead.indexOf('id="hljsDark"') < pageHead.indexOf('<script>'),
+    'both are in the head before the script that looks them up');
+  assert.match(pageCss, /@media screen \{\s*:root\[data-scheme="dark"\] \{\s*color-scheme: dark;/,
+    "the page's dark palette is keyed to the attribute, on screen only, with the browser's own");
+  assert.ok(!pageCss.includes('prefers-color-scheme'), 'and styles.css asks no media query');
+
+  // github-markdown-css, keyed by build:web.
+  const require = createRequire(import.meta.url);
+  const shipped = fs.readFileSync(
+    require.resolve('github-markdown-css/github-markdown.css'),
+    'utf8',
+  );
+  const keyed = keyToScheme(shipped);
+  assert.ok(!keyed.includes('prefers-color-scheme'), 'the markdown palette follows no media query');
+  const darkBody = keyed.match(
+    /@media screen \{\s*:root\[data-scheme="dark"\] \.markdown-body \{([^}]*)\}\s*\}/,
+  )?.[1];
+  const lightBody = keyed.match(
+    /(?:^|\n)\.markdown-body \{([^}]*color-scheme: light;[^}]*)\}/,
+  )?.[1];
+  assert.ok(darkBody?.includes('--bgColor-default:'),
+    'its dark palette is under data-scheme, on screen');
+  assert.ok(lightBody?.includes('--bgColor-default:'), 'and its light one is the default');
+  const names = (body) => [...body.matchAll(/(--[\w-]+):/g)].map((m) => m[1]).sort().join();
+  assert.strictEqual(names(darkBody), names(lightBody),
+    'the dark palette sets every variable the light one does, so nothing light shows through');
+  assert.throws(() => keyToScheme('.markdown-body { color: red; }'), /found none/,
+    'a release with the palettes moved stops the build');
+  assert.throws(() => keyToScheme(shipped + shipped), /found dark, dark, light, light/,
+    'and so does one with more than the two');
+  const served = await (await fetch(base + '/vendor/github-markdown.css')).text();
+  assert.strictEqual(served, keyed, 'the CLI serves the keyed one, not the one in node_modules');
+
+  // Shown in a browser tab, where the rest of General is not.
+  const general = settingsTsx.match(/<section([^>]*)>\s*<h3>General<\/h3>([\s\S]*?)<\/section>/);
+  assert.ok(general && !general[1].includes('data-shell'),
+    "General is not the shell's as a whole");
+  const rowOf = (id) => general[2].split('<div class="row"').find((r) => r.includes(`id="${id}"`));
+  assert.ok(rowOf('setAppearance').startsWith('>'), 'Appearance shows in a browser tab');
+  assert.ok(rowOf('setReopen').startsWith(' data-shell="">'), 'On launch does not');
+  assert.ok(rowOf('setFinder').startsWith(' data-shell="">'), 'nor does Files from Finder');
 });
