@@ -18,6 +18,35 @@ import { rootUrl } from '../src/hosts/node/root.js';
 export const portOf = (s: { address(): string | AddressInfo | null }) =>
   (s.address() as AddressInfo).port;
 
+// What the suite reads out of the server's JSON, which `Response.json()` types as `unknown`.
+// Only the members some assertion reads are here; which reply carries which is the server's.
+export interface Version {
+  hash: string;
+  current?: boolean;
+  baseline?: boolean;
+  git?: { subject: string };
+}
+// What `reader.read()` resolves to; the stand-in a closed stream is caught with has no value.
+export interface Chunk {
+  done: boolean;
+  value?: Uint8Array;
+}
+export interface Reply {
+  name?: string;
+  id?: string;
+  path?: string;
+  text?: string;
+  tracked?: boolean;
+  baseline?: string;
+  baselineAvailable?: boolean;
+  removed?: number;
+  history?: Version[];
+  acked?: string[];
+  fonts?: string[];
+  svg?: string;
+  error?: string;
+}
+
 /**
  * A temporary directory for one test file, and the store under it. REDLINE_HOME is read when a
  * reader starts, so the servers of one file never share a history with another's, or with yours.
