@@ -1764,8 +1764,10 @@ console.log('✓ the layout is its own modules, wired from main.ts');
   assert.match(vm('peek.ts'), /doc\.addEventListener\('pointerover'/, 'the peek hears the links');
   assert.match(vm('peek.ts'), /pane\.addEventListener\('scroll', hidePeek\);/,
     'and goes when the document scrolls');
-  assert.match(mainTs, /pane\.addEventListener\('scroll', queueSpy\);/,
+  assert.match(vm('contents.ts'), /pane\.addEventListener\('scroll', queueSpy\);/,
     'as Contents follows it, on a listener of its own');
+  assert.match(vm('contents.ts'), /doc\.addEventListener\('click', \(e\) => \{\n  const a = \(e\.target as Element\)\.closest\('a\[href\^="#"\]'\);/,
+    'and takes the document\'s links to its own headings');
   assert.match(vm('diagrams.ts'), /doc\.addEventListener\('toggle', \(e\) => drawDiagrams\(/,
     'a diagram is drawn when its "before" opens');
   assert.match(vm('settings.ts'),
