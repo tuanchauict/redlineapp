@@ -2,9 +2,48 @@
 // nothing here is state: these are helpers, and a server or a temporary directory belongs to the
 // file that made it.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { after } from 'node:test';
+import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import { createServer } from '../src/hosts/node/server.js';
 import { rootUrl } from '../src/hosts/node/root.js';
+
+// Every server here listens on a TCP port, so address() is an AddressInfo; the string it can also
+// be is a pipe's path, and nothing in the suite listens on one.
+export const portOf = (s: { address(): string | AddressInfo | null }) =>
+  (s.address() as AddressInfo).port;
+
+/**
+ * A temporary directory for one test file, and the store under it. REDLINE_HOME is read when a
+ * reader starts, so the servers of one file never share a history with another's, or with yours.
+ * Removed once the file's tests are done.
+ */
+export function scratch(prefix = 'redline-') {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  process.env.REDLINE_HOME = path.join(tmp, 'home');
+  after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  return tmp;
+}
+
+/** A server on `file`, on a port of its own, closed when the file's tests are done. */
+export async function serve(file: string) {
+  const reader = await createServer({ file });
+  const { server } = reader;
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  after(() => {
+    server.closeAllConnections();
+    server.close();
+  });
+  return { reader, server, base: `http://127.0.0.1:${portOf(server)}` };
+}
+
+/** A content security policy as directive -> sources, so two can be compared by meaning. */
+export const policy = (csp: string) =>
+  Object.fromEntries(
+    csp.split(';').map((d) => d.trim().split(/\s+/)).filter((d) => d[0]).map(([k, ...v]) => [k, v]),
+  );
 
 /** A file of the repository, by its path from the root. */
 export const read = (p: string) => fs.readFileSync(rootUrl(p), 'utf8');
