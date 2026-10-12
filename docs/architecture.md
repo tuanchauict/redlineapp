@@ -1,7 +1,7 @@
 # Architecture
 
-Node ESM and hand-written CSS, no framework. `src/` is TypeScript, apart from the one
-classic script that has to stay JavaScript; `bin/`, `scripts/`, the test and the page
+Node ESM and hand-written CSS, no framework. `src/`, `bin/` and `scripts/` are TypeScript,
+apart from the one classic script that has to stay JavaScript; the test and the page
 (`public/`, `site/`) are still JavaScript while the conversion is under way
 ([typescript.md](typescript.md)). The code Node runs (`bin/`, `scripts/`, `src/hosts/node/`,
 the test) goes through `tsc` into `out/` first; what esbuild bundles is `src/` as written,
