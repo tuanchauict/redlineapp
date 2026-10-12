@@ -324,7 +324,7 @@ function headingText(inline: Token) {
  */
 export function outline(md: MarkdownIt, src: string): Heading[] {
   const tokens = md.parse(src, {});
-  const taken = new Map();
+  const taken = new Map<string, number>();
   const heads: Heading[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];

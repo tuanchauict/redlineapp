@@ -25,9 +25,10 @@ const SIMILARITY_THRESHOLD = 0.35;
 type ChangeKind = 'add' | 'del' | 'mod';
 
 /**
- * One marked block, as `changes` names it. `block` is the file's side of it (see `blockId`), so a
- * removal, which has none, does not carry the field. Exported because `renderDocument` hands the
- * list on, and its declaration has to be able to name the element.
+ * One marked block, as `changes` names it. `key` is the name a check-off is filed under (see
+ * `keyFor`); `block` is the `blockId` of the file's side of it, so a removal, which has none,
+ * does not carry the field. Exported because `renderDocument` hands the list on, and its
+ * declaration has to be able to name the element.
  */
 export interface Change {
   kind: ChangeKind;
@@ -177,7 +178,7 @@ export function renderDiff(
    * Two changes that are word for word the same are told apart by which comes
    * first, so checking one off does not quietly check the other.
    */
-  const taken = new Map();
+  const taken = new Map<string, number>();
   const nameFor = (kind: ChangeKind, ...parts: string[]) =>
     kind + hashContent(parts.join('\0')).slice(0, 10);
   // `block` is the file's side of the change, for the check-off to remember

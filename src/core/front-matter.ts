@@ -74,7 +74,8 @@ function scalar(s: string) {
     // The lookup is indexed by any character, not only its two keys; `?? c` handles the rest.
     return t.slice(1, -1).replace(
       /\\(.)/g,
-      (_: string, c: string) => (({ n: '\n', t: '\t' }) as Record<string, string>)[c] ?? c,
+      (_: string, c: string) =>
+        ({ n: '\n', t: '\t' } as Record<string, string | undefined>)[c] ?? c,
     );
   }
   if (q === "'") return t.slice(1, -1).replace(/''/g, "'");

@@ -56,7 +56,8 @@ export interface WebPlatformDeps {
   kv: Kv;
   /**
    * The granted directory or file handle for a root, or null for one that is not known. May wait.
-   * Not typed beyond `any`: the File System Access handles are not in `lib.dom` yet.
+   * Typed `any` because what supplies it, `handles.root`, answers `any` (its maps and `Kv` are
+   * untyped). `lib.dom` does have `FileSystemDirectoryHandle` and `FileSystemFileHandle`.
    */
   root: (rootId: string) => any | Promise<any>;
   /** Dropped files by name, which is what follows `drop:`. A `File` is one. */

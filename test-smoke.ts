@@ -141,11 +141,11 @@ interface Reply {
 // The ratchet only goes up. A flag that is on must not be switched off to make an error go away:
 // `tsc -b` would pass, and nothing else would say a project had got looser. This is a floor and
 // not a target, so it fails a step backwards and does not ask for a step forward: a project that
-// is not listed is not held to anything. A later PR adds one entry (a project and the flags it now
-// has on) and leaves the logic alone. A strict-family flag a project does not set falls back to
-// `strict`, the way tsc resolves it; a flag outside that family (noUnusedLocals) does not, so an
-// entry for one needs the fallback taken out. Every project extends the base and nothing deeper,
-// so one merge is enough.
+// is not listed is not held to anything. A later PR adds a flag to the table (a new entry for a
+// project, or one more flag in an existing entry) and leaves the logic alone. A strict-family
+// flag a project does not set falls back to `strict`, the way tsc resolves it; a flag outside
+// that family (noUnusedLocals) does not, so an entry for one needs the fallback taken out. Every
+// project extends the base and nothing deeper, so one merge is enough.
 {
   const FLOOR: Record<string, string[]> = { 'tsconfig.src.json': ['noImplicitAny'] };
   const read = (f: string) => JSON.parse(fs.readFileSync(rootUrl(f), 'utf8')).compilerOptions;

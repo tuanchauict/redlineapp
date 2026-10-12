@@ -111,8 +111,8 @@ their `compilerOptions` (every project extends the base and nothing deeper, so o
 enough) and fails unless the flag is `true`, falling back to `strict` for a strict-family flag
 that nothing sets (`noImplicitAny`, `strictNullChecks` and the like), as `tsc` does; a flag
 outside that family, such as `noUnusedLocals`, does not borrow `strict`, and an entry for one
-would need the fallback taken out. The PR that turns a flag on adds one entry and leaves the
-logic alone.
+would need the fallback taken out. The PR that turns a flag on adds it to the table (a new
+entry, or one more flag in an existing one) and leaves the logic alone.
 It is a floor and not a target: it fails a step backwards and does not ask for a step
 forward, so a project it does not list is held to nothing, and one it does list is not made
 to take the next flag. The node and page projects are not listed, and no entry is scheduled
@@ -303,6 +303,10 @@ omit. The rest:
 - `declare global { var X }` where two modules agree on a global through nothing but its name
   (`__REDLINE_HOST`, `__REDLINE_VERSION`, `window.mdNative`).
 - `declare const` for what `lib.dom` has no name for (`SharedWorkerGlobalScope`).
+- `src/core/markdown-it-task-lists.d.ts` is a `declare module` for the one dependency that
+  ships no types and has no `@types` package. It is a script file (no top-level `import` or
+  `export`), so it declares the module rather than augmenting one. It is in `src/core/`
+  because the `src` project includes only `src/`, and it emits nothing.
 - Other casts exist in `src/` (for example `csp.ts:66`, `idb.ts:71`, `rpc/client.ts:63`,
   and `serve.ts:51` and `:55`), and four of them are worth saying why. Two are a timer's
   `unref`, which Node's `Timeout` has and a browser's number does not, and one is the worker's
@@ -474,9 +478,9 @@ The last column is what `npm test`, `npm start` and the other scripts pay on eve
 of it npm's own start-up. Checking the `.ts` files did not move a full rebuild by more than
 the noise of the measurement, at step 2 or at step 3, and does not touch a no-op. Step 2
 did read 0.1 s slower on a rebuild and 0.02 s as `npm run build:ts`, and was put down to that
-noise; step 4 adds the same (0.1 s and 0.02 s, and 0.01 s to `tsc -b` itself), and unlike the
-others it was measured on a busy machine (a load average of about 3.5; the other steps did
-not record theirs). So it is a number to watch and not yet a finding.
+noise; step 4 adds the same (0.1 s and 0.02 s, and 0.01 s to `tsc -b` itself), and it was
+measured on a busy machine (a load average of about 3.5; steps 1 to 3 did not record
+theirs). So it is a number to watch and not yet a finding.
 
 Step 5 checks a 7.5k-line file that was already being compiled, and reads about 0.06 s
 slower on a rebuild (1.16, 1.16 and 1.15 s, against about 1.1 s), no different on `tsc -b`
