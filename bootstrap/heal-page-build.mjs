@@ -29,7 +29,7 @@ const root = process.argv[2]
   ? path.resolve(process.argv[2])
   : path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
-// Plain JSON, like the check in test-smoke.js that reads the same file; a comment in it would
+// Plain JSON, like the check in test-smoke.ts that reads the same file; a comment in it would
 // fail here, at the start of the build, rather than quietly heal nothing.
 const config = JSON.parse(fs.readFileSync(path.join(root, 'tsconfig.page.json'), 'utf8'));
 

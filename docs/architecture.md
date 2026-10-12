@@ -1,10 +1,10 @@
 # Architecture
 
-Node ESM and hand-written CSS, no framework. `src/`, `bin/`, `scripts/` and the page
-(`public/`, `site/`) are TypeScript, apart from the two classic scripts that have to stay
-JavaScript; the test is still JavaScript while the conversion is under way
-([typescript.md](typescript.md)). The code Node runs (`bin/`, `scripts/`, `src/hosts/node/`,
-the test) goes through `tsc` into `out/` first. The page's three files compile in place
+Node ESM and hand-written CSS, no framework. `src/`, `bin/`, `scripts/`, the page
+(`public/`, `site/`) and the test (`test-smoke.ts`) are TypeScript, apart from the two
+classic scripts that have to stay JavaScript ([typescript.md](typescript.md)). The code Node
+runs (`bin/`, `scripts/`, `src/hosts/node/`, the test) goes through `tsc` into `out/` first.
+The page's three files compile in place
 instead, to the `.js` that a URL names, so `public/app.ts` is what is edited and
 `public/app.js` is what is served. What esbuild bundles is `src/` as written. The only
 dependencies that reach the page are vendored as they ship (`highlight.js` themes,
@@ -99,7 +99,7 @@ scripts/make-icons.mts  icon.svg -> icon.png, icon.icns
 scripts/bundle.mts      .app and .dmg
 scripts/build-site.mts  stage site/: the icon, and the one image it names
 scripts/serve-site.mts  serve site/ over node, so a module script loads at all
-test-smoke.js           the whole test suite
+test-smoke.ts           the whole test suite
 
 site/                   the landing page, `landing.ts` compiled in place to `landing.js`.
                         Nothing above it knows it exists
@@ -632,7 +632,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
   (`showDiagramError`), and there is no Settings row for it to hide yet.
 - **What is not verified from here:** the pickers, a drop, `persist()` and how a `SharedWorker`
   calls `getFile()` and `queryPermission()` are behaviours of a browser. The tests stand in
-  fakes for them (test-smoke.js, 12d), and the layout and contrast of the welcome, and of the
+  fakes for them (test-smoke.ts, 12d), and the layout and contrast of the welcome, and of the
   open files in a browser, have not been looked at.
 
 ### Staging the page, and the web app's build
@@ -876,4 +876,4 @@ file.
   with `hidden` must carry its own `[hidden]` rule. The idiom here is
   `.row[hidden] { display: none }`.
 - Every behaviour that can be asserted from outside gets an assertion in
-  `test-smoke.js` — see [Building and testing](building.md).
+  `test-smoke.ts` — see [Building and testing](building.md).

@@ -1,6 +1,6 @@
 // The shapes the reader produces and every page consumes, written down once.
 //
-// Types only, and kept that way by a test (test-smoke.js, "layering"): any layer may import this,
+// Types only, and kept that way by a test (test-smoke.ts, "layering"): any layer may import this,
 // including the ones that may import almost nothing, and importing it adds nothing to a bundle.
 // What the payload *means* is in docs/architecture.md and docs/changes.md; this is its shape,
 // which `buildDoc` in src/reader/reader.ts is checked against.

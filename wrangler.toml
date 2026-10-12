@@ -16,7 +16,7 @@
 #
 # `pages_build_output_dir` is what a local `wrangler pages deploy` uploads, with
 # no argument. The workflow has no checkout to read this file from, so it names
-# the same project and directory on its command line, and test-smoke.js fails if
+# the same project and directory on its command line, and test-smoke.ts fails if
 # they ever differ. Run `npm run build:site` first either way: the screenshots
 # and the icon are copied in rather than committed, so an unbuilt site/ is the
 # page with no images.
