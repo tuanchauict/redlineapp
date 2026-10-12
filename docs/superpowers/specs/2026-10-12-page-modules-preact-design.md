@@ -1,7 +1,7 @@
 # Splitting the page into modules, with Preact — design
 
-Status: phase 1 (the build), the signal-backed `state` of phase 2, and the History component of
-phase 4 are implemented, on `preact-history`.
+Status: phase 1 (the build), the signal-backed `state` of phase 2, and two components of
+phase 4 are implemented: History (`preact-history`, merged) and Contents (`preact-toc`).
 
 ## Goal and decisions
 
@@ -157,7 +157,7 @@ commit.
    rewrites. The diff is mostly moves.
 4. **Components, one per pull request**, History first: it has real state (versions, baselines,
    the selection, prune), it is contained, and it shows whether the pattern holds before
-   anything shared is touched. Then VersionMenu and PruneAsk, Settings, Tabs and TabMenu,
+   anything shared is touched. Then Contents, VersionMenu and PruneAsk, Settings, Tabs and TabMenu,
    Welcome, Notice, About.
 
 Every `.thing` toggled with `hidden` keeps its `.thing[hidden] { display: none }` (gotcha #3);

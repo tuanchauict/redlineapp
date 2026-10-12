@@ -81,8 +81,8 @@ public/host.js          a classic script, first in the head, empty here; a host'
                         (the web app's is `src/hosts/web/host.js`, put over this one by its build)
 public/index.html       the page: toolbar, two sidebars, document pane, Settings sheet
 public/app/             the whole client, as source: `main.ts` is the page, `state.ts` is what
-                        it knows (signals), `ui/` is the panels drawn by components (History,
-                        so far). Checked by `tsconfig.app.json` (`noEmit`, JSX for Preact),
+                        it knows (signals), `ui/` is the panels drawn by components (History
+                        and Contents, so far). Checked by `tsconfig.app.json` (`noEmit`, JSX for Preact),
                         and bundled by `build:web` into `app.js` beside it, which is the file
                         a page loads and is gitignored
 public/backend.ts       the seam: an http server, or the reader in the page. Compiled in place
@@ -401,7 +401,8 @@ into lines, and diff the lines.
 
 The page's source is the directory `public/app/`: `main.ts`, ~3.2k lines in commented
 sections (painting, the sidebars, tabs, change navigation, checked changes, find, settings,
-keys), and the two modules that have left it so far, `state.ts` and `ui/History.tsx`.
+keys), and the modules that have left it so far: `state.ts`, `ui/History.tsx` and
+`ui/Contents.tsx`.
 `build:web` bundles the directory into the one `public/app.js` that a page loads, so a module
 can leave `main.ts` without a new file for any host to serve: the bundle still imports exactly
 the renderer, DOMPurify, the backend and Mermaid, which `stage-page.mts` versions and the
@@ -414,15 +415,19 @@ diff ([The diff](#the-diff)) out of a framework's reach. The chrome around it â€
 History, Settings, the tabs â€” was state kept in sync with the DOM by hand, in `classList`,
 `hidden =`, `textContent =` and `createElement` calls, and a component that re-renders from
 state replaces that code. Preact and `@preact/signals` are in the page for that, and the
-chrome moves onto them a panel at a time. History is the first: `ui/History.tsx` draws the
+chrome moves onto them a panel at a time. History was the first: `ui/History.tsx` draws the
 version list from signals and re-renders when one changes, and `paintHistory` in `main.ts`
-only hands it the payload. Every other panel is still those `classList`, `hidden =` and
+only hands it the payload. Contents is the second, and shows where the line between the two
+halves falls. `paintToc` stays in `main.ts`, because pairing each heading with its node has to
+happen after the document is written and before anything measures it, and it leaves the
+pairs in `state.toc`; the scroll spy only sets `state.tocAt`; `ui/Contents.tsx` draws the
+rows, lights the one at `tocAt` and scrolls it into view. Every other panel is still those `classList`, `hidden =` and
 `replaceChildren` calls over small builders. A component imports `state.ts` and never
 `main.ts`, which is what lets a panel come out of it without a cycle: what a row *does* comes
 in as callbacks, from `main.ts`.
 
 - **`state`**, in `state.ts`, holds the payload, the view, the baseline, the checked keys and
-  the contents rows. It reads and writes as the plain object it always was (`state.diff =
+  the headings paired with their nodes. It reads and writes as the plain object it always was (`state.diff =
   false`), and each field is a signal underneath, so a component that reads one is
   re-rendered when it changes while the code that is not a component sees no difference. A
   field is a signal of its value and not of what is inside it: `state.acked.add(key)` mutates

@@ -10,6 +10,7 @@
 // Set the signal still holds, and tells no one. Assign a new one where a component has to see
 // it. Nothing here imports the rest of the page, so every module can import this.
 import { signal } from '@preact/signals';
+import type { Heading } from '../../src/core/render.js';
 
 // Where preferences live. A host that has no usable localStorage (a VS Code webview's is
 // per-panel and not kept) fills this in synchronously from host.js; the head script in
@@ -42,10 +43,11 @@ const initial = {
   // Kept per document rather than per page, so closing the tab does not undo an
   // afternoon of reading through a long set of edits.
   acked: new Set(),
-  // The contents rows and the headings they stand for, paired up at paint time:
-  // the scroll spy runs on every frame the document moves and cannot be asking
-  // the sidebar what is in it each time.
-  toc: [],
+  // The headings and the nodes they stand for, paired up at paint time: the
+  // scroll spy runs on every frame the document moves and cannot be asking the
+  // document where they are each time. Null when there is no list to draw — the
+  // column shut, or no document — and empty for a document with nothing to list.
+  toc: null as { h: Heading; node: Element | null }[] | null,
   tocAt: -1,
   // The open files: a native window's tabs, as the shell pushes them, or the
   // web app's, as it keeps them itself (`openFiles`). A CLI tab has none.

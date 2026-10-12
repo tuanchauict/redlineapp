@@ -1156,6 +1156,21 @@ console.log('✓ a browser tab starts its bar with the app icon');
 assert.match(pageHtml, /id="tocList"/, 'the contents list has somewhere to go');
 assert.match(pageJs, /function paintToc/, 'and something to fill it');
 assert.match(pageJs, /function spyToc/, 'and it follows where you are reading');
+// Contents is a component (ui/Contents.tsx): main.ts pairs headings with their nodes, after the
+// document is written, and the list draws whatever that left in `state.toc`.
+assert.match(pageJs, /mountContents\(\$\('tocList'\), \{ go: \(node\) => scrollToNode\(node\) \}\);/,
+  'the list is mounted where the page has room for it, and a row lands where a link does');
+assert.match(pageJs, /state\.toc = has \? heads\.map\(\(h\) => \(\{ h, node: headingNode\(h\) \}\)\) : \[\];/,
+  'each heading is paired with its node in the document just written');
+assert.match(pageJs, /function Contents\([\s\S]*?if \(!toc \|\| !state\.tocSide\) return null;/,
+  'and a shut column, or no document, draws no list at all');
+assert.match(pageJs, /class=\{\['toc', h\.level === top && 'toc-top', i === at && 'on'\]/,
+  'the row you are reading under is lit from state.tocAt');
+assert.match(pageJs, /useEffect\(\(\) => \{\s*current\.current\?\.scrollIntoView\(\{ block: 'nearest' \}\);\s*\}, \[toc, at\]\);/,
+  'and scrolled into view when that changes, not on every render');
+const spy = pageJs.match(/function spyToc\(\) \{[\s\S]*?\n\}/)?.[0] ?? '';
+assert.ok(/state\.tocAt = at;/.test(spy) && !/classList|scrollIntoView|\.row\b/.test(spy),
+  'the spy only says which heading; it never reaches into the rows Preact owns');
 assert.match(pageCss, /\.toc\.on::before/, 'and says which row that is');
 // Two columns, not three lists in one. Open files is alone on the left, so
 // choosing a file fades once it is chosen; Contents and History share the
@@ -5757,12 +5772,8 @@ const memoryKv = () => {
     const clearing = appJs.match(/function clearSidebars\(\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
     assert.deepStrictEqual(
       clearing.trim().split('\n').map((l) => l.trim()),
-      [
-        'paintToc({});',
-        'paintHistory(null);',
-        "$('tocList').replaceChildren();",
-      ],
-      // History's list is Preact's, and empties itself on null; a replaceChildren under it
+      ['paintToc(null);', 'paintHistory(null);'],
+      // Both lists are Preact's, and empty themselves on null; a replaceChildren under either
       // would leave Preact diffing against rows that are no longer there.
       'which resets what they keep and empties their lists',
     );
