@@ -22,14 +22,12 @@ test('one store, two processes', async (t) => {
     const text = (n) => `# Shared\n\nVersion ${n}.\n`;
     A = await DocStore.open(shared, nodePlatform);
     const v1 = (await A.record(text(1))).hash;
-    const B = await DocStore.open(shared, nodePlatform);
-                                                         // opened after v1, and never told about v2
+    const B = await DocStore.open(shared, nodePlatform); // opened after v1, and never told about v2
 
     // A mark-read is not undone by another process saving a version.
     const v2 = (await A.record(text(2))).hash;
     await A.setBaseline(v2);
-    const v3 = (await B.record(text(3))).hash;
-                                               // B still thinks the baseline is v1
+    const v3 = (await B.record(text(3))).hash; // B still thinks the baseline is v1
     const fresh = await DocStore.open(shared, nodePlatform);
     assert.strictEqual(fresh.baseline, v2, 'a mark-read survives the other process recording');
     assert.deepStrictEqual(
@@ -70,10 +68,8 @@ test('one store, two processes', async (t) => {
     await A.setCompare('git:HEAD');
     assert.strictEqual(await A.refresh(), false, 'a process does not notice itself');
     // An update that merged what another process had written does announce it.
-    await B.setCompare('read');
-                                // B writes; A has not looked since
-    await A.setAcked('another', true);
-                                       // A merges B's write into its own
+    await B.setCompare('read'); // B writes; A has not looked since
+    await A.setAcked('another', true); // A merges B's write into its own
     assert.strictEqual(await A.refresh(), true,
       'a merge is announced, since the poll cannot see it');
 
@@ -150,8 +146,7 @@ test('one store, two processes', async (t) => {
     const returningObject = racing.objectPath(hashContent(returning));
     fs.writeFileSync(returningObject, returning);
     fs.utimesSync(returningObject, hourAgo, hourAgo);
-    sweepNow = true;
-                     // armed only now: opening the store reads the index too
+    sweepNow = true; // armed only now: opening the store reads the index too
     const { hash: returned } = await racing.record(returning);
     assert.ok(!sweepNow, 'the sweep ran between the object and the index');
     assert.strictEqual(
@@ -186,9 +181,17 @@ test('one store, two processes', async (t) => {
     const heard = [];
     r2.subscribe(id2, (e) => heard.push(e.type));
     await r1.markRead(id1);
-    await until(() => heard.includes('history'), 'the other reader to hear of the mark', 4000);
-    const rows = (await r2.doc(id2, 'last:read')).history;
-    assert.ok(rows.find((h) => h.current).baseline, 'and it sees the version marked read');
+    // A `history` is not proof of the mark: r1 recording v2 moved the index under r2 too, and the
+    // poll that notices that can land after the subscribe and before the mark. So the wait is for
+    // both, the event and the row, and a busy runner that orders them that way waits a poll more.
+    const marked = async () =>
+      (await r2.doc(id2, 'last:read')).history.find((h) => h.current)?.baseline;
+    await until(
+      async () => heard.includes('history') && (await marked()),
+      'the other reader to hear of the mark',
+      4000,
+    );
+    assert.ok(await marked(), 'and it sees the version marked read');
     r1.closeAll();
     r2.closeAll();
   });
