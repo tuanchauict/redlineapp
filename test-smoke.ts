@@ -6100,6 +6100,17 @@ const memoryKv = () => {
         ),
       'the way to the Mac app is drawn as a link, and the folder list the welcome had is gone',
     );
+    {
+      const files = read('./public/app/vm/files.ts');
+      assert.ok(
+        /^bindWelcome\(\{ open: \(path\) => openFile\(path\)/m.test(files) &&
+          /^doc\.addEventListener\('click', /m.test(files) &&
+          /import \{ scrollMemory, selectTab, closeTab \} from '\.\/vm\/files\.js';/.test(
+            read('./public/app/main.ts'),
+          ),
+        'vm/files.ts opens the welcome\'s files and takes the links out, and main.ts mounts its rows',
+      );
+    }
     assert.match(
       appJs,
       /const why = await backend\.linkNote\?\.\(state\.data\?\.path\);\s*if \(why\) notify\(why\);/,
