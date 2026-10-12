@@ -136,8 +136,7 @@ test('several documents open at once', async () => {
   );
   sixth.release(idD);
   sixth.release(idD);
-  sixth.release(idD);
-                      // balance the extra retain
+  sixth.release(idD); // balance the extra retain
 
   const [dC, dD] = await Promise.all([
     fetch(`${base6}/api/doc?id=${idC}`).then((r) => r.json() as Promise<Reply>),

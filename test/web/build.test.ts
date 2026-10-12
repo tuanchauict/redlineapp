@@ -142,8 +142,7 @@ test('the web app\'s build: one page staged per host, and the headers a static h
       path.dirname(path.dirname(repo)),
       path.parse(repo).root,
     ]) refused(dir);
-    refused('/x', '/x/..foo');
-                               // `..foo` is a name, and the repository is in it: not a way up
+    refused('/x', '/x/..foo'); // `..foo` is a name, and the repository is in it: not a way up
     const [shellDist, distWeb] = [path.join(repo, 'shell', 'dist'), path.join(repo, 'dist', 'web')];
     for (const dir of [
       shellDist,

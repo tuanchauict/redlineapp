@@ -166,11 +166,9 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
     await settle(120);
     assert.deepStrictEqual(heard, [], 'a file that can be read says nothing');
 
-    dir.state = 'prompt';
-                          // the grant goes
+    dir.state = 'prompt'; // the grant goes
     await until(() => heard.length, 'the poll to say it cannot read');
-    await settle(150);
-                       // several more polls, which have nothing new to say
+    await settle(150); // several more polls, which have nothing new to say
     assert.deepStrictEqual(
       heard.map((e) => [e.type, e.name]),
       [['unreadable', 'NotAllowedError']],
@@ -395,8 +393,7 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
     );
 
     // Hello and bye.
-    const tab3 = await openPage(host1, a.id);
-                                              // a reload of a document the worker has open
+    const tab3 = await openPage(host1, a.id); // a reload of a document the worker has open
     assert.strictEqual(
       (await tab3.backend.doc()).id,
       a.id,
@@ -433,16 +430,14 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
     // Silence.
     clock.t += 500;
     tab1.port.postMessage({ t: 'ping' });
-    clock.t += 600;
-                    // 1100 ms since the start, 600 since the ping
+    clock.t += 600; // 1100 ms since the start, 600 since the ping
     await settle(60);
     assert.ok(reader1.pathOf(a.id), 'a page that pinged lately is still held');
     clock.t += 5000;
     await until(() => reader1.pathOf(a.id) === null, 'a silent page to be let go of');
     assert.strictEqual(reader1.pathOf(b.id), null, 'as is every other that has said nothing');
     const seenBefore = tab1.events.length;
-    tab1.port.postMessage({ t: 'ping' });
-                                          // a tab whose timers were held back, back at last
+    tab1.port.postMessage({ t: 'ping' }); // a tab whose timers were held back, back at last
     await until(() => reader1.pathOf(a.id), 'the next thing it says to hold its document again');
     await until(() => tab1.events.length > seenBefore, 'and to be told to look again');
     assert.strictEqual((await tab1.backend.doc()).id, a.id, 'and it is answered as before');
@@ -463,8 +458,7 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
     assert.ok(docAgain.history?.length >= 1, 'with the history the store already had');
     assert.ok(reader2.pathOf(a.id), 'and holds it');
 
-    const later = await openPage(host2, a.id);
-                                               // a second tab on the same reload
+    const later = await openPage(host2, a.id); // a second tab on the same reload
     assert.strictEqual((await later.backend.doc()).id, a.id,
       'a second tab joins the open document');
 
@@ -516,8 +510,7 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
     watcher.live.length = 0;
     watcher.asked.length = 0;
 
-    notes.state = 'prompt';
-                            // the grant goes; the next read throws NotAllowedError
+    notes.state = 'prompt'; // the grant goes; the next read throws NotAllowedError
     await until(() => watcher.live.some((l) => !l.on), 'the watcher to hear it is not live');
     assert.match(watcher.live[0].why, /permission/i, 'and why');
     assert.deepStrictEqual(watcher.asked, [{ name: 'notes' }], 'and what to ask the user for');
@@ -594,8 +587,7 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
     const here = await page.backend.open(`web:${root.rootId}/a.md`);
     page.id = here.id;
 
-    const notesAsked = notes.asked;
-                                    // what earlier tests asked, which is not this test's
+    const notesAsked = notes.asked; // what earlier tests asked, which is not this test's
     notes.state = 'prompt';
     await rejection(page.backend.open(`web:${root.rootId}/b.md`), 'NeedsPermission');
     assert.deepStrictEqual(page.asked, [{ name: 'notes' }], 'a lapsed folder is asked for by name');
@@ -671,8 +663,7 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
     const readerL = await hostL.reader;
 
     const first = await openPage(hostL, null, own);
-    await rejection(first.backend.doc(), 'NoDocument');
-                                                        // nothing was ever shown: the welcome
+    await rejection(first.backend.doc(), 'NoDocument'); // nothing was ever shown: the welcome
     const dr = await first.backend.addRoot(desk);
     const one = await first.backend.open(`web:${dr.rootId}/one.md`);
     first.id = one.id;
@@ -682,8 +673,7 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
     const resumed = await bare.backend.doc();
     assert.strictEqual(resumed.id, one.id, 'a page that names none is given the last one');
     assert.match(resumed.text, /First\./, 'with its text');
-    bare.id = resumed.id;
-                          // what the page's `adopt` does with the id it was given
+    bare.id = resumed.id; // what the page's `adopt` does with the id it was given
     const two = await bare.backend.open(`web:${dr.rootId}/two.md`);
     bare.id = two.id;
     assert.strictEqual(await own.opened.get('last'), two.id, 'and the next one opened is');
