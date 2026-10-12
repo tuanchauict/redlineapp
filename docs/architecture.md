@@ -466,8 +466,7 @@ viewmodels import one another without a cycle: history imports the view, the vie
 settings, and settings imports neither. What each needs of the document comes through
 `vm/document.ts`, not `main.ts`. The circles there were — `paint` into History and the solo tag,
 `setMarks` into Settings, Settings back into the marks — are broken by becoming signals the
-chrome reacts to, not calls `paint` makes; see the
-[design](superpowers/specs/2026-10-12-page-modules-preact-design.md#viewmodels).
+chrome reacts to, not calls `paint` makes.
 
 The document pane is an **imperative island**. It is `innerHTML` from the payload, through
 `sanitizeDocument` on the way in, written by markdown-it and the diff; a component never diffs
