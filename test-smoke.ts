@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
 import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import crypto from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import assert from 'node:assert';
@@ -21,6 +22,50 @@ import { walkPath, shorten } from './src/core/links.js';
 import { createSession } from './src/reader/session.js';
 import { serveRpc } from './src/rpc/serve.js';
 import { createRpcBackend } from './src/rpc/client.js';
+import type { Connection, WebBackend } from './src/hosts/web/backend.js';
+import type { Kv } from './src/hosts/web/kv-files.js';
+import type { AckedVersion } from './src/contract/payload.js';
+import type { Session } from './src/contract/seam.js';
+import type { HostName } from './scripts/stage-page.mjs';
+
+// Every server here listens on a TCP port, so address() is an AddressInfo; the string it can also
+// be is a pipe's path, and nothing in this file listens on one.
+const portOf = (s: { address(): string | AddressInfo | null }) => (s.address() as AddressInfo).port;
+
+// The two fields of package.json that the suite reads.
+interface Pkg {
+  bin: Record<string, string>;
+  scripts: Record<string, string>;
+}
+
+// What the suite reads out of the server's JSON, which `Response.json()` types as `unknown`.
+// Only the members some assertion reads are here; which reply carries which is the server's.
+interface Version {
+  hash: string;
+  current?: boolean;
+  baseline?: boolean;
+  git?: { subject: string };
+}
+// What `reader.read()` resolves to; the stand-in a closed stream is caught with has no value.
+interface Chunk {
+  done: boolean;
+  value?: Uint8Array;
+}
+interface Reply {
+  name?: string;
+  id?: string;
+  path?: string;
+  text?: string;
+  tracked?: boolean;
+  baseline?: string;
+  baselineAvailable?: boolean;
+  removed?: number;
+  history?: Version[];
+  acked?: string[];
+  fonts?: string[];
+  svg?: string;
+  error?: string;
+}
 
 // --- 0. where the repository is ------------------------------------------
 // Node-run code compiles into out/, which mirrors the repository, so a `..` count that is
@@ -54,7 +99,7 @@ import { createRpcBackend } from './src/rpc/client.js';
     fileURLToPath(import.meta.url).startsWith(path.join(ROOT, 'out') + path.sep),
     'the suite runs from out/, the compiled copy',
   );
-  const pkg = JSON.parse(fs.readFileSync(rootUrl('package.json'), 'utf8'));
+  const pkg: Pkg = JSON.parse(fs.readFileSync(rootUrl('package.json'), 'utf8'));
   assert.strictEqual(pkg.bin.redline, 'out/bin/redline.js', 'the CLI is the compiled one');
   // tsc -b trusts its build record and never looks for its outputs, so a branch switch that
   // deletes the compiled page leaves it saying "up to date" over nothing. The step before it is
@@ -81,6 +126,15 @@ import { createRpcBackend } from './src/rpc/client.js';
     const gate = compiledBy[name] ? pkg.scripts[compiledBy[name]] : cmd;
     assert.match(gate, /^npm run build:(ts|web|site)\b/, `${name} compiles before it runs`);
   }
+  // The suite is checked like the code it tests. Left out of the project, a type error in it
+  // would be invisible, and a comment that switches the check off would say nothing at all.
+  const text = (f) => fs.readFileSync(rootUrl(f), 'utf8');
+  const nodeProject = JSON.parse(text('tsconfig.node.json'));
+  assert.ok(nodeProject.include.includes('test-smoke.ts'), 'the suite is part of the node project');
+  assert.ok(
+    !/@ts-(nocheck|ignore|expect-error)/.test(text('test-smoke.ts')),
+    'and nothing in it turns the check off',
+  );
   console.log('✓ the suite and every npm script run the compiled copy, compiled first');
 }
 
@@ -94,7 +148,7 @@ import { createRpcBackend } from './src/rpc/client.js';
     const stray = fs.readdirSync(rootUrl(`${dir}/`)).filter((n) => /\.m?js$/.test(n));
     assert.deepStrictEqual(stray, [], `${dir}/ holds TypeScript only`);
   }
-  const pkg = JSON.parse(fs.readFileSync(rootUrl('package.json'), 'utf8'));
+  const pkg: Pkg = JSON.parse(fs.readFileSync(rootUrl('package.json'), 'utf8'));
   assert.ok(fs.existsSync(rootUrl(pkg.bin.redline)), `the CLI, ${pkg.bin.redline}, is emitted`);
   for (const [name, cmd] of Object.entries(pkg.scripts)) {
     if (!/\bnode out\//.test(cmd)) continue;
@@ -124,8 +178,8 @@ const file = path.join(tmp, 'sample.md');
 fs.copyFileSync(rootUrl('sample.md'), file);
 
 const { server } = await createServer({ file });
-await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const base = `http://127.0.0.1:${server.address().port}`;
+await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+const base = `http://127.0.0.1:${portOf(server)}`;
 
 // The server sends the two versions of the text and the page renders them, so
 // the test renders them too — the assertions below are about what a reader
@@ -138,7 +192,7 @@ const render = (d) =>
     ? d
     : Object.assign(d, renderDocument(mdPage, d.text, d.base, { keys: d.acked, from: d.ackedFrom }));
 /** A reader talking to one server: fetch a document, render it, as the page does. */
-const clientFor = (origin) => async (p, init) => render(await (await fetch(origin + p, init)).json());
+const clientFor = (origin) => async (p, init?) => render(await (await fetch(origin + p, init)).json());
 const get = clientFor(base);
 const postDoc = (p) => get(p, { method: 'POST' });
 
@@ -169,7 +223,7 @@ const { createPlantumlRenderer } = await import('./src/reader/plantuml.js');
 const puml = await createPlantumlRenderer({}, nodePlatform);
 const pumlRes = await fetch(base + '/api/plantuml', { method: 'POST', body: 'Alice -> Bob: hi' });
 assert.strictEqual(pumlRes.status, 200, 'the render endpoint answers');
-const pumlOut = await pumlRes.json();
+const pumlOut = (await pumlRes.json()) as Reply;
 if (puml.available) {
   assert.match(pumlOut.svg, /^<svg/, 'plantuml rendered to inline SVG');
   assert.ok(!pumlOut.svg.includes('<?xml'), 'XML prolog stripped from inlined SVG');
@@ -274,9 +328,9 @@ const raw = (p, headers = {}, method = 'GET') =>
     req.end();
   });
 const own = new URL(base).host;
-assert.strictEqual(await raw('/api/fonts', { host: `localhost:${server.address().port}` }), 200,
+assert.strictEqual(await raw('/api/fonts', { host: `localhost:${portOf(server)}` }), 200,
   'localhost is this server too');
-assert.strictEqual(await raw('/', { host: `evil.example:${server.address().port}` }), 403,
+assert.strictEqual(await raw('/', { host: `evil.example:${portOf(server)}` }), 403,
   'a rebound name is refused, the static page included');
 assert.strictEqual(await raw('/api/doc', { host: 'evil.example' }), 403, 'and so is its API');
 assert.strictEqual(
@@ -315,9 +369,15 @@ assert.ok(!(await fetch(base + '/app.js')).headers.get('content-security-policy'
 // The app's copy is in tauri.conf.json, where the bundler adds the hash itself
 // -- and must be kept off style-src, where a nonce would switch off the
 // 'unsafe-inline' every inline style on the page depends on.
-const shellConf = JSON.parse(fs.readFileSync(rootUrl('shell/tauri.conf.json')));
+// (JSON.parse is handed a Buffer and reads its text; only its `string` parameter type objects.)
+const shellConf = JSON.parse(
+  fs.readFileSync(rootUrl('shell/tauri.conf.json')) as unknown as string,
+);
 const appCsp = Object.fromEntries(
-  Object.entries(shellConf.app.security.csp).map(([k, v]) => [k, v.split(/\s+/)]),
+  Object.entries(shellConf.app.security.csp as Record<string, string>).map(([k, v]) => [
+    k,
+    v.split(/\s+/),
+  ]),
 );
 assert.deepStrictEqual(appCsp['connect-src'], ["'self'", 'ipc:', 'http://ipc.localhost'],
   'the app may talk to its shell, and nowhere else');
@@ -560,7 +620,7 @@ for (const [re, bad, good] of [
   [VALUE_IMPORT, "import { X } from './payload.js';", "import type { X } from './payload.js';"],
   [CONTRACT_VALUE_IMPORT, "import { X } from '../contract/payload.js';",
     "import type { X } from '../contract/payload.js';\nimport { Y } from '../core/diff.js';"],
-]) {
+] as const) {
   assert.ok([...bad.matchAll(re)].length > 0, `${re} catches ${bad}`);
   assert.strictEqual([...good.matchAll(re)].length, 0, `${re} lets ${good} through`);
 }
@@ -582,7 +642,7 @@ for (const [file, sig] of [
   ['src/hosts/web/platform.ts', /\): Platform\b/],
   ['public/backend.ts', /\): Promise<PageBackend>/],
   ['public/backend.ts', /\): Backend\b/],
-]) {
+] as const) {
   const text = fs.readFileSync(fileURLToPath(rootUrl(file)), 'utf8');
   assert.match(text, sig, `${file} names the type it implements`);
 }
@@ -782,7 +842,7 @@ for (const [paths, ref, cases] of [
     basename: ['C:\\a\\b.md', 'b.md'],
     resolve: ['C:\\a\\.\\b\\..\\c', 'C:/a/b', 'C:\\', 'C:\\..', 'C:\\a\\\\b'],
   }],
-]) {
+] as const) {
   for (const args of cases.join) {
     assert.strictEqual(paths.join(...args), ref.join(...args), `join ${JSON.stringify(args)}`);
   }
@@ -1283,7 +1343,7 @@ const pageRun = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
         fn('goToChange'), 'state.diff = true;'].join('\n'),
       ctx,
     );
-    const press = (step, kind) => {
+    const press = (step, kind?) => {
       vm.runInContext(`goToChange(${step}, ${JSON.stringify(kind ?? null)})`, ctx);
       return nodes.indexOf(landed.at(-1));
     };
@@ -1367,10 +1427,15 @@ const pageRun = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
     },
   });
   vm.runInContext([konst('changeKind'), konst('continuesRun'), fn('changeNodes')].join('\n'), rawCtx);
+  // The two members of a stop that the order is read from; the nodes come out of the vm context.
+  interface Stop {
+    classList: { contains(c: string): boolean };
+    dataset: { chg?: string };
+  }
   const stops = vm.runInContext('changeNodes()', rawCtx);
   assert.deepStrictEqual(
     // `from`, so the array is this realm's and not the context's, which never compares equal.
-    Array.from(stops, (n) => (n.classList.contains('raw-del') ? 'del' : n.dataset.chg)),
+    Array.from(stops, (n: Stop) => (n.classList.contains('raw-del') ? 'del' : n.dataset.chg)),
     ['del', 'add', 'add'],
     'the raw view has a stop per change, removals too, and not one per line',
   );
@@ -1725,7 +1790,7 @@ assert.match(
 // And the names in it come from the OS, because nothing in a browser will say:
 // a catalogue written by hand lists faces this machine has never had and
 // misses the one it is set in. An empty list is a fair answer off macOS.
-const { fonts } = await (await fetch(base + '/api/fonts')).json();
+const { fonts } = (await (await fetch(base + '/api/fonts')).json()) as Reply;
 assert.ok(Array.isArray(fonts), '/api/fonts answers with a list of families');
 if (process.platform === 'darwin') {
   assert.ok(fonts.length > 20, 'and on a Mac it is the ones installed here');
@@ -1835,7 +1900,7 @@ console.log('✓ sepia wired through page, head script, stylesheet and shell');
     ['sepia', true, ON_LIGHT],
     ['dark', false, ON_DARK],
     ['dark', true, ON_DARK],
-  ]) {
+  ] as [string, boolean, typeof ON_DARK][]) {
     const head = runHead(appearance, systemDark);
     const app = appScheme(appearance, systemDark);
     const label = `${appearance} on a ${systemDark ? 'dark' : 'light'} system`;
@@ -2240,7 +2305,8 @@ for (const [, inside] of doc.html.matchAll(/<details class="chg-before">([\s\S]*
   // The line named is the line the block starts on, counting from zero.
   const mdLines = createMarkdown();
   const src = '# Title\n\nA first paragraph, plain and simple.\n\n- a\n- b\n\n```js\nconst x = 1;\n```\n\nLast para.\n';
-  const at = (tag) => +new RegExp(`<${tag} data-line="(\\d+)"`).exec(renderDocument(mdLines, src).html)[1];
+  const at = (tag) =>
+    +new RegExp(`<${tag} data-line="(\\d+)"`).exec(renderDocument(mdLines, src, null).html)[1];
   assert.strictEqual(at('h1'), 0, 'the heading is the first line');
   assert.strictEqual(at('ul'), 4, 'the list starts where the list starts');
   assert.strictEqual(at('code'), 7, 'and a fence at its fence');
@@ -2316,7 +2382,9 @@ for (const c of doc.changes) {
 assert.strictEqual(new Set(doc.changes.map((c) => c.key)).size, 3, 'no two changes share a name');
 
 const oneKey = doc.changes[0].key;
-const ackRes = await (await fetch(`${base}/api/ack?key=${oneKey}`, { method: 'POST' })).json();
+const ackRes = (await (
+  await fetch(`${base}/api/ack?key=${oneKey}`, { method: 'POST' })
+).json()) as Reply;
 assert.deepStrictEqual(ackRes.acked, [oneKey], 'the change is remembered as checked');
 // The document is not rebuilt for it: the page has already hidden the mark, and
 // it knows what it clicked.
@@ -2333,7 +2401,9 @@ await fetch(`${base}/api/ack?key=${oneKey}&on=0`, { method: 'POST' });
 assert.deepStrictEqual((await get('/api/doc')).acked, [], 'and it can be brought back');
 for (const c of doc.changes) await fetch(`${base}/api/ack?key=${c.key}`, { method: 'POST' });
 assert.deepStrictEqual((await get('/api/doc')).acked, doc.changes.map((c) => c.key), 'all three, in the order marked');
-const clearedAcks = await (await fetch(`${base}/api/ack?clear=1`, { method: 'POST' })).json();
+const clearedAcks = (await (
+  await fetch(`${base}/api/ack?clear=1`, { method: 'POST' })
+).json()) as Reply;
 assert.deepStrictEqual(clearedAcks.acked, [], 'and cleared in one call');
 // Naming no change is a mistake, not an empty instruction to carry out.
 assert.strictEqual((await fetch(`${base}/api/ack`, { method: 'POST' })).status, 400, 'a change must be named');
@@ -2350,7 +2420,10 @@ console.log('✓ check a change off');
   const added = (html) => [...html.matchAll(/<ins class="w-add">([\s\S]*?)<\/ins>/g)].map((m) => m[1]);
   const read = 'The release paragraph, written for the team.';
   const now = 'The release paragraph, written for the whole team today.';
-  const from = (text) => [{ text: `# Doc\n\n${text}\n`, blocks: [blockId(text)] }];
+  // A version without its `hash`: renderDiff reads only `text` and `blocks` of each (see
+  // seenBlocks), and the payload type asks for the hash as well.
+  const from = (text) =>
+    [{ text: `# Doc\n\n${text}\n`, blocks: [blockId(text)] }] as AckedVersion[];
 
   // An addition, checked off and then edited: changed, and only the new words.
   const sinceAdd = renderDiff(mdAck, '# Doc\n', `# Doc\n\n${now}\n`, [], { from: from(read) });
@@ -2396,7 +2469,7 @@ console.log('✓ check a change off');
   const reader = await createReader({ platform: nodePlatform });
   const id = await reader.retain(ackFile);
   const edit = (text) =>
-    new Promise((resolve) => {
+    new Promise<void>((resolve) => {
       const stop = reader.subscribe(id, (e) => e.type === 'change' && (stop(), resolve()));
       fs.writeFileSync(ackFile, text);
     });
@@ -2548,9 +2621,12 @@ console.log('✓ a checked-off change becomes that block\'s own baseline');
   assert.strictEqual(first.tracked, false, 'no file is in a repo');
   assert.strictEqual(first.pathLabel, '~/notes/a.md', 'and the default label still shortens home');
   assert.deepStrictEqual(await mem.fonts(), [], 'no font list');
-  assert.ok((await mem.plantumlSvg('A -> B')).error, 'a diagram says why it did not draw');
+  assert.ok(
+    ((await mem.plantumlSvg('A -> B')) as { error: string }).error,
+    'a diagram says why it did not draw',
+  );
 
-  const changed = new Promise((resolve) => {
+  const changed = new Promise<void>((resolve) => {
     const stop = mem.subscribe(memId, (e) => e.type === 'change' && (stop(), resolve()));
   });
   await memory.writeText(doc, '# Notes\n\nFirst.\n\nSecond.\n');
@@ -2601,8 +2677,8 @@ fs.writeFileSync(
     '---\n\n# KDoc conventions\n\nBody paragraph.\n',
 );
 const fmServer = await createServer({ file: hdr });
-await new Promise((r) => fmServer.server.listen(0, '127.0.0.1', r));
-const fmDoc = await clientFor(`http://127.0.0.1:${fmServer.server.address().port}`)('/api/doc');
+await new Promise<void>((r) => fmServer.server.listen(0, '127.0.0.1', r));
+const fmDoc = await clientFor(`http://127.0.0.1:${portOf(fmServer.server)}`)('/api/doc');
 assert.match(fmDoc.html, /<div class="front-matter" data-line="0">/, 'the header renders as a card');
 assert.match(fmDoc.html, /<dt>allowed-tools<\/dt><dd>Skill\(kotlin-conventions\)/, 'field by field');
 // The one that was actually broken, and the reason this is worth a block rule.
@@ -2821,8 +2897,8 @@ server.close();
 await reader.cancel().catch(() => {});
 fs.appendFileSync(file, '\nA late addition after restart.\n');
 const second = await createServer({ file });
-await new Promise((r) => second.server.listen(0, '127.0.0.1', r));
-const base2 = `http://127.0.0.1:${second.server.address().port}`;
+await new Promise<void>((r) => second.server.listen(0, '127.0.0.1', r));
+const base2 = `http://127.0.0.1:${portOf(second.server)}`;
 const get2 = clientFor(base2);
 const after = await get2('/api/doc');
 assert.strictEqual(after.stats.added, 1, `restart diff vs stored baseline: ${JSON.stringify(after.stats)}`);
@@ -2907,9 +2983,9 @@ console.log('✓ the chosen version is remembered');
 // refuses to drop the newest, and a baseline it orphans has to land somewhere.
 const before = after.history.length;
 const cutAt = after.history.at(-2) ?? after.history.at(-1);
-const pruned = await (
+const pruned = (await (
   await fetch(base2 + '/api/prune?upto=' + cutAt.hash, { method: 'POST' })
-).json();
+).json()) as Reply;
 assert.ok(pruned.removed >= 1, `something was forgotten: ${pruned.removed}`);
 assert.strictEqual(pruned.history.length, before - pruned.removed, 'the list shrank by what went');
 assert.ok(pruned.history.some((h) => h.current), 'the version on disk survives a clean-up');
@@ -2924,9 +3000,9 @@ assert.ok(
 assert.ok(pruned.baselineAvailable, 'and that version can still be read back and diffed');
 // Nothing older than the newest can be dropped: it is the comparison target.
 const head = pruned.history.find((h) => h.current);
-const noop = await (
+const noop = (await (
   await fetch(base2 + '/api/prune?upto=' + head.hash, { method: 'POST' })
-).json();
+).json()) as Reply;
 assert.strictEqual(noop.removed, 0, 'the newest version cannot be forgotten');
 assert.strictEqual(noop.history.length, pruned.history.length, 'a refused clean-up changes nothing');
 // Still renders, and still says what it is comparing against. The version it
@@ -2952,8 +3028,8 @@ const v1 = '# Wobbly\n\nFirst wording.\n';
 const v2 = '# Wobbly\n\nSecond wording, thought better of.\n';
 fs.writeFileSync(wobbly, v1);
 const wobble = await createServer({ file: wobbly });
-await new Promise((r) => wobble.server.listen(0, '127.0.0.1', r));
-const getW = clientFor(`http://127.0.0.1:${wobble.server.address().port}`);
+await new Promise<void>((r) => wobble.server.listen(0, '127.0.0.1', r));
+const getW = clientFor(`http://127.0.0.1:${portOf(wobble.server)}`);
 await getW('/api/doc');
 fs.writeFileSync(wobbly, v2);
 await new Promise((r) => setTimeout(r, 700));
@@ -2991,8 +3067,8 @@ assert.ok(total(chosenW.stats) > 0, `and marks something: ${JSON.stringify(chose
 wobble.server.close();
 
 const wobble2 = await createServer({ file: wobbly });
-await new Promise((r) => wobble2.server.listen(0, '127.0.0.1', r));
-const getW2 = clientFor(`http://127.0.0.1:${wobble2.server.address().port}`);
+await new Promise<void>((r) => wobble2.server.listen(0, '127.0.0.1', r));
+const getW2 = clientFor(`http://127.0.0.1:${portOf(wobble2.server)}`);
 const reopened = await getW2('/api/doc');
 assert.strictEqual(reopened.baseline, pickW, 'a restart opens on the version that was chosen');
 assert.deepStrictEqual(reopened.stats, chosenW.stats, 'and shows the same changes it did before');
@@ -3020,8 +3096,8 @@ git('commit', '-qm', 'init');
 fs.writeFileSync(tracked, '# Title\n\nCommitted paragraph.\n\nUncommitted new paragraph.\n');
 
 const third = await createServer({ file: tracked });
-await new Promise((r) => third.server.listen(0, '127.0.0.1', r));
-const gitDoc = await clientFor(`http://127.0.0.1:${third.server.address().port}`)(
+await new Promise<void>((r) => third.server.listen(0, '127.0.0.1', r));
+const gitDoc = await clientFor(`http://127.0.0.1:${portOf(third.server)}`)(
   '/api/doc?baseline=git:HEAD',
 );
 assert.ok(gitDoc.tracked, 'the file is known to be in a repo');
@@ -3040,10 +3116,10 @@ third.server.close();
 const loose = path.join(tmp, 'loose.md');
 fs.writeFileSync(loose, '# Loose\n');
 const fourth = await createServer({ file: loose });
-await new Promise((r) => fourth.server.listen(0, '127.0.0.1', r));
-const looseDoc = await (
-  await fetch(`http://127.0.0.1:${fourth.server.address().port}/api/doc?baseline=git:HEAD`)
-).json();
+await new Promise<void>((r) => fourth.server.listen(0, '127.0.0.1', r));
+const looseDoc = (await (
+  await fetch(`http://127.0.0.1:${portOf(fourth.server)}/api/doc?baseline=git:HEAD`)
+).json()) as Reply;
 assert.ok(!looseDoc.tracked, 'untracked file says so');
 assert.strictEqual(looseDoc.baseline, 'read', 'and git HEAD falls back to last read');
 console.log('✓ untracked file hides git baseline');
@@ -3077,8 +3153,8 @@ fs.writeFileSync(hist, '# Notes\n\nFirst thought.\n\nSecond thought.\n\nThird th
 git2('commit', '-qam', 'third thought');
 
 const gitSrv = await createServer({ file: hist });
-await new Promise((r) => gitSrv.server.listen(0, '127.0.0.1', r));
-const baseG = `http://127.0.0.1:${gitSrv.server.address().port}`;
+await new Promise<void>((r) => gitSrv.server.listen(0, '127.0.0.1', r));
+const baseG = `http://127.0.0.1:${portOf(gitSrv.server)}`;
 const getG = (p = '/api/doc') => clientFor(baseG)(p);
 
 const imported = await until(
@@ -3120,11 +3196,11 @@ fs.writeFileSync(hist, '# Notes\n\nFirst thought.\n\nSecond thought.\n\nFourth t
 git2('commit', '-qam', 'fourth thought');
 
 const gitSrv2 = await createServer({ file: hist });
-await new Promise((r) => gitSrv2.server.listen(0, '127.0.0.1', r));
-const baseG2 = `http://127.0.0.1:${gitSrv2.server.address().port}`;
+await new Promise<void>((r) => gitSrv2.server.listen(0, '127.0.0.1', r));
+const baseG2 = `http://127.0.0.1:${portOf(gitSrv2.server)}`;
 const caught = await until(
   async () => {
-    const d = await (await fetch(baseG2 + '/api/doc')).json();
+    const d = (await (await fetch(baseG2 + '/api/doc')).json()) as Reply;
     return d.history.some((h) => h.git?.subject === 'fourth thought') ? d : null;
   },
   'the commit made while the file was closed',
@@ -3147,8 +3223,8 @@ fs.writeFileSync(docA, '# Alpha\n\nFirst document.\n');
 fs.writeFileSync(docB, '# Beta\n\nSecond document.\n');
 
 const fifth = await createServer({ file: docA });
-await new Promise((r) => fifth.server.listen(0, '127.0.0.1', r));
-const base5 = `http://127.0.0.1:${fifth.server.address().port}`;
+await new Promise<void>((r) => fifth.server.listen(0, '127.0.0.1', r));
+const base5 = `http://127.0.0.1:${portOf(fifth.server)}`;
 
 const events5 = [];
 const es5 = await fetch(base5 + '/events');
@@ -3156,7 +3232,7 @@ const reader5 = es5.body.getReader();
 (async () => {
   const dec = new TextDecoder();
   for (;;) {
-    const { value, done } = await reader5.read().catch(() => ({ done: true }));
+    const { value, done } = await reader5.read().catch(() => ({ done: true }) as Chunk);
     if (done) break;
     for (const line of dec.decode(value).split('\n')) {
       if (line.startsWith('data: ')) events5.push(JSON.parse(line.slice(6)));
@@ -3197,9 +3273,9 @@ console.log('✓ switch documents at runtime');
 // resolves `./a.md` against the directory the document it is reading came out
 // of — it has nothing else to resolve against, being served from a loopback
 // port — and posts the absolute path here.
-const opened = await (
+const opened = (await (
   await fetch(`${base5}/api/open?path=${encodeURIComponent(docA)}`, { method: 'POST' })
-).json();
+).json()) as Reply;
 assert.strictEqual(opened.path, docA, 'the referenced file is what got opened');
 assert.ok(opened.id, 'and the page is told the id it is now on');
 // The id comes back because it is not the one that was sent: the old document
@@ -3241,8 +3317,8 @@ fs.writeFileSync(docC, '# Gamma\n\nThird document.\n');
 fs.writeFileSync(docD, '# Delta\n\nFourth document.\n');
 
 const sixth = await createServer({ file: docC });
-await new Promise((r) => sixth.server.listen(0, '127.0.0.1', r));
-const base6 = `http://127.0.0.1:${sixth.server.address().port}`;
+await new Promise<void>((r) => sixth.server.listen(0, '127.0.0.1', r));
+const base6 = `http://127.0.0.1:${portOf(sixth.server)}`;
 
 const idC = sixth.initialId;
 const idD = await sixth.retain(docD);
@@ -3261,8 +3337,8 @@ sixth.release(idD);
 sixth.release(idD); // balance the extra retain
 
 const [dC, dD] = await Promise.all([
-  fetch(`${base6}/api/doc?id=${idC}`).then((r) => r.json()),
-  fetch(`${base6}/api/doc?id=${idD}`).then((r) => r.json()),
+  fetch(`${base6}/api/doc?id=${idC}`).then((r) => r.json() as Promise<Reply>),
+  fetch(`${base6}/api/doc?id=${idD}`).then((r) => r.json() as Promise<Reply>),
 ]);
 assert.strictEqual(dC.name, 'c.md', 'id selects the document');
 assert.strictEqual(dD.name, 'd.md', 'the second document is served alongside the first');
@@ -3276,7 +3352,7 @@ const listen = async (id) => {
   (async () => {
     const dec = new TextDecoder();
     for (;;) {
-      const { value, done } = await rd.read().catch(() => ({ done: true }));
+      const { value, done } = await rd.read().catch(() => ({ done: true }) as Chunk);
       if (done) break;
       for (const line of dec.decode(value).split('\n')) {
         if (line.startsWith('data: ')) got.push(JSON.parse(line.slice(6)));
@@ -3304,7 +3380,7 @@ assert.ok(lC.got.some((e) => e.type === 'change'), 'the surviving document is st
 // a window that outlived its document says so, rather than showing the wrong file
 const gone = await fetch(`${base6}/api/doc?id=${idD}`);
 assert.strictEqual(gone.status, 410, 'a closed document is reported closed');
-const unnamed = await (await fetch(`${base6}/api/doc`)).json();
+const unnamed = (await (await fetch(`${base6}/api/doc`)).json()) as Reply;
 assert.strictEqual(unnamed.name, 'c.md', 'a request with no id still gets the open document');
 console.log('✓ several documents open at once');
 await Promise.all([lC.rd.cancel().catch(() => {}), lD.rd.cancel().catch(() => {})]);
@@ -3318,10 +3394,15 @@ sixth.server.close();
   const docP = path.join(tmp, 'parity.md');
   fs.writeFileSync(docP, '# Parity\n\nOne.\n');
   const parity = await createServer({ file: docP });
-  await new Promise((r) => parity.server.listen(0, '127.0.0.1', r));
-  const baseP = `http://127.0.0.1:${parity.server.address().port}`;
+  await new Promise<void>((r) => parity.server.listen(0, '127.0.0.1', r));
+  const baseP = `http://127.0.0.1:${portOf(parity.server)}`;
 
-  const chan = new MessageChannel();
+  // node's MessagePort has the `onmessage` setter the web's does, and leaves it out of its types.
+  type Receiving = { onmessage: (e: { data: any }) => void };
+  const chan = new MessageChannel() as InstanceType<typeof MessageChannel> & {
+    port1: Receiving;
+    port2: Receiving;
+  };
   const closeRpc = serveRpc({
     session: createSession(parity),
     post: (m) => chan.port1.postMessage(m),
@@ -3340,9 +3421,9 @@ sixth.server.close();
   // What an http client receives has been through JSON; what a channel delivers has been through
   // structured clone, which keeps an `undefined`. Neither is the reader's concern.
   const plain = (v) => JSON.parse(JSON.stringify(v));
-  const httpP = async (p, init) => {
+  const httpP = async (p, init?) => {
     const res = await fetch(`${baseP}${p}${p.includes('?') ? '&' : '?'}id=${parity.initialId}`, init);
-    return { status: res.status, body: await res.json() };
+    return { status: res.status, body: (await res.json()) as Reply };
   };
 
   assert.deepStrictEqual(
@@ -3415,14 +3496,19 @@ sixth.server.close();
     (await httpP(`/api/mark-read?at=${olderP.hash}`, { method: 'POST' })).body,
     'marking an older version read answers with the same document',
   );
-  await assert.rejects(rpc.markRead(42), { name: 'BadRequest' }, 'and a version that is not one is refused');
+  // 42 is not a version, on purpose.
+  await assert.rejects(
+    rpc.markRead(42 as unknown as string),
+    { name: 'BadRequest' },
+    'and a version that is not one is refused',
+  );
   // Every backend the page can be handed takes the version along.
   for (const [f, through] of [
     ['./src/rpc/client.ts', /markRead: \(at\) => call(?:<\w+>)?\('markRead', docId\(\), at\),/],
     ['./src/hosts/tauri/backend.ts', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
     ['./public/backend.ts', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
     ['./src/hosts/web/worker.ts', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
-  ]) {
+  ] as const) {
     assert.match(fs.readFileSync(rootUrl(f), 'utf8'), through, `${f} passes the version on`);
   }
 
@@ -3924,7 +4010,7 @@ const memoryKv = () => {
     };
   };
   const notes = fakeDir('notes', { 'a.md': fakeFile('a.md', '# A\n', 200) });
-  const handles = new Map([
+  const handles = new Map<string, { kind: string; name: string; [member: string]: unknown }>([
     ['a', fakeDir('docs', { 'top.md': fakeFile('top.md', '# Top\n', 100), notes })],
     ['solo', fakeFile('one.md', '# One\n', 300)],
   ]);
@@ -4164,6 +4250,8 @@ const memoryKv = () => {
 
   // IndexedDB keeps a handle by cloning it, which a fake cannot be cloned to do, so the two
   // stores that hold handles do not clone. The third is the real shape of one.
+  // No `tx`: the two stores that hold handles are only ever read and written a key at a time, so
+  // the `Kv` they are handed as has a member that nothing calls on them.
   const plainKv = () => {
     const m = new Map();
     return {
@@ -4172,7 +4260,7 @@ const memoryKv = () => {
       put: async (k, v) => void m.set(k, v),
       del: async (k) => void m.delete(k),
       keys: async (prefix) => [...m.keys()].filter((k) => k.startsWith(prefix)).sort(),
-    };
+    } as Kv & { m: Map<any, any> };
   };
   const newStores = () => ({ files: memoryKv(), roots: plainKv(), opened: plainKv() });
 
@@ -4218,11 +4306,19 @@ const memoryKv = () => {
     h.mtime += 1000;
   };
 
+  interface FakePort {
+    onmessage: ((e: { data: unknown }) => void) | null;
+    peer: FakePort | null;
+    closed: boolean;
+    postMessage(data: any): void;
+    close(): void;
+  }
   // A pair of ports that deliver what is posted, a turn later and in order, like a MessageChannel.
   // Everything is cloned on the way, as it would be, except the handle and the file a page hands
   // over: those are cloned by the browser, and a fake is not something a clone can be made of.
-  const ports = () => {
-    const end = () => ({ onmessage: null, peer: null, closed: false });
+  const ports = (): [FakePort, FakePort] => {
+    // The two methods are added in the loop below, once there are two ends to point at each other.
+    const end = () => ({ onmessage: null, peer: null, closed: false }) as FakePort;
     const [a, b] = [end(), end()];
     a.peer = b;
     b.peer = a;
@@ -4244,7 +4340,7 @@ const memoryKv = () => {
     const log = [];
     let hear;
     const stop = serveRpc({
-      session: { watch: () => () => log.push('unwatch') },
+      session: { watch: () => () => log.push('unwatch') } as unknown as Session,
       post: () => {},
       onMessage: (handler) => {
         hear = handler;
@@ -4265,7 +4361,11 @@ const memoryKv = () => {
     stop();
     assert.deepStrictEqual(log.slice(3), [], 'closing the connection is not a bye');
     // Without it, as every host before this one is served.
-    const quiet = serveRpc({ session: {}, post: () => {}, onMessage: (h) => h({ t: 'bye' }) });
+    const quiet = serveRpc({
+      session: {} as Session,
+      post: () => {},
+      onMessage: (h) => h({ t: 'bye' }),
+    });
     quiet();
     console.log('✓ serveRpc tells the host when a page says bye, after its watch has stopped');
   }
@@ -4325,7 +4425,13 @@ const memoryKv = () => {
       ],
       'the same folder granted twice, even at once, is one root',
     );
-    assert.strictEqual((await handles.addRoot(other)).rootId, 'root-2', 'another is another');
+    // `serial` in handles.ts is untyped, so addRoot is declared to resolve to nothing; it resolves
+    // to the root's record.
+    assert.strictEqual(
+      ((await handles.addRoot(other)) as unknown as { rootId: string }).rootId,
+      'root-2',
+      'another is another',
+    );
     assert.strictEqual(stores.roots.m.size, 2, 'and two are stored');
 
     assert.strictEqual(await handles.permission('root-1'), 'granted', 'a root says what it may');
@@ -4394,7 +4500,22 @@ const memoryKv = () => {
     hosts.push(host);
     return host;
   };
-  const pages = [];
+  // What `addDrop` takes. The drops here are plain objects with the members the reader reads, and
+  // some with fewer, to be refused: a `File` is not something a test can make by hand.
+  type DropFile = Parameters<WebBackend['addDrop']>[0];
+  /** A tab, as `openPage` builds it: `backend`, `watch` and `fire` are added once it exists. */
+  interface FakeWindow {
+    id: string | null;
+    win: EventTarget;
+    port: FakePort;
+    live: Array<{ on: boolean; why?: string }>;
+    events: any[];
+    asked: Array<{ name: string }>;
+    backend: WebBackend;
+    watch: () => ReturnType<WebBackend['watch']>;
+    fire: (type: string, init?: object) => boolean;
+  }
+  const pages: FakeWindow[] = [];
   /**
    * A tab: a backend on its own port into `host`, which shows whatever `shows` is. `kv` is what
    * the page reads, which is the host's stores; a host on stores of its own needs them passed.
@@ -4402,12 +4523,19 @@ const memoryKv = () => {
   const openPage = async (host, shows = null, kv = stores) => {
     const [mine, theirs] = ports();
     host.connect(theirs);
-    const page = { id: shows, win: new EventTarget(), port: mine, live: [], events: [], asked: [] };
+    const page = {
+      id: shows,
+      win: new EventTarget(),
+      port: mine,
+      live: [],
+      events: [],
+      asked: [],
+    } as FakeWindow;
     page.backend = await createWebBackend({
       docId: () => page.id,
-      connect: async () => ({ port: mine, onError() {} }),
+      connect: async () => ({ port: mine as unknown as Connection['port'], onError() {} }),
       stores: { roots: kv.roots, opened: kv.opened },
-      win: page.win,
+      win: page.win as unknown as typeof globalThis,
       pingMs: 60_000,
     });
     page.backend.onNeedsPermission((who) => page.asked.push(who));
@@ -4421,7 +4549,7 @@ const memoryKv = () => {
     return page;
   };
   const rejection = (p, name) =>
-    assert.rejects(p, (err) => err.name === name, `rejects with ${name}`);
+    assert.rejects(p, (err: Error) => err.name === name, `rejects with ${name}`);
 
   const host1 = startHost();
   const reader1 = await host1.reader;
@@ -4705,7 +4833,7 @@ const memoryKv = () => {
     assert.strictEqual(reader6.pathOf(x.id), `web:${arch.rootId}/x.md`, 'which then opens');
 
     // Not a permission: a file that is not there is still only an error.
-    await assert.rejects(page.backend.open(`web:${arch.rootId}/nope.md`), (err) => {
+    await assert.rejects(page.backend.open(`web:${arch.rootId}/nope.md`), (err: Error) => {
       return err.name !== 'NeedsPermission';
     });
     notes.state = 'granted';
@@ -4719,11 +4847,11 @@ const memoryKv = () => {
     const dropper = await openPage(host4);
     let text = '# Dropped\n\nFirst.\n';
     const file = { name: 'd.md', text: async () => text, lastModified: 1 };
-    const p = await dropper.backend.addDrop(file);
+    const p = await dropper.backend.addDrop(file as unknown as DropFile);
     assert.strictEqual(p, 'drop:d.md', 'a drop is a path of its own');
     const sneaky = { name: '../d.md', text: async () => '' };
-    await rejection(dropper.backend.addDrop(sneaky), 'BadRequest');
-    await rejection(dropper.backend.addDrop({ name: 'd.md' }), 'BadRequest');
+    await rejection(dropper.backend.addDrop(sneaky as unknown as DropFile), 'BadRequest');
+    await rejection(dropper.backend.addDrop({ name: 'd.md' } as unknown as DropFile), 'BadRequest');
     const opened = await dropper.backend.open(p);
     dropper.id = opened.id;
     const dropped = await dropper.backend.doc();
@@ -4734,7 +4862,7 @@ const memoryKv = () => {
     // Dropped again, the file changed: the same name, so the same document, and a change to follow.
     text = '# Dropped\n\nSecond.\n';
     const again = { ...file, text: async () => text, lastModified: 2 };
-    const next = await dropper.backend.addDrop(again);
+    const next = await dropper.backend.addDrop(again as unknown as DropFile);
     assert.strictEqual(next, p, 'the same name replaces what was dropped');
     await until(() => dropper.events.some((e) => e.type === 'change'), 'the new file to be read');
     console.log('✓ a dropped file opens as a document of its own, and a drop again replaces it');
@@ -4781,7 +4909,7 @@ const memoryKv = () => {
     // A drop is gone with the worker that had it: never the last, so the one before it stays.
     const dropper = await openPage(hostL, null, own);
     assert.strictEqual((await dropper.backend.doc()).id, two.id, 'a third bare page is given two');
-    const loose = { name: 'loose.md', text: async () => '# Loose\n', lastModified: 1 };
+    const loose = { name: 'loose.md', text: async () => '# Loose\n', lastModified: 1 } as DropFile;
     dropper.id = (await dropper.backend.open(await dropper.backend.addDrop(loose))).id;
     assert.strictEqual(await own.opened.get('last'), two.id, 'a drop is not the last');
 
@@ -4833,9 +4961,22 @@ const memoryKv = () => {
     const { LINK_NOTE } = await import('./src/hosts/web/backend.js');
     const { MD_LINK } = await import('./src/core/links.js');
 
+    // A file handle, and what is added to it after it is made: `isSameEntry` by `fileOf`, the rest
+    // by `grantable`.
+    interface FakeHandle {
+      kind: string;
+      name: string;
+      queryPermission: () => Promise<string>;
+      getFile: () => Promise<{ name: string; text: () => Promise<string>; lastModified: number }>;
+      isSameEntry?: (other: unknown) => Promise<boolean>;
+      requestPermission?: () => Promise<string>;
+      state?: string;
+      allow?: boolean;
+      asked?: number;
+    }
     // A file as a handle gives it, and readable only while it is granted.
     const fileOf = (n, text, state = () => 'granted') => {
-      const f = {
+      const f: FakeHandle = {
         kind: 'file',
         name: n,
         queryPermission: async () => state(),
@@ -4866,7 +5007,19 @@ const memoryKv = () => {
     // --- the welcome, through the real backend and worker ------------------------------------
     // The DOM it touches: elements, text, a class list on <html>, and a click that can be awaited.
     class El {
-      constructor(tag, owner) {
+      // The constructor sets these through Object.assign, which the checker cannot follow, so
+      // they are declared here, and `declare` so that nothing is emitted for them.
+      declare tag: string;
+      declare ownerDocument: any;
+      declare parent: El | null;
+      declare children: El[];
+      declare own: string;
+      declare attrs: Record<string, string>;
+      declare listeners: Record<string, Array<(e: object) => unknown>>;
+      declare hidden: boolean;
+      declare className: string;
+      declare clicks: number;
+      constructor(tag, owner?) {
         Object.assign(this, { tag, ownerDocument: owner, parent: null, children: [], own: '' });
         Object.assign(this, { attrs: {}, listeners: {}, hidden: false, className: '', clicks: 0 });
       }
@@ -4924,13 +5077,14 @@ const memoryKv = () => {
       all(root).find((e) => e.tag === 'button' && e.textContent === text);
     const status = (root) => named(root, 'welcome-status')[0];
 
+    type Wiring = { hidden?: boolean; hooks?: object };
     /**
      * A tab showing the welcome, with `extra` as what the browser has on `window`. `shows` is the
      * `?id=` it was loaded with, which the worker is told as the page connects. `wiring` is for a
      * page that has a document on screen: `hidden` starts the section hidden, as `#welcome` is
      * then, and `hooks` are the page's own, which a page without a document has no need of.
      */
-    const mount = async (host, extra, shows = null, wiring = {}) => {
+    const mount = async (host, extra, shows = null, wiring: Wiring = {}) => {
       const page = await openPage(host, shows);
       const doc = fakeDoc();
       const calls = { opened: [], ids: [], granted: 0, back: 0, persist: 0 };
@@ -4969,7 +5123,7 @@ const memoryKv = () => {
       return e;
     };
     const item = (give) => ({ kind: 'file', ...give });
-    const copy = (n, text) => ({ name: n, text, lastModified: 5 });
+    const copy = (n, text?) => ({ name: n, text, lastModified: 5 });
 
     const single = fileOf('single.md', '# Single\n\nOn its own.\n');
     const behave = { file: async () => [single] };
@@ -5303,13 +5457,14 @@ const memoryKv = () => {
       const { createOpenFiles, storageOf, OPEN_KEY } = await import(
         './src/hosts/web/open-files.js'
       );
+      // The two calls open-files makes of a Storage, and the Map behind them for a test to read.
       const store = () => {
         const m = new Map();
         return {
           m,
           getItem: (k) => (m.has(k) ? m.get(k) : null),
           setItem: (k, v) => void m.set(k, String(v)),
-        };
+        } as unknown as Storage & { m: Map<string, string> };
       };
       const entry = (id, rel) => ({
         id,
@@ -5382,7 +5537,7 @@ const memoryKv = () => {
           throw new Error('quota');
         },
       };
-      const mem = createOpenFiles({ tab: refusing, shared: null });
+      const mem = createOpenFiles({ tab: refusing as unknown as Storage, shared: null });
       assert.ok(mem.note(entry('7', 'g.md')), 'storage that refuses is not a reason to fail');
       assert.strictEqual(mem.list().length, 1, 'the list lasts as long as the page');
       const blocked = {
@@ -5489,7 +5644,7 @@ const memoryKv = () => {
       ['#notice', /\.notice\[hidden\]\s*\{\s*display: none;/],
       ['the git option', /\.seg label\[hidden\]\s*\{\s*display: none;/],
       ['the document', /\.markdown-body\[hidden\]\s*\{\s*display: none;/],
-    ]) {
+    ] as const) {
       assert.match(pageCss, rule, `${sel} has a [hidden] rule of its own`);
     }
 
@@ -5841,7 +5996,7 @@ const memoryKv = () => {
   stagePage(web, { host: 'web' });
   assert.ok(!fs.existsSync(path.join(web, 'stale.txt')), 'restaging empties the directory first');
   assert.throws(
-    () => stagePage(path.join(out, 'nowhere'), { host: 'nope' }),
+    () => stagePage(path.join(out, 'nowhere'), { host: 'nope' as unknown as HostName }),
     /no host called nope/,
     'and a host that is not one of them is an error, not an empty directory',
   );
@@ -5855,9 +6010,9 @@ const memoryKv = () => {
   // The guard is asked about the repository, and `stagePage` never is: were it ever to regress,
   // the test that called `stagePage('.')` would be what deleted the repository, .git and all.
   const repo = ROOT;
-  const refused = (dir, root) => assert.throws(
+  const refused = (dir, root?) => assert.throws(
     () => assertSafeDest(dir, root),
-    (err) => err.message.includes(dir) && /refusing to empty/.test(err.message),
+    (err: Error) => err.message.includes(dir) && /refusing to empty/.test(err.message),
     `${dir} is refused, by name`,
   );
   for (const dir of [
@@ -6015,6 +6170,7 @@ const memoryKv = () => {
     'the staged shim is what names it: this build, bundles and all');
   const joined = [];
   globalThis.SharedWorker = class {
+    declare port: object;
     constructor(url, opts) {
       joined.push({ url: String(url), opts });
       this.port = {};
@@ -6178,11 +6334,11 @@ const memoryKv = () => {
 
   // --- npm run webapp: the way a static host will serve it ------------------------------
   const server = createWebappServer(built);
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const site = `http://127.0.0.1:${server.address().port}`;
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  const site = `http://127.0.0.1:${portOf(server)}`;
   const rawPath = (p, srv = server) =>
     new Promise((resolve, reject) => {
-      http.get({ host: '127.0.0.1', port: srv.address().port, path: p }, (res) => {
+      http.get({ host: '127.0.0.1', port: portOf(srv), path: p }, (res) => {
         res.resume();
         resolve(res.statusCode);
       }).on('error', reject);
@@ -6240,10 +6396,10 @@ const memoryKv = () => {
   for (const [name, serve] of [
     ['webapp', () => createWebappServer(built)],
     ['site', () => createSiteServer()],
-  ]) {
+  ] as [string, () => http.Server][]) {
     const srv = serve();
-    await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-    const base = `http://127.0.0.1:${srv.address().port}`;
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+    const base = `http://127.0.0.1:${portOf(srv)}`;
     try {
       // `/%E0%A4%A` is half of a three-byte character and `/100%` is a bare `%`: neither
       // decodes. `//` is a protocol-relative URL with no host, which does not parse at all.
@@ -6330,7 +6486,7 @@ const memoryKv = () => {
     ...dirs.flatMap(files),
     'README.md',
     'CLAUDE.md',
-    'test-smoke.js',
+    'test-smoke.ts',
   ].filter((f) => fs.existsSync(here(f)) && plan.test(read(`./${f}`)));
   assert.deepStrictEqual(cited, [], 'nothing cites the plan, which only the author can read');
   console.log('✓ docs/web-app.md agrees with the code it describes, is linked, cites no plan');
@@ -6829,9 +6985,12 @@ console.log('✓ check for updates is wired from the menu to the settings sheet'
 // shows, and Cargo.toml is the crate. A mismatch is otherwise only noticed by
 // whoever downloads the result — or now, by a copy told it is out of date
 // against a version it already is.
-const pkgVersion = JSON.parse(fs.readFileSync(rootUrl('package.json'))).version;
+// (JSON.parse is handed a Buffer and reads its text; only its `string` parameter type objects.)
+const pkgVersion = JSON.parse(
+  fs.readFileSync(rootUrl('package.json')) as unknown as string,
+).version;
 const confVersion = JSON.parse(
-  fs.readFileSync(rootUrl('shell/tauri.conf.json')),
+  fs.readFileSync(rootUrl('shell/tauri.conf.json')) as unknown as string,
 ).version;
 const cargoVersion = fs
   .readFileSync(rootUrl('shell/Cargo.toml'), 'utf8')
@@ -6852,14 +7011,16 @@ assert.strictEqual(
   'LICENSE is the Apache 2.0 text, unaltered',
 );
 assert.match(String(fromRoot('NOTICE')), /^Redline\nCopyright 2026 Tuan Chau\n/, 'NOTICE');
-const pkgJson = JSON.parse(fromRoot('package.json'));
+const pkgJson = JSON.parse(fromRoot('package.json') as unknown as string);
 assert.strictEqual(pkgJson.license, 'Apache-2.0', 'package.json names the license');
 assert.match(
   String(fromRoot('shell/Cargo.toml')),
   /^license = "Apache-2.0"$/m,
   'and so does the crate',
 );
-const bundleConf = JSON.parse(fromRoot('shell/tauri.conf.json')).bundle;
+const bundleConf = JSON.parse(
+  fromRoot('shell/tauri.conf.json') as unknown as string,
+).bundle;
 assert.strictEqual(bundleConf.license, 'Apache-2.0', 'and the bundle');
 assert.strictEqual(bundleConf.copyright, 'Copyright 2026 Tuan Chau', 'with the copyright');
 // What goes into Contents/Resources: the license, the notice, and everyone
@@ -6911,7 +7072,7 @@ assert.match(String(fromRoot('public/vendor/sanitize.js')), /@license DOMPurify/
 // The bundle identifier. Everything the app remembers apart from the snapshot
 // store -- window.json, and the webview's storage under ~/Library/WebKit -- is
 // filed under it, so changing it would make an upgrade look like a fresh install.
-const shellConfig = JSON.parse(fromRoot('shell/tauri.conf.json'));
+const shellConfig = JSON.parse(fromRoot('shell/tauri.conf.json') as unknown as string);
 assert.strictEqual(shellConfig.identifier, 'com.redline.reader', 'the bundle identifier');
 console.log('✓ the license, the notices, and the bundle identifier');
 
