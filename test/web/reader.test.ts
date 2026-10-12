@@ -738,7 +738,7 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
   // for the browser is a DOM of only what the welcome touches, file handles, and the pickers.
   // Whether a real `showOpenFilePicker`, a real drop or a real `navigator.storage.persist()`
   // behaves as these do is for a person with a browser. (docs/web-app.md, Opening something)
-  await t.test('the web app keeps the files a tab has open, per tab, and what was closed', async (t) => {
+  await t.test('the welcome, through the real backend and the real worker', async (t) => {
     let fileOf, grantable, mount, single, hostW;
     const welcomeTsx = fs.readFileSync(rootUrl('public/app/ui/Welcome.tsx'), 'utf8');
     const { LINK_NOTE } = await import('../../src/hosts/web/backend.js');
@@ -1369,7 +1369,7 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
   // The page's wiring to the welcome and to caps (test #12).
   // The tests above prove the welcome works; none of them runs app.js, which needs a DOM. So the
   // seams are read: a welcome that is correct and unreachable would pass every one of them.
-  await t.test('the left column lists the files open in the web app, and is not in a CLI tab', async (t) => {
+  await t.test('the page\'s wiring to the welcome and to caps', async (t) => {
     await t.test('the page shows #welcome with no document or a lapsed grant, and hides git', async () => {
       const main = pageHtml.slice(pageHtml.indexOf('<main'), pageHtml.indexOf('</main>'));
       assert.match(
