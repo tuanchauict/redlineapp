@@ -1,7 +1,7 @@
 # Splitting the page into modules, with Preact — design
 
-Status: phase 1 (the build), the signal-backed `state` of phase 2, and two components of
-phase 4 are implemented: History (`preact-history`, merged) and Contents (`preact-toc`).
+Status: phase 1 (the build), the signal-backed `state` of phase 2, and three components of
+phase 4 are implemented: History and Contents (merged), and the change ruler (`preact-ruler`).
 
 ## Goal and decisions
 

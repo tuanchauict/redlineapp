@@ -81,8 +81,9 @@ public/host.js          a classic script, first in the head, empty here; a host'
                         (the web app's is `src/hosts/web/host.js`, put over this one by its build)
 public/index.html       the page: toolbar, two sidebars, document pane, Settings sheet
 public/app/             the whole client, as source: `main.ts` is the page, `state.ts` is what
-                        it knows (signals), `ui/` is the panels drawn by components (History
-                        and Contents, so far). Checked by `tsconfig.app.json` (`noEmit`, JSX for Preact),
+                        it knows (signals), `ui/` is the panels drawn by components (History,
+                        Contents and the change ruler, so far). Checked by `tsconfig.app.json`
+                        (`noEmit`, JSX for Preact),
                         and bundled by `build:web` into `app.js` beside it, which is the file
                         a page loads and is gitignored
 public/backend.ts       the seam: an http server, or the reader in the page. Compiled in place
@@ -401,8 +402,8 @@ into lines, and diff the lines.
 
 The page's source is the directory `public/app/`: `main.ts`, ~3.2k lines in commented
 sections (painting, the sidebars, tabs, change navigation, checked changes, find, settings,
-keys), and the modules that have left it so far: `state.ts`, `ui/History.tsx` and
-`ui/Contents.tsx`.
+keys), and the modules that have left it so far: `state.ts`, `ui/History.tsx`,
+`ui/Contents.tsx` and `ui/Ruler.tsx`.
 `build:web` bundles the directory into the one `public/app.js` that a page loads, so a module
 can leave `main.ts` without a new file for any host to serve: the bundle still imports exactly
 the renderer, DOMPurify, the backend and Mermaid, which `stage-page.mts` versions and the
@@ -421,8 +422,12 @@ only hands it the payload. Contents is the second, and shows where the line betw
 halves falls. `paintToc` stays in `main.ts`, because pairing each heading with its node has to
 happen after the document is written and before anything measures it, and it leaves the
 pairs in `state.toc`; the scroll spy only sets `state.tocAt`; `ui/Contents.tsx` draws the
-rows, lights the one at `tocAt` and scrolls it into view. Every other panel is still those `classList`, `hidden =` and
-`replaceChildren` calls over small builders. A component imports `state.ts` and never
+rows, lights the one at `tocAt` and scrolls it into view. The change ruler is split the same
+way: `paintRuler` measures and leaves finished bands in `rulerBands`, `highlightRulerCurrent`
+names the current node in `rulerCurrent`, and `ui/Ruler.tsx` places the marks, keyed by
+position so a repaint moves the elements on screen rather than replacing them, which is what
+lets a mark that stops being current fade. Every other panel is still those `classList`,
+`hidden =` and `replaceChildren` calls over small builders. A component imports `state.ts` and never
 `main.ts`, which is what lets a panel come out of it without a cycle: what a row *does* comes
 in as callbacks, from `main.ts`.
 
@@ -466,7 +471,8 @@ in as callbacks, from `main.ts`.
   lookup.
 - **The change ruler is measured, not derived.** Where a mark belongs on the
   scrollbar is a fact about layout, so `paintRuler` reads every marked node's rect
-  and maps it against `scrollHeight`. The things that move them — a diagram
+  and maps it against `scrollHeight`, and hands the bands to `ui/Ruler.tsx` to draw. The
+  things that move them — a diagram
   finishing, a font swapping, a window resizing, the sidebar being dragged — do so
   in bursts and long after paint, so a `ResizeObserver` over the article redraws it,
   coalesced to one a frame.

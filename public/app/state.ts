@@ -97,3 +97,27 @@ export const menuFor = signal<string | null>(null);
  * history under the list. That row and every row below it go grey, off `.ver.cutting ~ .ver`.
  */
 export const cutFrom = signal<string | null>(null);
+
+// The change ruler's own state. `paintRuler` in main.ts measures the document and leaves the
+// marks here; `highlightRulerCurrent` says which node is current. ui/Ruler.tsx draws both.
+
+/** One mark: a run of touching changes of one kind, already scaled to the track. */
+export interface RulerBand {
+  kind: string;
+  /** Checked off, which draws it quieter. */
+  ok: boolean;
+  top: number;
+  height: number;
+  /** The blocks it stands for, first one first: where a click lands, what a hover tints. */
+  nodes: HTMLElement[];
+}
+
+/** The marks, top to bottom. Empty when the ruler has nothing to draw, or nothing to scale to. */
+export const rulerBands = signal<RulerBand[]>([]);
+
+/**
+ * The change the ruler shows as current: the one under the pointer, or the one `n`/`p` last
+ * landed on. A node rather than an index, because a band is several nodes and any of them makes
+ * it current.
+ */
+export const rulerCurrent = signal<HTMLElement | null>(null);
