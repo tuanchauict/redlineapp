@@ -23,7 +23,7 @@ export function makePaths(sep: '/' | '\\'): Paths {
    * two spellings of one file would not fail loudly -- they would file one document under two
    * names.
    */
-  function join(...parts) {
+  function join(...parts: string[]) {
     const out = parts
       .filter((p) => p !== '' && p != null)
       .join(sep)
@@ -39,14 +39,14 @@ export function makePaths(sep: '/' | '\\'): Paths {
    * Not node's answer at the root of a drive: `C:\a` gives `C:` here, where node says `C:\`.
    * A caller that joins onto it gets the right path either way, which is all this is used for.
    */
-  function dirname(p) {
+  function dirname(p: string) {
     const at = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
     if (at < 0) return '.';
     if (at === 0) return sep; // '/x' -- the root, not the empty string
     return p.slice(0, at);
   }
 
-  function basename(p) {
+  function basename(p: string) {
     const at = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
     return at < 0 ? p : p.slice(at + 1);
   }
@@ -59,7 +59,7 @@ export function makePaths(sep: '/' | '\\'): Paths {
    * `.` and `..` and leaves everything else, which is what the store needs: it keys documents
    * on the answer, and two spellings of one file must not survive it.
    */
-  function resolve(p) {
+  function resolve(p: string) {
     if (!p) return p;
     const win = /^[a-zA-Z]:[/\\]/.test(p);
     const rooted = win || p.startsWith('/') || p.startsWith('\\');

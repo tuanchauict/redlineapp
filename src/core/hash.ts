@@ -16,8 +16,8 @@
 // and block-boundary cases that are the only places an implementation like this
 // tends to go wrong.
 
-const rotl = (x, n) => ((x << n) | (x >>> (32 - n))) >>> 0;
-const rotr = (x, n) => ((x >>> n) | (x << (32 - n))) >>> 0;
+const rotl = (x: number, n: number) => ((x << n) | (x >>> (32 - n))) >>> 0;
+const rotr = (x: number, n: number) => ((x >>> n) | (x << (32 - n))) >>> 0;
 
 // Node's Buffer, reached by name so that this file needs no node types: it is only used where
 // there is no TextEncoder, and the `src` project deliberately has none (tsconfig.src.json).
@@ -32,7 +32,7 @@ const utf8 = (text: string): Uint8Array =>
  * Append the 1 bit, the zero padding and the 64-bit big-endian bit length that
  * both of these hashes agree on, and return a view for reading words back out.
  */
-function padded(bytes) {
+function padded(bytes: Uint8Array) {
   const len = bytes.length;
   // Room for the 0x80 byte and the eight length bytes, rounded up to a block.
   const blocks = new Uint8Array((((len + 9 + 63) >> 6) << 6));
@@ -47,7 +47,7 @@ function padded(bytes) {
   return { blocks, view };
 }
 
-const hex = (words) => words.map((w) => (w >>> 0).toString(16).padStart(8, '0')).join('');
+const hex = (words: number[]) => words.map((w) => (w >>> 0).toString(16).padStart(8, '0')).join('');
 
 const K256 = [
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
