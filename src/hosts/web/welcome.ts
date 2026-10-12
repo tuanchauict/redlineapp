@@ -20,9 +20,12 @@
 // It is also where a lapsed permission is asked for again, because the button for it has to be
 // somewhere a click can reach and the welcome is where the page already is when nothing opened.
 //
-// The page owns *whether* it is showing -- it hides the document and un-hides this -- and this
-// owns what is inside. DOM is built with `createElement` and `textContent`, never `innerHTML`:
-// a file name is the user's, and is not to be trusted with markup.
+// The page owns *whether* it is showing, and what it looks like: public/app/ui/Welcome.tsx draws
+// it, with the `<input type="file">` that stands in for a picker. This owns the doors -- the
+// picker, the drop, the copy and the grant asked for again -- and what the welcome has to say
+// about them, which it hands the page as a `WelcomeView` each time that changes. Not a signal:
+// this is the backend's bundle and the page is another, and a signal from one copy of the
+// library is not tracked by the other's components.
 import { MD_LINK } from '../../core/links.js';
 import { webPath } from './handles.js';
 
@@ -41,35 +44,6 @@ type PickerWindow = typeof globalThis & {
   }) => Promise<FileSystemFileHandle[]>;
 };
 
-/** Where the Mac app is to be had: the landing page's download, which follows each release. */
-export const MAC_APP_URL = 'https://redline.iamtuna.org/#get';
-
-/**
- * A DOM element with its properties, attributes and children, without a framework. `props` is a
- * bag of `any` because of the loop, not the call sites: it sets every key but `attrs` and `on`
- * onto the element by name, which no type can follow. The call sites could be typed later, at the
- * cost of a few casts in the loop, and the casts erase.
- */
-function h<K extends keyof HTMLElementTagNameMap>(
-  doc: Document,
-  tag: K,
-  props: Record<string, any> = {},
-  ...kids: (Node | string)[]
-): HTMLElementTagNameMap[K] {
-  const el = doc.createElement(tag);
-  for (const [k, v] of Object.entries(props)) {
-    // `v` is `any`, and `Object.entries` of an `any` gives `unknown` values, which `setAttribute`
-    // and `addEventListener` will not take: hence the type arguments. `v` is only assigned in the
-    // last branch, so the element is cast to a record of `unknown`.
-    if (k === 'attrs') for (const [a, val] of Object.entries<string>(v)) el.setAttribute(a, val);
-    else if (k === 'on')
-      for (const [ev, fn] of Object.entries<EventListener>(v)) el.addEventListener(ev, fn);
-    else (el as Record<string, unknown>)[k] = v;
-  }
-  el.append(...kids);
-  return el;
-}
-
 const MARKDOWN_TYPES = [
   {
     description: 'Markdown and text',
@@ -84,6 +58,24 @@ const NOT_MARKDOWN =
 const NOT_A_FOLDER =
   'The web app opens files, not folders: drop a markdown file, or open the folder in the Mac app.';
 
+/** What the welcome says, for the page to draw. */
+export interface WelcomeView {
+  /**
+   * Whether this browser has a file picker, and so keeps a link to a file rather than a copy.
+   * Without one the page's `<input type="file">` is the button, and the welcome says what a copy
+   * is.
+   */
+  canFile: boolean;
+  /** A pick, a drop or a grant is under way, and another is not taken until it is done. */
+  busy: boolean;
+  /** About the last attempt, or '' for nothing to say. */
+  status: string;
+  /** The file to offer to ask for again, or null. */
+  reopen: string | null;
+  /** Whether there is a document to go back to. */
+  back: boolean;
+}
+
 export interface WelcomeDeps {
   backend: {
     addRoot(handle: FileSystemHandle): Promise<{ rootId: string }>;
@@ -94,8 +86,10 @@ export interface WelcomeDeps {
   open: (path: string) => Promise<boolean>;
   /** `reopen` was granted: load again, or open the file that was refused. */
   granted: () => Promise<void>;
-  /** Leave the welcome for the document that is still on screen. */
-  back: () => void;
+  /** What the welcome says has changed. Called once at the start, with what it says first. */
+  show: (view: WelcomeView) => void;
+  /** Whether the welcome is on screen, which is the page's to know. */
+  showing: () => boolean;
   /**
    * Say something where the user is looking. What the welcome has to say while it is hidden -- a
    * drop refused, onto a document -- goes here, since revealing it for that would take the user
@@ -108,35 +102,53 @@ export interface WelcomeDeps {
 }
 
 export interface Welcome {
+  /** As in `WelcomeView`: whether `pickFile` has a picker to call. */
+  canFile: boolean;
   sync(state?: { reopen?: string | null; back?: boolean }): void;
-  pickFile: () => void;
+  /**
+   * The browser's file picker. Only where there is one (`canFile`); elsewhere the page's input is
+   * the picker and hands what it was given to `openCopy`.
+   */
+  pickFile(): Promise<void>;
+  /** A file the page's `<input type="file">` was given: a copy. */
+  openCopy(file: File): Promise<void>;
+  /** Ask for the lapsed file again. From the click on the button, and nothing awaited before. */
+  reopen(): Promise<void>;
 }
 
-/** Fill `el` -- the `#welcome` section, emptied -- and listen for drops. */
-export function mountWelcome(
-  el: HTMLElement,
-  { backend, open, granted, back, notify = null, win = globalThis, doc }: WelcomeDeps,
-): Welcome {
-  doc ??= el.ownerDocument ?? win.document;
+/** Listen for drops, and answer for the ways in the page draws. */
+export function mountWelcome({
+  backend,
+  open,
+  granted,
+  show,
+  showing,
+  notify = null,
+  win = globalThis,
+  doc,
+}: WelcomeDeps): Welcome {
+  doc ??= win.document;
   const canFile = typeof win.showOpenFilePicker === 'function';
 
-  let busy = false;
+  // What it says, and the one way it changes: a new object handed to `show` each time, so the
+  // page never holds the one this goes on to replace.
+  let view: WelcomeView = { canFile, busy: false, status: '', reopen: null, back: false };
+  const set = (patch: Partial<WelcomeView>) => {
+    view = { ...view, ...patch };
+    show(view);
+  };
+  show(view);
+
   // `navigator.storage.persist()` is a request the browser answers from how much it has been
   // used, and Firefox asks the user, which it may do only for a click. A pick is the first click
   // that matters and the page is the place for it. Once: the answer does not change by asking.
   let persisted = false;
 
-  const status = h(doc, 'p', {
-    className: 'welcome-status',
-    hidden: true,
-    attrs: { role: 'status' },
-  });
   const say = (text: string) => {
-    // The status line is inside the section, so while that is hidden nobody can read it: a drop
-    // onto a page with a document open that cannot be opened would otherwise say nothing at all.
-    if (text && el.hidden && notify) return notify(text);
-    status.textContent = text ?? '';
-    status.hidden = !text;
+    // While the welcome is hidden nobody can read what it says: a drop onto a page with a
+    // document open that cannot be opened would otherwise say nothing at all.
+    if (text && !showing() && notify) return notify(text);
+    set({ status: text ?? '' });
   };
 
   /**
@@ -144,16 +156,14 @@ export function mountWelcome(
    * awaits anything, so a picker is still called inside the click that asked for it.
    */
   async function run(fn: () => void | Promise<void>) {
-    if (busy) return;
-    busy = true;
-    el.setAttribute('aria-busy', 'true');
+    if (view.busy) return;
+    set({ busy: true });
     try {
       await fn();
     } catch (err) {
       if (err?.name !== 'AbortError') say(`Could not open that: ${err?.message ?? err}`);
     } finally {
-      busy = false;
-      el.removeAttribute('aria-busy');
+      set({ busy: false });
     }
   }
 
@@ -183,119 +193,6 @@ export function mountWelcome(
     if (!MD_LINK.test(file.name)) return say(NOT_MARKDOWN);
     await openPath(await backend.addDrop(file));
   }
-
-  // --- the buttons ---------------------------------------------------------------------
-
-  // Where a browser has no picker, an `<input type="file">` is the same button; what it hands
-  // back is a copy, not a handle.
-  const input = h(doc, 'input', {
-    type: 'file',
-    hidden: true,
-    accept: '.md,.markdown,.mdown,.mkd,.mdx,.txt',
-    on: {
-      change: () => {
-        const file = input.files?.[0];
-        input.value = '';
-        if (file) run(() => openCopy(file));
-      },
-    },
-  });
-  // Called inside a click or a key, as a picker has to be: `run` calls it before it awaits.
-  const pickFile = () =>
-    canFile
-      ? run(async () => {
-          const [handle] = await win.showOpenFilePicker({
-            types: MARKDOWN_TYPES,
-            excludeAcceptAllOption: true,
-          });
-          await openHandle(handle);
-        })
-      : input.click();
-  const fileBtn = h(doc, 'button', {
-    type: 'button',
-    className: 'welcome-primary',
-    textContent: 'Open file…',
-    on: { click: pickFile },
-  });
-
-  // --- a grant that lapsed -----------------------------------------------------------------
-
-  const reopenText = h(doc, 'p', { className: 'welcome-reopen-text' });
-  let reopenName: string | null = null;
-  const reopenBtn = h(doc, 'button', {
-    type: 'button',
-    className: 'welcome-primary',
-    on: {
-      click: () =>
-        // Nothing awaited before `reopen`: `requestPermission` is refused without a gesture.
-        run(async () => {
-          say('');
-          if (!(await backend.reopen())) return say(`Redline was not given ${reopenName}.`);
-          await granted();
-          afterOpen();
-        }),
-    },
-  });
-  const reopenBox = h(
-    doc,
-    'div',
-    { className: 'welcome-reopen', hidden: true },
-    reopenText,
-    reopenBtn,
-  );
-
-  const backBtn = h(doc, 'button', {
-    type: 'button',
-    className: 'welcome-secondary',
-    textContent: 'Back to the document',
-    hidden: true,
-    on: { click: () => back() },
-  });
-
-  // --- what it says ----------------------------------------------------------------------
-
-  // A browser that can keep a file is told nothing more about it here: what it cannot do is the
-  // web app's, and said once, below. One that can only take a copy is told what a copy is.
-  const copyHint = canFile
-    ? null
-    : h(doc, 'p', {
-        className: 'welcome-hint',
-        textContent:
-          'This browser cannot keep a link to files on your disk, so Redline reads a copy of ' +
-          'each file you give it, and will not follow later edits. A file with the same name ' +
-          'as one you gave before continues its history.',
-      });
-  // Said before anyone looks for it: the things a person coming from the Mac app reaches for
-  // first, and where to get them. In a new tab, so that the way out is not a way off the page.
-  const limits = h(
-    doc,
-    'p',
-    { className: 'welcome-hint welcome-limits' },
-    'In a browser, Redline reads one file at a time: its links to other files do not open, ' +
-      'and there is no git or PlantUML. ',
-    h(doc, 'a', {
-      href: MAC_APP_URL,
-      target: '_blank',
-      rel: 'noopener',
-      textContent: 'Get the Mac app',
-    }),
-    ' for all of it.',
-  );
-
-  el.replaceChildren(
-    h(doc, 'h1', { className: 'welcome-title', textContent: 'Redline' }),
-    h(doc, 'p', {
-      className: 'welcome-lede',
-      textContent: 'Read a markdown file, and see what changed in it since you last did.',
-    }),
-    reopenBox,
-    h(doc, 'div', { className: 'welcome-actions' }, fileBtn, backBtn),
-    input,
-    h(doc, 'p', { className: 'welcome-hint', textContent: 'Or drop a markdown file.' }),
-    ...(copyHint ? [copyHint] : []),
-    status,
-    limits,
-  );
 
   // --- drops ------------------------------------------------------------------------------
 
@@ -345,28 +242,43 @@ export function mountWelcome(
   });
 
   return {
+    canFile,
+
     /**
      * What the page knows that the welcome does not: whether to ask again, or go back. The page
      * calls it only when that changed -- a load, a watch and a listener can all report one lapsed
      * grant, and a repeat must not wipe the message the click on its button earned.
      */
-    sync({ reopen = null, back: canGoBack = false } = {}) {
-      reopenName = reopen;
-      reopenBox.hidden = !reopen;
-      if (reopen) {
-        reopenText.textContent = `Redline needs your permission to read ${reopen} again.`;
-        reopenBtn.textContent = `Reopen ${reopen}`;
-      }
-      backBtn.hidden = !canGoBack;
+    sync({ reopen = null, back = false } = {}) {
       // A message about the last attempt is not about this one.
-      say('');
+      set({ reopen, back, status: '' });
     },
 
     /**
-     * The browser's file picker, straight from a click or ⌘O on a document, and not the welcome:
-     * a document open is one the user is reading, and what they asked for is another file.
-     * What it has to say goes to `notify` while the welcome is hidden, as a drop's does.
+     * Called inside a click or a key, as a picker has to be: `run` calls it before it awaits.
+     * Straight from a click or ⌘O on a document too, and not the welcome: a document open is one
+     * the user is reading, and what they asked for is another file. What it has to say goes to
+     * `notify` while the welcome is hidden, as a drop's does.
      */
-    pickFile,
+    pickFile: () =>
+      run(async () => {
+        const [handle] = await win.showOpenFilePicker({
+          types: MARKDOWN_TYPES,
+          excludeAcceptAllOption: true,
+        });
+        await openHandle(handle);
+      }),
+
+    openCopy: (file) => run(() => openCopy(file)),
+
+    reopen: () =>
+      // Nothing awaited before `reopen`: `requestPermission` is refused without a gesture.
+      run(async () => {
+        const name = view.reopen;
+        say('');
+        if (!(await backend.reopen())) return say(`Redline was not given ${name}.`);
+        await granted();
+        afterOpen();
+      }),
   };
 }

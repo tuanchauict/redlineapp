@@ -11,6 +11,7 @@
 // it. Nothing here imports the rest of the page, so every module can import this.
 import { signal } from '@preact/signals';
 import type { Heading } from '../../src/core/render.js';
+import type { WelcomeView } from '../../src/hosts/web/welcome.js';
 
 // Where preferences live. A host that has no usable localStorage (a VS Code webview's is
 // per-panel and not kept) fills this in synchronously from host.js; the head script in
@@ -162,3 +163,64 @@ export const findOpen = signal(false);
 export const shut = signal(
   ['files', 'toc', 'hist'].filter((k) => document.documentElement.classList.contains(`shut-${k}`)),
 );
+
+// The Settings sheet's own state. main.ts keeps the settings themselves -- it is what applies
+// them to the window, stores them and hears them changed in another window -- and leaves here
+// what the sheet shows of them. ui/Settings.tsx draws it.
+
+/** What a setting can be. `DEFAULT_SETTINGS` in main.ts says what each one starts as. */
+export interface Settings {
+  appearance: string;
+  reopenLast: boolean;
+  finderOpensIn: string;
+  font: string;
+  fontName: string;
+  textSize: number;
+  width: string;
+  marks: boolean;
+  baseline: string;
+}
+
+/** The settings as `applySettings` last applied them. */
+export const shownSettings = signal<Settings | null>(null);
+
+/**
+ * How wide a line of the document is, as `--doc-width` reads after `applySettings` set a width.
+ * Measured, so that what the sheet says a width is can never drift from what the document is.
+ */
+export const docMeasure = signal('');
+
+/**
+ * The typefaces on offer beyond the three built in, as `listFonts` found them: groups of names,
+ * labelled. Empty until it has looked, which takes a third of a second on a Mac.
+ */
+export const fontGroups = signal<[string, string[]][]>([]);
+
+/**
+ * Whether the sheet is up. Null while it is shut; otherwise the id of a section to bring into
+ * view, or '' for none. The sheet clears the id once it has scrolled, so asking twice scrolls
+ * twice.
+ */
+export const prefsOpen = signal<string | null>(null);
+
+/** Where the versions are kept on disk, which the desktop app says once it is asked. */
+export const storeRoot = signal('');
+
+/**
+ * The last check for a newer copy, as `checkUpdate` left it: what to say, whether it is still
+ * asking, and, when there is something to do about it, the command or file and the button's word
+ * for doing it. Null until somebody asks.
+ */
+export const update = signal<{
+  note: string;
+  checking?: boolean;
+  cmd?: string;
+  go?: 'Copy' | 'Download' | null;
+} | null>(null);
+
+/**
+ * What the web app's welcome says, as its backend last handed it over: whether there is a picker,
+ * what the last attempt came to, and whether to ask again or offer the way back. Null in every
+ * other host, which has no welcome. ui/Welcome.tsx draws it.
+ */
+export const welcomeView = signal<WelcomeView | null>(null);
