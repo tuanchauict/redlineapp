@@ -4,6 +4,6 @@
     "types": ["node"],
     "tsBuildInfoFile": "out/tsconfig.node.tsbuildinfo"
   },
-  "include": ["src/hosts/node", "bin", "scripts", "test-smoke.ts"],
+  "include": ["src/hosts/node", "bin", "scripts", "test", "test-smoke.ts"],
   "references": [{ "path": "./tsconfig.src.json" }]
 }
