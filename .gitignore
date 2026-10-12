@@ -7,6 +7,10 @@ out/
 # script that needs it builds it first.
 public/vendor/
 
+# Compiled beside their sources by tsconfig.page.json, because the URLs the page is loaded by
+# (backend.js, app.js, landing.js) are those names. public/host.js is hand-written and tracked.
+public/backend.js
+
 # Copied into the landing page by scripts/build-site.mts, from assets/.
 # Generated rather than committed for the same reason: they are bytes this
 # repository already has, and a second copy is a second thing to remember to

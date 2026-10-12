@@ -239,7 +239,8 @@ export function stagePage(dest: string, { host }: { host: HostName }): StagedPag
   );
   fs.cpSync(path.join(ROOT, 'public'), out, {
     recursive: true,
-    filter: (src) => !others.has(path.basename(src)),
+    // The page's sources sit beside what they compile to; only the compiled file ships.
+    filter: (src) => !others.has(path.basename(src)) && !src.endsWith('.ts'),
   });
   for (const [to, from] of Object.entries(FILES)) {
     fs.mkdirSync(path.join(out, path.dirname(to)), { recursive: true });

@@ -561,6 +561,8 @@ for (const [file, sig] of [
   ['src/hosts/node/platform.ts', /: Platform = /],
   ['src/hosts/tauri/platform.ts', /: Platform = /],
   ['src/hosts/web/platform.ts', /\): Platform\b/],
+  ['public/backend.ts', /\): Promise<PageBackend>/],
+  ['public/backend.ts', /\): Backend\b/],
 ]) {
   const text = fs.readFileSync(fileURLToPath(rootUrl(file)), 'utf8');
   assert.match(text, sig, `${file} names the type it implements`);
@@ -642,12 +644,30 @@ console.log('✓ the contract is wired into every host, and can fail');
     'and keeps the .d.ts that composite forces out of public/ and site/');
   assert.deepStrictEqual(page.compilerOptions.rootDirs, ['public', 'types'],
     'rootDirs is what resolves ./vendor/*.js to the shims');
+  // rootDirs tries the path as written first, and with allowJs the built bundle in public/vendor/
+  // answers it, so once build:web has run the shim is never reached and tsc compiles the bundle.
+  assert.strictEqual(page.compilerOptions.allowJs, false,
+    'and allowJs is off, or the built bundle in public/vendor/ shadows the shim');
   assert.ok(
     JSON.parse(text('tsconfig.json')).references.some((r) => r.path === './tsconfig.page.json'),
     'tsc -b builds it',
   );
 }
 console.log('✓ the page project has its shims, and each names the bundle it stands for');
+
+// A page source with no compiled sibling means the page project compiled nothing, which is a
+// thing tsc will do without a word (see docs/typescript.md). `pretest` runs the compile, so
+// the sibling is there whenever the project works.
+for (const dir of ['public', 'site']) {
+  const names = fs.readdirSync(fileURLToPath(rootUrl(`${dir}/`)));
+  for (const f of names.filter((n) => n.endsWith('.ts'))) {
+    assert.ok(
+      fs.existsSync(fileURLToPath(rootUrl(`${dir}/${f.replace(/\.ts$/, '.js')}`))),
+      `${dir}/${f} has been compiled in place`,
+    );
+  }
+}
+console.log('✓ every page source has been compiled in place');
 
 // core/paths.js agrees with node:path on the cases it claims. Not claimed: a trailing
 // separator on dirname, and the root of a drive (`C:\a` has dirname `C:`, node says `C:\`).
@@ -3296,7 +3316,7 @@ sixth.server.close();
   for (const [f, through] of [
     ['./src/rpc/client.ts', /markRead: \(at\) => call(?:<\w+>)?\('markRead', docId\(\), at\),/],
     ['./src/hosts/tauri/backend.ts', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
-    ['./public/backend.js', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
+    ['./public/backend.ts', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
     ['./src/hosts/web/worker.ts', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
   ]) {
     assert.match(fs.readFileSync(rootUrl(f), 'utf8'), through, `${f} passes the version on`);
@@ -5285,7 +5305,7 @@ const memoryKv = () => {
 
   // --- wired up ------------------------------------------------------------------------
   const read = (f) => fs.readFileSync(rootUrl(f), 'utf8');
-  const pageBackend = read('./public/backend.js');
+  const pageBackend = read('./public/backend.ts');
   assert.ok(
     pageBackend.indexOf('__REDLINE_HOST') < pageBackend.indexOf('__REDLINE_WEB') &&
       /__REDLINE_WEB\)[\s\S]*?import\('\.\/vendor\/backend-web\.js'\)/.test(pageBackend),
@@ -5440,7 +5460,7 @@ const memoryKv = () => {
     assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");
     assert.ok(
       /welcome: \(el, hooks\)/.test(backendSrc) &&
-        ['./src/hosts/tauri/backend.ts', './public/backend.js', './src/rpc/client.ts'].every(
+        ['./src/hosts/tauri/backend.ts', './public/backend.ts', './src/rpc/client.ts'].every(
           (f) => !/welcome|linkNote/.test(read(f)),
         ),
       'only the web backend has a welcome, so the page never shows one in a shell or a server',
