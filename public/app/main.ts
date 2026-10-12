@@ -25,7 +25,6 @@ import {
   shut,
   shownSettings,
   docMeasure,
-  fontGroups,
   prefsOpen,
   storeRoot,
   update,
@@ -41,17 +40,13 @@ import { mountChanges } from './ui/Changes.js';
 import { bindChrome } from './ui/chrome.js';
 import { mountWelcome } from './ui/Welcome.js';
 import { mountSettings, cleanFontName, SIZE_MIN, SIZE_MAX } from './ui/Settings.js';
-// Nothing here names the type: the import is for native.ts's own `declare global`, which types
-// `window.mdNative` from what `installNative` leaves, so the page's calls on the shell are
-// checked against what the Tauri host provides. tsc drops it from the emitted file.
-import type { MdNative } from '../../src/hosts/tauri/native.js';
+import { $, doc, pane } from './dom.js';
+import { applyWidths } from './layout/widths.js';
+import './layout/toc-height.js';
+import { bindKeys } from './layout/keys.js';
+import { native, firstTabShown, bindNative } from './layout/native.js';
+import { listFonts } from './layout/fonts.js';
 
-// Every id is in index.html, so the element is there, and the caller is the one that knows
-// which kind it is: `$<HTMLInputElement>('findInput')`.
-const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
-const doc = $('doc');
-// The scroll area is the document pane, not the page — see `main` in the CSS.
-const pane = document.querySelector('main');
 const darkMode = matchMedia('(prefers-color-scheme: dark)');
 
 // The scheme and the tint are both the page's to say, as `data-scheme` and
@@ -604,233 +599,8 @@ function setTocSide(on, remember = true) {
   }
 }
 
-// ---------- sidebar widths ----------
-
-// A column that holds a path over a filename, a commit subject, and a heading
-// indented three levels cannot be one width for every document — 236px is
-// where it starts, not what it is. So each inner edge is something to pull,
-// and where it is pulled to is remembered: it is the kind of thing you set
-// once. The two are remembered separately, because a file list and a contents
-// list are not the same shape.
-//
-// Kept in localStorage rather than in Settings, alongside whether either
-// column is open at all: all four are facts about this window's furniture
-// rather than about how a document should read, and none is worth a row in a
-// panel.
-
-const SIDE_W_KEY = 'redline:sidew';
-const TOC_W_KEY = 'redline:tocw';
-const SIDE_W_DEFAULT = 236;
-const SIDE_W_MIN = 150;
-const SIDE_W_MAX = 560;
-/** What the document keeps of the window, whatever the columns were left at. */
-const DOC_W_MIN = 320;
-
-const clampSideW = (w) =>
-  Math.round(Math.min(Math.max(w || SIDE_W_DEFAULT, SIDE_W_MIN), SIDE_W_MAX));
-
-/** What an edge was left at, before the window has had its say. */
-const storedW = (key) => clampSideW(Number(prefs.getItem(key)));
-
-/**
- * The two widths a window this size can actually give them.
- *
- * Each column is clamped on its own first, by `storedW`; this is the clamp
- * they need as a pair, because two columns that are each perfectly reasonable
- * can still leave no document between them. Contents gives way first — the
- * prose and the files you are moving between are worth more of a narrow window
- * than the map of one of them — and neither goes below `SIDE_W_MIN`, since a
- * column narrower than that is not a column; past that point the document is
- * what gives, and the reader can close one.
- *
- * This is mirrored by the inline script in index.html, which has to arrive at
- * the same two numbers before this file has been fetched. Change one and you
- * must change the other, or opening the window is a visible correction.
- */
-function fitWidths(side, toc, width = innerWidth) {
-  const room = Math.max(0, width - DOC_W_MIN);
-  if (side + toc > room && toc) toc = Math.max(SIDE_W_MIN, room - side);
-  if (side + toc > room && side) side = Math.max(SIDE_W_MIN, room - toc);
-  return [side, toc];
-}
-
-/**
- * Put both widths on the root, from what they were left at and what the window
- * can spare. Nothing is written back to storage: a narrow window squeezing a
- * column is the window's doing, and must not overwrite the width that was
- * actually chosen.
- */
-function applyWidths() {
-  const want = [storedW(SIDE_W_KEY), storedW(TOC_W_KEY)];
-  const fit = fitWidths(state.side ? want[0] : 0, state.tocSide ? want[1] : 0);
-  const root = document.documentElement.style;
-  // A closed column keeps its chosen width in the variable rather than going
-  // to zero. Nothing lays it out while it is closed, and the squeeze is only
-  // meaningful between columns that are both on screen.
-  root.setProperty('--side-w', `${state.side ? fit[0] : want[0]}px`);
-  root.setProperty('--toc-w', `${state.tocSide ? fit[1] : want[1]}px`);
-}
-
-/**
- * Make one column's inner edge draggable.
- *
- * `sign` is which way the pointer moves it: the left column grows as the
- * pointer goes right, the right column grows as it goes left. Everything else
- * about the two is identical, and a second copy of it would be a second place
- * to forget the pointer capture.
- */
-function wireGrip(grip, key, sign) {
-  const setW = (w) => {
-    prefs.setItem(key, String(clampSideW(w)));
-    applyWidths();
-  };
-
-  grip.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault(); // a drag from here is not a text selection
-    // Captured, so the pointer leaving the 7px strip — which it does
-    // immediately — does not end the drag, and so the release is heard
-    // wherever it happens.
-    grip.setPointerCapture(e.pointerId);
-    grip.classList.add('dragging');
-    document.documentElement.classList.add('resizing');
-
-    // Measured from where the edge actually is rather than from the stored
-    // width, so a column the window is currently squeezing does not jump to
-    // its full size on the first pixel of the drag.
-    const edge = grip.getBoundingClientRect().left + 3;
-    const was = sign > 0 ? edge : innerWidth - edge;
-    const move = (ev) => setW(was + sign * (ev.clientX - e.clientX));
-    const done = () => {
-      grip.removeEventListener('pointermove', move);
-      grip.classList.remove('dragging');
-      document.documentElement.classList.remove('resizing');
-    };
-    grip.addEventListener('pointermove', move);
-    grip.addEventListener('pointerup', done, { once: true });
-    grip.addEventListener('pointercancel', done, { once: true });
-  });
-
-  // The way back, and the convention for a divider: a double-click on the edge
-  // puts it where it started.
-  grip.addEventListener('dblclick', () => setW(SIDE_W_DEFAULT));
-
-  // Reachable without a pointer. The keys are taken here rather than left to
-  // the page's own handler, which reads them as scrolling the document.
-  grip.addEventListener('keydown', (e) => {
-    const step = { ArrowLeft: -16, ArrowRight: 16 }[e.key];
-    const end = { Home: -Infinity, End: Infinity }[e.key];
-    if (step === undefined && end === undefined) return;
-    e.preventDefault();
-    e.stopPropagation();
-    // The arrows follow the edge, so which key widens depends on which edge
-    // this is. Home and End are the ends of the range, which are the same two
-    // ends either way round.
-    setW(end ?? storedW(key) + step * sign);
-  });
-}
-
-wireGrip($('sideGrip'), SIDE_W_KEY, 1);
-wireGrip($('tocGrip'), TOC_W_KEY, -1);
-
-// A window narrowed past what the columns were left at gives the document its
-// room back, and takes none of it permanently: the chosen widths are what
-// return when there is room for them again.
-addEventListener('resize', applyWidths);
-applyWidths();
-
-// ---------- contents height ----------
-
-// Where History starts, under Contents, is something to drag too — the
-// same deal as the two widths above, turned on its side. 180px is a default
-// that was chosen rather than derived: enough headings to place a document's
-// shape without a fold, because a reader who wants Contents open all the
-// time should not have it start out cramped. Kept as a height rather than a
-// share of the column, because a percentage fought the grip on every resize
-// and settled back to the same crowded fraction the moment the window moved.
-
-const TOC_H_KEY = 'redline:toch';
-const TOC_H_DEFAULT = 180;
-const TOC_H_MIN = 90;
-/** What History needs to still read as a list rather than a sliver under it. */
-const HIST_H_MIN = 110;
-
-/**
- * 34px on the web, 38 in the native window, where the titlebar is taller to
- * hold the traffic lights. Mirrors `--bar-h` in styles.css — the two have to
- * agree, the same deal as the widths below.
- */
-const barH = () => (document.documentElement.classList.contains('native') ? 38 : 34);
-
-// The column's own padding (6px top and bottom) and the grip between the two
-// sections (its own 9px, plus the 2px gap either side of it) are spoken for
-// before either section sees a pixel of what is left.
-const TOC_H_CHROME = 12 + 13;
-
-const storedTocH = () => Number(prefs.getItem(TOC_H_KEY)) || TOC_H_DEFAULT;
-
-/**
- * The most Contents can be given and still leave History its minimum — the
- * column's actual height in this window, less the chrome above, less
- * `HIST_H_MIN`. Mirrored by the inline script in index.html for the same
- * reason as `fitWidths`.
- */
-const tocHMax = (height = innerHeight) =>
-  Math.max(TOC_H_MIN, height - barH() - TOC_H_CHROME - HIST_H_MIN);
-
-const clampTocH = (h, max = tocHMax()) =>
-  Math.round(Math.min(Math.max(h || TOC_H_DEFAULT, TOC_H_MIN), max));
-
-/** Put the height on the root, from what it was left at and what the window can spare. */
-function applyTocH() {
-  document.documentElement.style.setProperty('--toc-h', `${clampTocH(storedTocH())}px`);
-}
-
-/** Make the seam between Contents and History draggable, the way `wireGrip` does. */
-function wireTocGrip(grip) {
-  const setH = (h) => {
-    prefs.setItem(TOC_H_KEY, String(clampTocH(h)));
-    applyTocH();
-  };
-
-  grip.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    grip.setPointerCapture(e.pointerId);
-    grip.classList.add('dragging');
-    document.documentElement.classList.add('resizing-v');
-
-    // Measured from the section's actual height rather than the stored one, so
-    // a column the window is currently squeezing does not jump to its full
-    // size on the first pixel of the drag.
-    const was = $('tocSec').getBoundingClientRect().height;
-    const move = (ev) => setH(was + (ev.clientY - e.clientY));
-    const done = () => {
-      grip.removeEventListener('pointermove', move);
-      grip.classList.remove('dragging');
-      document.documentElement.classList.remove('resizing-v');
-    };
-    grip.addEventListener('pointermove', move);
-    grip.addEventListener('pointerup', done, { once: true });
-    grip.addEventListener('pointercancel', done, { once: true });
-  });
-
-  grip.addEventListener('dblclick', () => setH(TOC_H_DEFAULT));
-
-  grip.addEventListener('keydown', (e) => {
-    const step = { ArrowUp: -16, ArrowDown: 16 }[e.key];
-    const end = { Home: -Infinity, End: Infinity }[e.key];
-    if (step === undefined && end === undefined) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setH(end ?? storedTocH() + step);
-  });
-}
-
-wireTocGrip($('histGrip'));
-
-addEventListener('resize', applyTocH);
-applyTocH();
+// The sidebar widths and the contents height are layout/widths.ts and layout/toc-height.ts,
+// which wire their grips as they load.
 
 // ---------- sidebar disclosures ----------
 
@@ -2364,130 +2134,43 @@ function tapMarkRead() {
   if (!readDone(state.data)) markRead();
 }
 
-/**
- * The document pane is the scroll area rather than the page, so the keys that
- * scroll have to be aimed at it: whatever holds focus — a toolbar button, the
- * body — is not inside it, and the browser scrolls the page instead of it.
- * Returns whether the key was one of them.
- */
-function scrollByKey(e) {
-  const page = pane.clientHeight * 0.9;
-  const step =
-    { ArrowDown: 64, ArrowUp: -64, PageDown: page, PageUp: -page }[e.key] ??
-    // Space pages down, shift-space up — unless a button has focus, where the
-    // space bar belongs to the button.
-    (e.key === ' ' && e.target === document.body ? (e.shiftKey ? -page : page) : null);
-
-  if (step != null) {
-    pane.scrollBy({ top: step, behavior: Math.abs(step) > 100 ? 'smooth' : 'instant' });
-    return true;
-  }
-  if (e.key === 'Home' || e.key === 'End') {
-    pane.scrollTo({ top: e.key === 'Home' ? 0 : pane.scrollHeight, behavior: 'smooth' });
-    return true;
-  }
-  return false;
-}
-
-document.addEventListener('keydown', (e) => {
-  // Settings is modal: the letters belong to it while it is up.
-  if (prefsOpen.value !== null) return;
-  if (
-    e.metaKey || e.ctrlKey || e.altKey ||
-    /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as Element).tagName)
-  ) return;
-  if (scrollByKey(e)) return e.preventDefault();
-  const key = e.key.toLowerCase();
-  if (key === 'r') toggleView();
-  else if (key === 'd') toggleDiff();
-  else if (key === 'v') toggleSolo();
-  else if (key === 'n' || key === 'j') goToChange(1);
-  else if (key === 'p' || key === 'k') goToChange(-1);
-  else if (key === 'm') tapMarkRead();
-  // Next to n and p on purpose: working through a set of edits is n, c, n, c.
-  else if (key === 'c') e.shiftKey ? clearAcks() : tapCheck();
-  else return;
-  e.preventDefault();
+// The letters, the scrolling and the ⌘ shortcuts: layout/keys.ts.
+bindKeys({
+  toggleView,
+  toggleDiff,
+  toggleSolo,
+  goToChange,
+  tapMarkRead,
+  clearAcks,
+  tapCheck,
+  openPrefs,
+  openFind,
+  setSide,
+  setTocSide,
+  leftColumn,
+  welcome,
+  pickFile,
 });
 
 // ---------- native shell ----------
-// Everything here is a no-op in a plain browser tab: `window.mdNative` is put
-// up by the desktop build (src/hosts/tauri/native.ts) and by nothing else, so the
-// same file is the whole app in a window and the whole app in a tab.
 
-const native = window.mdNative;
-// Resolved once `onTabs`'s first event has shown a document -- the window is
-// revealed once this settles (see the bottom of this file) rather than after
-// this module's own `load()`, which a native window never calls: asking for
-// no document in particular would race the shell's answer for which one its
-// tabs say to show, and whichever of the two happened to resolve last would
-// win, even if it was the guess.
-let openedFirstTab = () => {};
-const firstTabShown = new Promise<void>((resolve) => {
-  openedFirstTab = resolve;
+// layout/native.ts, bound here because this is where the block used to run: after the handlers
+// it hands on exist, and before the settings and the first load are awaited below.
+bindNative({
+  toggleView,
+  toggleDiff,
+  goToChange,
+  tapMarkRead,
+  openFind,
+  setSide,
+  setTocSide,
+  setDocId,
+  connect,
+  // Wrapped, because `keptBaseline` is a const further down: named here it is not one yet.
+  keptBaseline: () => keptBaseline(),
+  load,
+  scrollMemory,
 });
-if (native) {
-  const root = document.documentElement;
-  root.classList.add('native', `platform-${native.platform}`);
-  native.onFullscreen((on) => root.classList.toggle('fullscreen', on));
-
-  native.onToggleView(() => toggleView());
-  native.onToggleDiff(() => toggleDiff());
-  native.onNextChange(() => goToChange(1));
-  native.onPrevChange(() => goToChange(-1));
-  native.onMarkRead(() => tapMarkRead());
-  native.onFind(() => openFind());
-  $('newTab').addEventListener('click', () => native.pickFile());
-  native.onToggleSide(() => setSide(!state.side));
-  native.onToggleToc(() => setTocSide(!state.tocSide));
-
-  native.onTabs(({ tabs, active }) => {
-    state.tabs = tabs;
-    // Never asked for either way: the sidebar shows itself the moment there
-    // is more than one file to choose between, which is when it earns its
-    // width. After that the toggle is the answer and this stops second
-    // guessing it.
-    if (prefs.getItem('redline:side') === null && tabs.length > 1) setSide(true, false);
-    const switching = active && active !== state.docId;
-    if (switching) {
-      scrollMemory.set(state.docId, pane.scrollTop);
-      setDocId(active);
-    }
-    if (!switching) {
-      openedFirstTab();
-      return;
-    }
-    // A different document on the server: the old event stream was the old
-    // one's, and the baseline choice does not carry across files — each one is
-    // compared against what it was last compared against, not against what the
-    // tab you came from was on.
-    connect();
-    state.baseline = keptBaseline();
-    load({ keepScroll: false })
-      .then(() => {
-        pane.scrollTo(0, scrollMemory.get(active) ?? 0);
-        // Picking a tab redraws the list under the click, so focus would be left
-        // nowhere and the arrow keys would stop scrolling.
-        const held = document.activeElement;
-        if (held === document.body || held?.closest('.side, .menu')) {
-          pane.focus({ preventScroll: true });
-        }
-      })
-      .finally(openedFirstTab);
-  });
-
-  // Now that the handler is up, ask: the window's first push can land before
-  // this module has finished evaluating, and there is no catching up after.
-  native.requestTabs();
-
-  // A file being dragged over the window. The shell says so rather than the
-  // page watching for it, and the shell does the opening too: a dropped file
-  // belongs to the window, and what a webview is handed has no path in it.
-  native.onDrag((over) => root.classList.toggle('dropping', over));
-
-  // Links out of the document are followed in one place for both shells —
-  // see the click handler under "contents".
-}
 
 // ---------- settings ----------
 
@@ -2515,81 +2198,6 @@ const DEFAULT_SETTINGS = {
 };
 
 let settings = { ...DEFAULT_SETTINGS };
-
-/**
- * Whether a named font resolves on this machine, rather than quietly falling
- * back. Measured, not asked: a name the browser does not know renders in the
- * generic it is listed against, so the same string against two different
- * generics comes out two different widths only when the name really took.
- */
-function fontInstalled(name) {
-  const probe = 'mmmmmmmmmmlliWWWWWW0123456789';
-  const ctx = document.createElement('canvas').getContext('2d');
-  const widthIn = (stack) => {
-    ctx.font = `72px ${stack}`;
-    return ctx.measureText(probe).width;
-  };
-  return ['monospace', 'serif', 'sans-serif'].some(
-    (generic) => widthIn(`${JSON.stringify(name)}, ${generic}`) !== widthIn(generic),
-  );
-}
-
-/**
- * The fallback, for when the host cannot enumerate: a catalogue of faces worth
- * reading a document in, grouped by what the face is, with every name measured
- * against this machine before it is offered.
- *
- * Guesswork, which is why it is second. It cannot know about a font it was not
- * written with — but it is better than an empty popup on a machine where
- * asking the OS is not a thing you can do (src/reader/fonts.ts is macOS only).
- */
-const FONT_CHOICES = Object.entries({
-  'Sans-serif': `Avenir Next, Charter, Futura, Geist, Gill Sans, Helvetica Neue, IBM Plex Sans,
-    Inter, Lato, Lucida Grande, Manrope, Nunito Sans, Open Sans, Optima, PT Sans, Public Sans,
-    Roboto, Seravek, Source Sans 3, Trebuchet MS, Verdana, Work Sans`,
-  Serif: `Athelas, Baskerville, Bitter, Cambria, Cochin, Crimson Text, EB Garamond, Georgia,
-    Hoefler Text, Iowan Old Style, Libre Baskerville, Literata, Lora, Merriweather, New York,
-    Palatino, PT Serif, Source Serif 4, Spectral, Times New Roman`,
-  Monospace: `Andale Mono, Berkeley Mono, Cascadia Code, Consolas, Courier New, DejaVu Sans Mono,
-    Fira Code, Geist Mono, Hack, IBM Plex Mono, Inconsolata, Iosevka, JetBrains Mono, Menlo,
-    Monaco, PT Mono, Roboto Mono, SF Mono, Source Code Pro, Space Mono, Victor Mono`,
-  Japanese: `Hiragino Maru Gothic ProN, Hiragino Mincho ProN, Hiragino Sans, Noto Sans JP,
-    Noto Serif JP, Yu Gothic, Yu Mincho`,
-  // A comma never appears in a font's name, so the list can be written as one.
-}).map(([label, names]): [string, string[]] => [label, names.split(',').map((n) => n.trim())]);
-
-let fontsListed = false;
-
-/**
- * Fill the typeface popup, once, with the fonts this machine actually has.
- *
- * The host is asked first and believed: it is the only one that can name a
- * font nobody thought to write down. What comes back is one flat alphabetical
- * list, the way a font menu has always been — there is nothing in a family
- * name that says whether it is a serif, and guessing would file half of them
- * wrong. The catalogue above is the fallback, and only then are the names
- * measured, because a guessed list is the only kind that can be wrong.
- *
- * ui/Settings.tsx draws what this finds.
- */
-async function listFonts() {
-  if (fontsListed) return;
-  fontsListed = true;
-  const installed = await backend.fonts().catch(() => []);
-  const groups: [string, string[]][] = installed.length
-    ? [['On this machine', installed]]
-    : FONT_CHOICES.map(([label, names]) => [label, names.filter(fontInstalled)]);
-
-  const listed = groups.filter(([, names]) => names.length);
-
-  // Set on a machine that had the font, opened on one that does not: say so
-  // rather than showing the popup as blank and losing what it is set to.
-  const named = settings.font === 'custom' && cleanFontName(settings.fontName);
-  if (named && !listed.some(([, names]) => names.includes(named))) {
-    listed.push(['Not on this machine', [named]]);
-  }
-  fontGroups.value = listed;
-}
 
 /** What **Compare against** in the settings sheet names, as a baseline id. */
 const defaultBaseline = () => (settings.baseline === 'git' ? 'git:HEAD' : 'read');
@@ -2753,34 +2361,6 @@ if (native) {
     checkUpdate();
   });
 }
-document.addEventListener('keydown', (e) => {
-  if (e.key === ',' && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    openPrefs();
-  }
-  // ⌘B and ⌥⌘B come from the View menu in the desktop app; here they have to
-  // be caught. By `code` rather than by `key`: ⌥B on a Mac keyboard arrives as
-  // `∫`, so the letter is no use for the one with Option in it.
-  if (!native && e.code === 'KeyB' && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    if (e.altKey) setTocSide(!state.tocSide);
-    else if (leftColumn) setSide(!state.side);
-  }
-  // ⌘F comes from the Edit menu in the desktop app; in a browser tab it would
-  // otherwise open the browser's own find, which cannot see into `#doc` the
-  // way this one needs to for the diff marks and the rendered/raw split.
-  if (!native && e.code === 'KeyF' && (e.metaKey || e.ctrlKey)) {
-    e.preventDefault();
-    openFind();
-  }
-  // ⌘O is the web app's alone: a window has File ▸ Open…, and a CLI tab is handed its file.
-  // It is the file picker, as Open file… is, from the welcome too. Caught even with Settings
-  // up, because the browser's own would open the file as a page of its own, outside Redline.
-  if (welcome && e.code === 'KeyO' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
-    e.preventDefault();
-    if (prefsOpen.value === null) pickFile();
-  }
-});
 
 async function initSettings() {
   let stored = {};
@@ -2806,7 +2386,7 @@ async function initSettings() {
   // Started now rather than when the sheet opens: asking the OS costs a third
   // of a second, and a popup that fills in after you have looked at it is a
   // popup you saw the wrong answer in. Nothing waits on it.
-  listFonts();
+  listFonts(backend, () => settings);
 }
 
 // ---------- live reload ----------

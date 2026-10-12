@@ -1678,6 +1678,30 @@ assert.match(pageHtml, /innerWidth - 320/, 'by the inline script too, to the sam
 assert.match(pageJs, /DOC_W_MIN = 320/, 'and app.js agrees with it');
 console.log('✓ both sidebars resize, and leave the document room');
 
+// The page's layout is modules of its own (layout/), each wired from main.ts and none importing
+// it back. The widths and the height are imported for what they do as they load -- wire their
+// grips -- so a dropped import would leave both edges dead with nothing failing to compile.
+{
+  const mainTs = fs.readFileSync(rootUrl('public/app/main.ts'), 'utf8');
+  const layout = (f) => fs.readFileSync(rootUrl(`public/app/layout/${f}`), 'utf8');
+  assert.match(mainTs, /^import \{ applyWidths \} from '\.\/layout\/widths\.js';$/m,
+    'main.ts loads the widths');
+  assert.match(mainTs, /^import '\.\/layout\/toc-height\.js';$/m, 'and the height');
+  assert.match(mainTs, /^bindKeys\(\{$/m, 'binds the keys');
+  assert.match(mainTs, /^bindNative\(\{$/m, 'and the shell');
+  assert.ok(mainTs.indexOf('bindNative({') < mainTs.indexOf('await initSettings();'),
+    'before it waits on anything, so the first tabs are asked for and heard');
+  for (const f of ['widths.ts', 'toc-height.ts', 'keys.ts', 'native.ts', 'fonts.ts']) {
+    assert.ok(!/from '\.\.\/main\.js'/.test(layout(f)), `${f} does not import main.ts`);
+  }
+  assert.match(layout('widths.ts'), /\nfunction fitWidths\(/, 'fitWidths is in widths.ts');
+  assert.match(layout('toc-height.ts'), /\nconst tocHMax = /, 'and tocHMax in toc-height.ts');
+  assert.match(pageHead, /`fitWidths` in public\/app\/layout\/widths\.ts/,
+    'which is where the head script says its mirror is');
+  assert.match(pageHead, /`tocHMax` in public\/app\/layout\/toc-height\.ts/, 'both of them');
+}
+console.log('✓ the layout is its own modules, wired from main.ts');
+
 // The line between Contents and History is a third thing to drag, the same
 // deal turned on its side: a handle in the markup, styling for it, a wired-up
 // drag, and the two numbers that keep History from being squeezed to nothing,
@@ -1904,14 +1928,19 @@ assert.match(settingsTsx, /class="popup"/, 'on the wrapper that can hold one');
     'opening it is the signal');
   assert.match(mainTs, /\$\('prefsBtn'\)\.addEventListener\('click', openPrefs\);/, 'from the bar');
   assert.match(mainTs, /native\?\.onOpenSettings\(\(\) => openPrefs\(\)\);/, 'and from the menu');
-  assert.match(mainTs, /e\.key === ',' && \(e\.metaKey \|\| e\.ctrlKey\)\) \{\s*e\.preventDefault\(\);\s*openPrefs\(\);/,
+  const keysTs = fs.readFileSync(rootUrl('public/app/layout/keys.ts'), 'utf8');
+  assert.match(keysTs, /e\.key === ',' && \(e\.metaKey \|\| e\.ctrlKey\)\) \{\s*e\.preventDefault\(\);\s*openPrefs\(\);/,
     'and from ⌘, in a tab');
+  assert.match(mainTs, /bindKeys\(\{[^}]*\n  openPrefs,\n/, 'which main.ts hands the keys');
   assert.ok(!/\$<HTMLDialogElement>\('prefs'\)|\$\('set[A-Z]|\$\('update/.test(mainTs),
     'and main.ts reaches into the sheet for nothing');
   // What the sheet shows is what was applied: written once, at the end of applySettings.
   assert.match(mainTs, /shownSettings\.value = settings;\s*docMeasure\.value = getComputedStyle\(root\)/,
     'the sheet sees each setting as it is applied, and the measure the width came to');
-  assert.match(mainTs, /fontGroups\.value = listed;/, "the machine's fonts go to the popup");
+  const fontsTs = fs.readFileSync(rootUrl('public/app/layout/fonts.ts'), 'utf8');
+  assert.match(fontsTs, /fontGroups\.value = listed;/, "the machine's fonts go to the popup");
+  assert.match(mainTs, /listFonts\(backend, \(\) => settings\);/,
+    'asked for once the settings are in, and reading them as they are when the fonts come');
   assert.match(settingsTsx, /fontGroups\.value\.map\(/, 'which draws them');
   for (const [control, write] of [
     ['setAppearance', /actions\.write\(\{ appearance: v \}\)/],

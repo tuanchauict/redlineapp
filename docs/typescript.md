@@ -173,9 +173,9 @@ whether they are there by asking, so they cannot be required. They are derived w
 and not written out because a test greps that `public/backend.ts` and the other two
 backends never name a `welcome` or a `linkNote`: only the web backend has one, so the page
 must never show it in a shell or a server. The page's calls on the shell are checked the same
-way, against `MdNative`, which `public/app/main.ts` reaches with an `import type` of
-`native.ts` (the file that declares `window.mdNative`); no test greps that one, the compiler
-is all there is.
+way, against `MdNative`, which `public/app/layout/native.ts` reaches with an `import type` of
+`native.ts` (the file that declares `window.mdNative`) and names on the `native` it exports;
+no test greps that one, the compiler is all there is.
 
 ## What stays JavaScript
 

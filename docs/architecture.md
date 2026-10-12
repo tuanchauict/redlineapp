@@ -86,7 +86,10 @@ public/app/             the whole client, as source: `main.ts` is the page, `sta
                         Contents, the change ruler, Open files, the chevron's menu, the
                         bar's name and change count, Settings and the web app's welcome) and
                         `ui/chrome.ts`, which keeps the
-                        bar's fixed buttons to their signals. Checked by `tsconfig.app.json`
+                        bar's fixed buttons to their signals; `layout/` is the window's
+                        furniture (the sidebar widths and Contents' height, the keys, the
+                        desktop shell's events, the typefaces), and `dom.ts` the page's
+                        handles on its markup. Checked by `tsconfig.app.json`
                         (`noEmit`, JSX for Preact),
                         and bundled by `build:web` into `app.js` beside it, which is the file
                         a page loads and is gitignored
@@ -404,12 +407,24 @@ into lines, and diff the lines.
 
 ## The client
 
-The page's source is the directory `public/app/`: `main.ts`, ~3.2k lines in commented
-sections (painting, the sidebars, tabs, change navigation, checked changes, find, settings,
-keys), and the modules that have left it so far: `state.ts`, `ui/History.tsx`,
-`ui/Contents.tsx`, `ui/Ruler.tsx`, `ui/Files.tsx`, `ui/TabMenu.tsx`, `ui/Name.tsx`,
-`ui/Changes.tsx`, `ui/TabLabel.tsx` (the name-over-directory label, and `ltrPath`),
-`ui/Settings.tsx`, `ui/Welcome.tsx` and `ui/chrome.ts`.
+The page's source is the directory `public/app/`: `main.ts`, ~2.5k lines in commented
+sections (painting, the sidebars, tabs, change navigation, checked changes, find, settings),
+and the modules that have left it so far: `state.ts`, `dom.ts` (`$`, `#doc` and the pane),
+`ui/History.tsx`, `ui/Contents.tsx`, `ui/Ruler.tsx`, `ui/Files.tsx`, `ui/TabMenu.tsx`,
+`ui/Name.tsx`, `ui/Changes.tsx`, `ui/TabLabel.tsx` (the name-over-directory label, and
+`ltrPath`), `ui/Settings.tsx`, `ui/Welcome.tsx` and `ui/chrome.ts`, and under `layout/`:
+
+| Module | What it is |
+| --- | --- |
+| `layout/widths.ts` | The two sidebar widths: each edge's grip, and `fitWidths`, the clamp the pair needs together. Wires its grips as it is imported. |
+| `layout/toc-height.ts` | Where History starts under Contents: the grip, and `tocHMax`. Wires itself the same way. |
+| `layout/keys.ts` | The letters, the keys that scroll the pane from wherever focus is, and the ⌘ shortcuts a browser tab catches itself. `bindKeys` takes what each does. |
+| `layout/native.ts` | `native` (`window.mdNative`, absent in a browser tab), `firstTabShown`, and `bindNative`, which hands the shell's menu commands and tab list to what `main.ts` does with them. |
+| `layout/fonts.ts` | The typefaces Settings offers: the host's list, or the measured catalogue. |
+
+A `layout/` module imports `state.ts`, `dom.ts` and its siblings, never `main.ts`: what a key or
+a menu command *does* comes in through `bindKeys` and `bindNative`, which `main.ts` calls where
+the code they hold used to run, so the order things start in is unchanged.
 `build:web` bundles the directory into the one `public/app.js` that a page loads, so a module
 can leave `main.ts` without a new file for any host to serve: the bundle still imports exactly
 the renderer, DOMPurify, the backend and Mermaid, which `stage-page.mts` versions and the
@@ -508,7 +523,8 @@ in as callbacks, from `main.ts`.
   drawn, and ⌘B does nothing (`leftColumn` in `main.ts`). The two sidebar
   widths are clamped against each other so the document keeps 320px whatever they
   were dragged to, and that clamp is therefore in two places: `fitWidths` in
-  `main.ts` and the same arithmetic in the inline script. Either alone is a visible
+  `layout/widths.ts` and the same arithmetic in the inline script (`tocHMax`, in
+  `layout/toc-height.ts`, likewise). Either alone is a visible
   correction on the first frame.
 - **Light or dark is the page's to draw**, as `data-scheme` on `<html>`, and sepia is
   `data-tint` over light. A browser tab cannot be told it is dark the way the shell
@@ -549,7 +565,7 @@ that edge, and the dock has the icon. Everything else in
   document — which `load()` is written to handle on its own. A native window has no
   such id to ask with — `state.docId` starts `''` — so it has to wait for the
   shell's own answer, over `md:tabs`, naming which of its restored tabs is active.
-  The module's own bottom-of-file startup `await`s a `firstTabShown` promise that
+  `main.ts`'s bottom-of-file startup `await`s a `firstTabShown` promise (`layout/native.ts`) that
   the `onTabs` handler resolves (`.finally`, so a failed load still counts) instead
   of calling `load()` itself; calling both was a race `load()`'s own guard against
   overlapping loads could not catch, because the guard compares against the id a
