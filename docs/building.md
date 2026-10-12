@@ -27,7 +27,7 @@ comes before both, and each of them runs it.
 
 | | |
 | --- | --- |
-| `npm run build:ts` | `tsc -b`: compiles `bin/`, `scripts/`, `src/` and the test into `out/`, which mirrors the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`). Gitignored, and what every npm script runs; every other build command runs it first. It also compiles the page, `public/app.ts`, `public/backend.ts` and `site/landing.ts`, **in place**: the `.js` beside each is gitignored and is what the server serves and the commands below stage. See [TypeScript](typescript.md) |
+| `npm run build:ts` | `tsc -b`, behind `bootstrap/heal-page-build.mjs`, which has the page rebuilt if a branch switch deleted its `.js` (`tsc -b` alone says "up to date" and writes nothing). It compiles `bin/`, `scripts/`, `src/` and the test into `out/`, which mirrors the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`). Gitignored, and what every npm script runs; every other build command runs it first. It also compiles the page, `public/app.ts`, `public/backend.ts` and `site/landing.ts`, **in place**: the `.js` beside each is gitignored and is what the server serves and the commands below stage. See [TypeScript](typescript.md) |
 | `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mts`, which stops the build if a release moves the palettes) |
 | `npm run build:dist` | Stages `shell/dist`: `public/` (the compiled `.js`, not the `.ts`), the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
 | `npm run build:webapp` | Stages `dist/web`, the web app: the same page, with the web bundles in and the Tauri backend left out, the web app's `host.js` over the empty one, every file asked for as `?v=<build>`, and a `_headers` file that says what to keep for a year. See [The web app](#the-web-app) |
@@ -226,10 +226,10 @@ Tauri starts a static server of its own over `shell/dist` (port 1430) and points
 the window at that instead of embedding it — so the page is a file on disk again,
 and **⌘R picks up an edit with no relink**. `scripts/dev.mts` adds the restaging:
 a watch on `public/` and `src/` that re-runs the two build steps. The page is
-TypeScript and the window loads what `tsc` emits beside it, so `tsc -b --watch` runs
-too, and the restage follows its emit rather than the edit to a `.ts` in `public/`
-(which would stage the previous compile, then stage again). `tsc` emits through a type
-error, so a mistake is a message in that terminal and the window still updates. Rust is
+TypeScript and the window loads a staged copy of what `tsc` emits beside it, so
+`tsc -b --watch` runs too, and the restage follows its emit rather than the edit to a `.ts`
+in `public/` (which would stage the previous compile, then stage again). `tsc` emits through a
+type error, so a mistake is a message in that terminal and the window still updates. Rust is
 still a recompile, but `tauri dev` watches for that itself and restarts the app.
 
 That this works at all rests on `shell/dist` being **gitignored**, because Tauri's

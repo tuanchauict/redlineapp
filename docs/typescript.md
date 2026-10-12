@@ -26,10 +26,12 @@ parameter left as `any` until the `noImplicitAny` ratchet.
 
 `out/` is gitignored and is **not** `dist/`, which holds release artifacts. Every npm
 script that runs a script runs it from `out/` and compiles first (`npm run build:ts`,
-which is `tsc -b`); an up-to-date compile is a no-op. `node out/bin/redline.js` from a fresh
-checkout therefore does not work before `npm run build:ts`; `npm start` does it for you. The
-same compile makes the page's `.js`, so a fresh checkout has no `public/app.js` either until
-one has run, and every script that serves or stages the page runs it first.
+which is `tsc -b` behind a check that the page's `.js` is still there, described under
+[Three things that look like bugs](#three-things-that-look-like-bugs)); an up-to-date compile
+is a no-op. `node out/bin/redline.js` from a fresh checkout therefore does not work before
+`npm run build:ts`; `npm start` does it for you. The same compile makes the page's `.js`, so a
+fresh checkout has no `public/app.js` either until one has run, and every script that serves
+or stages the page runs it first.
 
 esbuild is a separate thing. `build-web.mts` bundles `src/` **as written**, from the source,
 so a type error does not stop a bundle. `tsc` is what fails the build.
@@ -313,14 +315,40 @@ are ignored by name, so a compile leaves the tree looking clean, and a hand edit
 emits an `x.js` that git lists as untracked: that is the prompt to add its name to
 `.gitignore` and to the list that the test reads, and not a file to commit.
 
-The same silence is why a stale compile looks exactly like the change not working. Pull a
-branch, or edit `public/app.ts`, and the `public/app.js` that the server serves and the window
-embeds is still the last compile until something runs `tsc -b`: `npm run build:ts` is the fix,
-and `npm start`, `npm run app` and `npm test` run it for you. One case where `tsc -b` itself
-can say nothing: `git mv` keeps a file's old mtime, so in a worktree that has already built, a
-renamed `.ts` is older than `tsbuildinfo` and `tsc -b` reports "up to date" and emits nothing
-until the file is touched. A fresh checkout has no `tsbuildinfo`, so this is only a rename in
-a worktree that has already built.
+The same silence is why a stale compile looks exactly like the change not working. Edit
+`public/app.ts`, or pull a branch, and the `public/app.js` that the server serves is still the
+last compile until something runs `tsc -b`: `npm run build:ts` is the fix, and `npm start`,
+`npm run app` and `npm test` run it for you. The window is one step further on. It does not
+read `public/app.js` but the copy that `npm run build:dist` stages into `shell/dist` (which
+`npm run app` embeds and `npm run dev` serves), so `build:ts` alone does not refresh a window
+that is open.
+
+`tsc -b` decides that a project is up to date from `out/tsconfig.page.tsbuildinfo`, which holds
+the hash of every input, and it never checks that the outputs are there. That makes two cases
+where it says nothing when it should say something:
+
+- **A branch switch deletes the compiled page.** The branches from before the page was
+  TypeScript track `public/app.js`, `public/backend.js` and `site/landing.js`. Check one out and
+  come back, and git removes the three, which are ignored here, and leaves `out/` alone. Then
+  `tsc -b` prints "Updating unchanged output timestamps" and writes nothing, because the hashes
+  still match, and touching the `.ts` does not help for the same reason. Everything that serves
+  or stages the page fails, or serves a blank one.
+- **`git mv` keeps a file's mtime.** A `.js` renamed to `.ts` is a new input with an old
+  timestamp, older than the record, so `tsc -b` reports "up to date" and emits nothing until
+  the file is touched. (A `.ts` renamed to another `.ts` is noticed, because the old name was
+  a root of the last build and is not now.)
+
+`npm run build:ts` is the fix for both, because it is not only `tsc -b`: it runs
+`bootstrap/heal-page-build.mjs` first, which looks for a compiled `.js` beside every
+`public/*.ts` and `site/*.ts` (the sources are read from `include` in `tsconfig.page.json`, so
+there is no list to keep in step) and, if one is missing, deletes
+`out/tsconfig.page.tsbuildinfo` and says which files it found gone. A project with no record is
+built from scratch, so `tsc -b` then writes every page output, and the other projects' records
+are untouched. A fresh checkout has no record to delete, and `tsc -b` builds everything anyway.
+The script is plain JavaScript in a directory of its own, and not a `.mts` in `scripts/`,
+because it runs before the compile that `scripts/` needs and so cannot be one of the things
+that compile produces. A bare `tsc -b` does not run it: after a branch switch use
+`npm run build:ts`, or by hand `tsc -b --force` or deleting that one record.
 
 ## The ladder
 
@@ -362,3 +390,9 @@ noise; step 4 adds the same (0.1 s and 0.02 s, and 0.01 s to `tsc -b` itself), a
 others it was measured on a busy machine (a load average of about 3.5; the other columns did
 not record theirs). So it is a number to watch and not yet a finding. `strict` will cost
 more; step 6 measures it.
+
+The last row has one more cost since the table was made: `npm run build:ts` starts
+`bootstrap/heal-page-build.mjs` before `tsc -b`, an extra `node` process (about 0.02 s on its
+own) that lists two directories. Timed in a scratch copy at the end of that change, with the
+load not recorded, an up-to-date `npm run build:ts` went from about 0.17 s to about 0.20 s, and
+one from no `out/` and no compiled page took about 1.3 s.

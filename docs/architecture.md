@@ -23,6 +23,8 @@ one it has.
 
 ```
 bin/redline.ts          CLI: parse flags, start the server, open a browser
+bootstrap/              the one hand-written .mjs, run before `tsc -b`: a page whose compiled
+                        .js a branch switch deleted is rebuilt, not reported up to date
 out/                    tsc's output: what every npm script runs. Gitignored
 
 src/contract/           types only: the payload, the events, the two surfaces; imports only itself

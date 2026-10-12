@@ -56,7 +56,18 @@ import { createRpcBackend } from './src/rpc/client.js';
   );
   const pkg = JSON.parse(fs.readFileSync(rootUrl('package.json'), 'utf8'));
   assert.strictEqual(pkg.bin.redline, 'out/bin/redline.js', 'the CLI is the compiled one');
-  assert.strictEqual(pkg.scripts['build:ts'], 'tsc -b', 'one command compiles every project');
+  // tsc -b trusts its build record and never looks for its outputs, so a branch switch that
+  // deletes the compiled page leaves it saying "up to date" over nothing. The step before it is
+  // what notices (see bootstrap/heal-page-build.mjs, and the fixture test of it below).
+  assert.strictEqual(
+    pkg.scripts['build:ts'],
+    'node bootstrap/heal-page-build.mjs && tsc -b',
+    'one command compiles every project, after making sure the page is still there',
+  );
+  assert.ok(
+    fs.existsSync(rootUrl('bootstrap/heal-page-build.mjs')),
+    'and the step that heals a deleted page exists',
+  );
   // A script with a pre hook gets its compile from the hook, which ends in build:web or
   // build:site, and both of those start with build:ts.
   const compiledBy = { start: 'prestart', webapp: 'prewebapp', site: 'presite', test: 'pretest' };
@@ -671,7 +682,7 @@ for (const dir of ['public', 'site']) {
   for (const f of names.filter((n) => n.endsWith('.ts'))) {
     assert.ok(
       fs.existsSync(fileURLToPath(rootUrl(`${dir}/${f.replace(/\.ts$/, '.js')}`))),
-      `${dir}/${f} has been compiled in place`,
+      `${dir}/${f} has been compiled in place: run npm run build:ts`,
     );
   }
 }
@@ -682,6 +693,76 @@ for (const f of ['public/app.js', 'public/backend.js', 'site/landing.js']) {
   assert.ok(ignored.includes(f), `${f} is generated, and gitignored`);
 }
 console.log('✓ every page source has been compiled in place');
+
+// The step in front of `tsc -b` that brings a deleted page back (bootstrap/heal-page-build.mjs),
+// run against a page-shaped directory in the temp dir: the real test of it deletes public/app.js,
+// and a suite does not delete the files it is about to serve. The tsconfig in the fixture is the
+// real one, so what counts as a page source and where the build record lives are read from where
+// the project says them, and a change there that the step did not follow turns this red.
+{
+  const heal = fileURLToPath(rootUrl('bootstrap/heal-page-build.mjs'));
+  const roots = [];
+  const put = (root, rel) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), '{}');
+  };
+  const makeRoot = ({ compiled, built }) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-heal-'));
+    roots.push(root);
+    fs.copyFileSync(rootUrl('tsconfig.page.json'), path.join(root, 'tsconfig.page.json'));
+    for (const f of ['public/app', 'public/backend', 'site/landing']) {
+      put(root, `${f}.ts`);
+      if (compiled) put(root, `${f}.js`);
+    }
+    // Neither of these is output, so neither is ever missing: a hand-written .js with no .ts
+    // beside it, and a declaration file, which emits nothing.
+    put(root, 'public/host.js');
+    put(root, 'public/shim.d.ts');
+    if (built) {
+      put(root, 'out/tsconfig.page.tsbuildinfo');
+      put(root, 'out/tsconfig.src.tsbuildinfo');
+    }
+    return root;
+  };
+  const run = (root) => spawnSync(process.execPath, [heal, root], { encoding: 'utf8' });
+  const has = (root, rel) => fs.existsSync(path.join(root, rel));
+  const record = 'out/tsconfig.page.tsbuildinfo';
+
+  // Nothing wrong: the record stays, so that the compile after it is the no-op it should be.
+  let root = makeRoot({ compiled: true, built: true });
+  let r = run(root);
+  assert.strictEqual(r.status, 0, 'the step exits 0');
+  assert.strictEqual(r.stdout, '', 'and says nothing when the page is all there');
+  assert.ok(has(root, record), 'and leaves the build record, so tsc -b stays a no-op');
+
+  // One compiled file gone, as a branch switch leaves it: the record goes, and says why.
+  fs.rmSync(path.join(root, 'site/landing.js'));
+  r = run(root);
+  assert.strictEqual(r.status, 0, 'a missing page file is not an error');
+  assert.match(r.stdout, /site\/landing\.js missing/, 'it names the file that is gone');
+  assert.doesNotMatch(r.stdout, /app\.js|backend\.js/, 'and only that one');
+  assert.ok(!has(root, record), 'and removes the page project\'s build record, so tsc rebuilds it');
+  assert.ok(has(root, 'out/tsconfig.src.tsbuildinfo'), 'but not the other projects\'');
+
+  // All three gone, the branch-switch case itself.
+  root = makeRoot({ compiled: false, built: true });
+  r = run(root);
+  for (const f of ['public/app.js', 'public/backend.js', 'site/landing.js']) {
+    assert.ok(r.stdout.includes(f), `${f} is named when the whole page is gone`);
+  }
+  assert.ok(!has(root, record), 'and the record goes');
+
+  // A checkout that has never built has no record to remove, and nothing to say about it. The
+  // step must not create the out/ that the compile will.
+  root = makeRoot({ compiled: false, built: false });
+  r = run(root);
+  assert.strictEqual(r.status, 0, 'a fresh checkout is fine');
+  assert.strictEqual(r.stdout, '', 'and silent');
+  assert.ok(!has(root, 'out'), 'and creates nothing');
+
+  for (const dir of roots) fs.rmSync(dir, { recursive: true, force: true });
+  console.log('✓ a deleted page is rebuilt: the step before tsc -b forgets the record it trusts');
+}
 
 // core/paths.js agrees with node:path on the cases it claims. Not claimed: a trailing
 // separator on dirname, and the root of a drive (`C:\a` has dirname `C:`, node says `C:\`).
@@ -5804,6 +5885,11 @@ const memoryKv = () => {
     stageBody.indexOf('assertSafeDest(out);') > 0 &&
       stageBody.indexOf('assertSafeDest(out);') < stageBody.indexOf('fs.rmSync(out'),
     'and stagePage asks before it removes anything, not after',
+  );
+  assert.match(
+    stageSrc,
+    /file === 'app\.js' \? 'build:ts' : 'build:web'/,
+    'and a missing app.js points at the compile that heals it, a missing bundle at the bundler',
   );
   console.log('✓ stagePage will not empty the repository, or anything that holds it');
 
