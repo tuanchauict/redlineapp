@@ -164,47 +164,20 @@
            reading as parked next to nothing. Before it, the button sits at a
            fixed point right next to the dot, so it is always next to the
            title and never adrift from it. -->
-      <button id="tabMenu" class="icon chev" title="All open files" hidden>
-        <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="m4 6.5 4 4 4-4" />
-        </svg>
-      </button>
+      <span id="tabMenuSlot" class="slot"></span>
 
-      <!-- Name over directory, the way a Finder window titles itself: with
-           files open from several places the name alone does not say which.
-           `no-path` until a document gives it one (`setNameDir` in app.js). -->
-      <span id="nameBox" class="name no-path">
-        <span id="name" class="name-file">…</span>
-        <span id="nameDir" class="name-dir"></span>
-      </span>
+      <!-- Name over directory, drawn by ui/Name.tsx: the one thing on the bar that is
+           not there before app.js runs and is not hidden either, and the only cost is the
+           "…" it used to say for the first frame. -->
+      <span id="nameSlot" class="slot"></span>
 
       <span class="spacer"></span>
 
-      <!-- Which older version is on the page, while versions are being read by
-           themselves: with no marks, nothing else in the window tells it from
-           the file as it is. Clicking it goes back to what changed since. -->
-      <button id="soloTag" class="icon count solo" hidden>
-        <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
-          <path d="M1.75 8S4 3.75 8 3.75 14.25 8 14.25 8 12 12.25 8 12.25 1.75 8 1.75 8z" />
-          <circle cx="8" cy="8" r="2" />
-        </svg>
-        <span id="soloName" class="solo-name"></span>
-      </button>
-
-      <!-- How far the file has moved since the version it is being compared
-           against — and a way in to that list, because "changed since what?"
-           is answered in the sidebar and nowhere else. -->
-      <button id="count" class="icon count" title="Next change (⇧ for the previous)" hidden></button>
-
-      <!-- And how much of that you have already checked off, which no longer
-           counts towards the number on its left. Their marks are hidden, not
-           forgotten, and nothing else in the window would say so — so this is
-           also the way back to them. -->
-      <button id="ackCount" class="icon count ack" hidden></button>
-      <button id="prev" class="icon" title="Previous change (p)" hidden>↑</button>
-      <button id="next" class="icon" title="Next change (n)" hidden>↓</button>
-
-      <span id="divide" class="divide" hidden></span>
+      <!-- The bar's half of the document -- the version being read by itself, the count,
+           the checked-off count, the arrows and the line after them -- drawn by
+           ui/Changes.tsx. All of it is hidden until a document says otherwise, so none of it
+           has to be here before first paint. -->
+      <span id="changesSlot" class="slot"></span>
 
       <!-- One button, two states: the icon shows the view it switches to. -->
       <button id="view" class="icon" data-view="rendered" aria-pressed="false">
@@ -268,7 +241,10 @@
       </button>
     </header>
 
-    <div id="tabList" class="menu" hidden></div>
+    <!-- The chevron's list, drawn by ui/TabMenu.tsx. Out here rather than on the bar beside
+         its chevron: `.bar` has a backdrop-filter, so a fixed menu inside it would be placed
+         against the bar and not the window. -->
+    <div id="tabListSlot" class="slot"></div>
     <!-- A version's menu: the "…" on a row in History, or a right-click on it.
          One for the whole list, filled for the row it is opened on. -->
     <div id="verMenu" class="menu" role="menu" aria-label="Version" tabindex="-1" hidden></div>

@@ -160,6 +160,13 @@ body {
   flex: 1;
 }
 
+/* Where a component is mounted (index.html). The slot is only somewhere for Preact to draw
+   into, so it is not a box: what is drawn in it lays out as the bar's own children would,
+   flex gap and all, and the bar's selectors find them where they always were. */
+.slot {
+  display: contents;
+}
+
 /* The artwork keeps Apple's icon grid -- an 824px square in a 1024px canvas -- so it carries
    its own margin, and 20px draws a mark about the size of the bar's other icons. */
 .app-icon {
