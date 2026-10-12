@@ -22,7 +22,7 @@
 //
 // Generated rather than written because it is the kind of list that goes
 // stale without anyone deciding it should. The file records a digest of the
-// two lockfiles' dependency lists, and test-smoke.js recomputes it from the
+// two lockfiles' dependency lists, and test-smoke.ts recomputes it from the
 // lockfiles alone -- no cargo needed -- so a dependency added without
 // regenerating fails the suite instead of shipping without its notice.
 import { execFileSync } from 'node:child_process';

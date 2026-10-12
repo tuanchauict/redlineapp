@@ -9,10 +9,12 @@ Step 1 landed the build. Step 2 converted `src/`: every file in it is TypeScript
 `src/hosts/web/host.js`, and the hosts are checked against the contract below. Step 3
 converted `bin/` and `scripts/`. Step 4 converted the page: `public/app.ts`,
 `public/backend.ts` and `site/landing.ts`, compiled in place by a project of their own
-([The page project](#the-page-project)). `test-smoke.js` is the only JavaScript left that is
-compiled. The two classic scripts, `src/hosts/web/host.js` and `public/host.js`, stay
-JavaScript and are copied as they are ([What stays JavaScript](#what-stays-javascript)).
-A `.js` file is not type-checked (`allowJs` on, `checkJs` off; the page project turns
+([The page project](#the-page-project)). Step 5 converted the suite, `test-smoke.ts`, which
+the node project checks like the code it tests. Nothing the build is meant to compile is
+JavaScript any more. The two classic scripts, `src/hosts/web/host.js` and `public/host.js`,
+stay JavaScript and are copied as they are ([What stays
+JavaScript](#what-stays-javascript)); the first is still read by `tsc`, which that section
+explains. A `.js` file is not type-checked (`allowJs` on, `checkJs` off; the page project turns
 `allowJs` off, and says why below), and a `.ts` file is checked leniently
 (`strict: false`): for what it declares and what the compiler can infer, with an untyped
 parameter left as `any` until the `noImplicitAny` ratchet.
@@ -21,7 +23,7 @@ parameter left as `any` until the `noImplicitAny` ratchet.
 
 | | Where it lives | Compiled to |
 | --- | --- | --- |
-| Run by Node: `bin/`, `src/`, `scripts/`, `test-smoke.js` | the repository | `out/`, mirroring the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`) |
+| Run by Node: `bin/`, `src/`, `scripts/`, `test-smoke.ts` | the repository | `out/`, mirroring the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`) |
 | Named by a URL: `public/app.ts`, `public/backend.ts`, `site/landing.ts` | the repository | **in place**, gitignored: `public/app.js`, `public/backend.js` and `site/landing.js`, each beside its source. The server, `stage-page.mts`, the `?v=` rewrite and the tests all name those paths, and compiling to `out/` would have renamed every one |
 
 `out/` is gitignored and is **not** `dist/`, which holds release artifacts. Every npm
@@ -50,7 +52,7 @@ An import keeps the name of what it will find *after* compiling: `./stage-page.m
 sibling `stage-page.mts`, and `../src/hosts/node/root.js` for `root.ts`. That is how `NodeNext`
 resolves it, and it is the same name in `out/`. A string that names a script
 (`build('build-web.mjs')` in `dev.mts`) is compiled output as well, and `tsc` does not check
-a string, so `test-smoke.js` checks that each one exists under `out/`, along with every path
+a string, so `test-smoke.ts` checks that each one exists under `out/`, along with every path
 that `package.json` hands to Node, and that `bin/` and `scripts/` hold no `.js` or `.mjs` at
 all: one would be compiled and never checked, and nothing else would say it was forgotten.
 Those existence checks only mean something from a clean `out/`, which is what CI has; see
@@ -64,17 +66,30 @@ Those existence checks only mean something from a clean `out/`, which is what CI
 | Project | Holds | Environment |
 | --- | --- | --- |
 | `tsconfig.src.json` | `src/` except `src/hosts/node/` | DOM lib, **no node types** |
-| `tsconfig.node.json` | `src/hosts/node/`, `bin/`, `scripts/`, `test-smoke.js` | `@types/node` |
+| `tsconfig.node.json` | `src/hosts/node/`, `bin/`, `scripts/`, `test-smoke.ts` | `@types/node` |
 | `tsconfig.page.json` | `public/*.ts`, `site/*.ts`, `types/` | DOM lib, **no node types** |
 
 The `src` project has `"types": []` so that "nothing under `core/`, `page/` or `reader/`
-may reach for a node built-in" — a rule `test-smoke.js` checks with a grep — is also a
+may reach for a node built-in" — a rule `test-smoke.ts` checks with a grep — is also a
 compile error in a `.ts` file. `core/hash.ts` is where it showed: it uses Node's `Buffer`
 only where there is no `TextEncoder`, and says so with a `declare const Buffer` of its own
 rather than with the node types. The `page` project has `"types": []` for the same reason: it
 is code that a browser runs. It references `src`, because the types the page is checked
 against are written there (`Backend`, `WebBackend`, `MdNative`); [The page
 project](#the-page-project) is the rest of it.
+
+The node project holds the suite along with the code it runs, and checks it the same lenient
+way. The suite's fakes (a window with a message port, the DOM class `El`, a file handle, a
+`Storage`) are typed with a local `interface` where they are declared. A fake that is handed
+to the code under test is cast `as unknown as <the real type>` at that one call, or in the
+factory that hands it over, and nowhere else, so what the compiler is not told is in one
+place. A value that comes out of a `vm`, or out of a page the suite has evaluated, is
+`any`: no static type crosses that seam. `// @ts-nocheck`, `@ts-ignore` and `@ts-expect-error`
+are not allowed in it, and a test asserts that the file has none and that it is still in
+`tsconfig.node.json`'s `include`, because left out of the project, or switched off by a
+comment, a type error in the suite would be invisible. The conversion found one real
+mismatch: `renderDocument` was called without its `base`, which it types as required, and the
+suite passes `null`, which behaves the same.
 
 ## `src/contract/`
 
@@ -130,6 +145,14 @@ hand-written and tracked, and the page project does not compile it (its `include
 `public/*.ts`), which is why `.gitignore` names the three compiled page files one by one and
 not `public/*.js`.
 
+**`allowJs` is now only for `src/hosts/web/host.js`.** The base config still has it on, and
+with the suite converted that one file is all it brings into a project: the `src` project
+includes `src/`, and so reads it; the node project lists no `.js`, and the page project turns
+`allowJs` off. `tsc` does not check it (`checkJs` is off) but does emit it, to
+`out/src/hosts/web/host.js` with `export {};` appended, and nothing reads that copy:
+`stage-page.mts` copies the source. This is an observation and not a change: the flag was
+left alone, and whether it should go off now is for a later step to decide.
+
 ## The page project
 
 `public/*.ts` and `site/*.ts` are what a browser loads, so `tsconfig.page.json` compiles them
@@ -142,7 +165,7 @@ a page that has no `app.js`; and the tests read those paths. An `out/` for the p
 renamed every one of them. The compiled files are gitignored, and a test asserts it,
 because a tracked copy goes stale against its `.ts` and looks exactly like the change not
 working. The config is JSON and cannot say why it is the way it is, so the reasons are here,
-and `test-smoke.js` holds each line they explain.
+and `test-smoke.ts` holds each line they explain.
 
 **It names its own `exclude`.** With `outDir` set to `.`, `tsc`'s default `exclude` (`node_modules`
 and the `outDir`) is the whole repository, so the project includes nothing: `tsc -b` compiles
@@ -209,7 +232,7 @@ been seen in a browser either: there is none here.
 **The read rule.** `tsc` reprints what it emits: it re-indents, splits a one-line `if` over
 lines and drops every annotation, so the compiled `public/app.js` is not the file whose shape
 anyone wrote. A grep for how the *source* is written therefore reads the `.ts`: `appJs` in
-`test-smoke.js` is `public/app.ts`, the `Backend` signatures are read from `public/backend.ts`,
+`test-smoke.ts` is `public/app.ts`, the `Backend` signatures are read from `public/backend.ts`,
 and the landing page's checks from `site/landing.ts`. Anything that is *executed* or *served*
 reads the compiled `.js`, because annotated TypeScript is not JavaScript and what shipped is
 what is worth checking: the helpers lifted out of the page and run in a `vm` (`pageRun`), the
@@ -363,7 +386,8 @@ Each step is its own PR, with `npm test` and `npm run bundle` green.
 4. The `page` project (done): `app.ts`, `backend.ts`, `landing.ts`, each a single rename, plus
    `tsc -b --watch` in `scripts/dev.mts` and the vendor shims in `types/vendor/`; see
    [The page project](#the-page-project).
-5. `test-smoke.ts`.
+5. `test-smoke.ts` (done): the suite into the node project, with its fakes typed where they
+   are declared; see [The projects](#the-projects).
 6. The ratchet, one flag per project: `noImplicitAny`, then `strictNullChecks`, then `strict`.
 
 What the design decided is in this file and in [architecture.md](architecture.md); the
@@ -373,14 +397,15 @@ design document itself is not in the repository.
 
 Measured with `tsc` 5.9.3 on an arm64 Mac at the end of each step: step 2 over the 37 `.ts`
 files in `src/`, step 3 over those and the 13 in `bin/` and `scripts/`, step 4 over those
-and the page's three files and the five shims in `types/`, with the JavaScript that is
-compiled beside them, checked leniently:
+and the page's three files and the five shims in `types/`, step 5 over those and
+`test-smoke.ts`, 7.5k lines. The `.ts` files are checked leniently; the JavaScript that was
+compiled beside them (`test-smoke.js` until step 5, and `src/hosts/web/host.js`) is not:
 
-| | Step 1 (50 files, none checked) | Step 2 | Step 3 | Step 4 |
-| --- | --- | --- | --- | --- |
-| Rebuild everything (`tsc -b --force`; step 1 was from no `out/`) | about 0.9 s | about 1.0 s | about 1.0 s | about 1.1 s |
-| Up to date, `tsc -b` itself | about 0.06 s | about 0.06 s | about 0.06 s | about 0.07 s |
-| Up to date, as `npm run build:ts` | about 0.16 s | about 0.18 s | about 0.17 s | about 0.19 s |
+| | Step 1 (50 files, none checked) | Step 2 | Step 3 | Step 4 | Step 5 |
+| --- | --- | --- | --- | --- | --- |
+| Rebuild everything (`tsc -b --force`; step 1 was from no `out/`) | about 0.9 s | about 1.0 s | about 1.0 s | about 1.1 s | about 1.2 s |
+| Up to date, `tsc -b` itself | about 0.06 s | about 0.06 s | about 0.06 s | about 0.07 s | about 0.07 s |
+| Up to date, as `npm run build:ts` | about 0.16 s | about 0.18 s | about 0.17 s | about 0.19 s | about 0.23 s |
 
 The last row is what `npm test`, `npm start` and the other scripts pay on every run, most
 of it npm's own start-up. Checking the `.ts` files did not move a full rebuild by more than
@@ -388,8 +413,14 @@ the noise of the measurement, at step 2 or at step 3, and does not touch a no-op
 did read 0.1 s slower on a rebuild and 0.02 s as `npm run build:ts`, and was put down to that
 noise; step 4 adds the same (0.1 s and 0.02 s, and 0.01 s to `tsc -b` itself), and unlike the
 others it was measured on a busy machine (a load average of about 3.5; the other columns did
-not record theirs). So it is a number to watch and not yet a finding. `strict` will cost
-more; step 6 measures it.
+not record theirs). So it is a number to watch and not yet a finding.
+
+Step 5 adds a 7.5k-line file and reads about 0.06 s slower on a rebuild (1.16, 1.16 and 1.15
+s, against about 1.1 s), no different on `tsc -b` itself (0.06, 0.07 and 0.07 s) and about
+0.04 s slower as `npm run build:ts` (0.25, 0.21 and 0.23 s). It was measured on a busy machine
+as well: the load average was 2.70 before the runs (4.07 over five minutes, 4.82 over
+fifteen) and 2.88 after. That is above about 2, so these numbers are not a finding either.
+`strict` will cost more; step 6 measures it.
 
 The last row has one more cost since the table was made: `npm run build:ts` starts
 `bootstrap/heal-page-build.mjs` before `tsc -b`, an extra `node` process (about 0.02 s on its

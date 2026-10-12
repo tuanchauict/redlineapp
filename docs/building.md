@@ -235,7 +235,7 @@ still a recompile, but `tauri dev` watches for that itself and restarts the app.
 That this works at all rests on `shell/dist` being **gitignored**, because Tauri's
 watcher honours gitignore and would otherwise see every restage as a reason to
 rebuild the Rust — which is the cost the whole exercise exists to avoid. If a page
-edit ever starts recompiling, that is the rule that broke; `test-smoke.js` asserts
+edit ever starts recompiling, that is the rule that broke; `test-smoke.ts` asserts
 it.
 
 Two things differ from the app you ship, and the first one catches everybody:
@@ -268,8 +268,10 @@ drag-region toolbar, the tab strip, the menu wiring, the drop overlay.
 npm test
 ```
 
-One file, `test-smoke.js`, which `pretest` compiles into `out/` and `node` runs from there,
-with no test framework. Its file lookups go through `rootUrl`, from the repository root, so
+One file, `test-smoke.ts`, which `pretest` compiles into `out/` and `node` runs from there
+(`node out/test-smoke.js`), with no test framework. It is type-checked like the rest, as part of
+the node project, so a type error in it stops `pretest`'s `tsc -b` and `npm test` fails before
+it has run anything. Its file lookups go through `rootUrl`, from the repository root, so
 the compiled copy greps the same source the original does. It boots the real
 server on a temp file under a temp `REDLINE_HOME`, edits the file, and asserts on
 what comes back over HTTP — so a passing run means the thing actually works end to
@@ -341,7 +343,7 @@ a fork's code with a read-only token and nothing else, and never
 `pull_request_target`, which runs it with both. The bundle job's signed step is
 skipped on a pull request, even one from this repository — notarizing is a round trip
 to Apple, and a check that goes red because that service is slow teaches people to
-ignore it — and an ad hoc step runs in its place. `test-smoke.js` asserts all three:
+ignore it — and an ad hoc step runs in its place. `test-smoke.ts` asserts all three:
 the trigger, that no step a pull request reaches names an Apple secret, and that the
 test job names no secret at all.
 
@@ -537,7 +539,7 @@ pointer or a key reaches it.
 Three more consequences worth knowing before editing any of it:
 
 - **The three change colours are the reader's**, copied from `public/styles.css`, and
-  `test-smoke.js` asserts they are still equal. The page is a picture of the product,
+  `test-smoke.ts` asserts they are still equal. The page is a picture of the product,
   and a green that is nearly the product's green is worse than no picture. The raw
   scene's `--syn` is deliberately *not* one of them: a colour that means "changed"
   somewhere on this page cannot also mean "this is a heading".
@@ -548,7 +550,7 @@ Three more consequences worth knowing before editing any of it:
   resolved `var(--fg)` once, and what the heading and the filename inherited is the
   colour it produced, not the reference; redefining the property above them changes
   nothing. So `.sim-tone` sets `color: var(--fg)` itself, and the scene's palette
-  reaches what inherits. `test-smoke.js` asserts the declaration is still there,
+  reaches what inherits. `test-smoke.ts` asserts the declaration is still there,
   because the failure is dark text on a dark mock and the page it is on looks fine.
 - **No mock may change height.** Both `.split` rows are `align-items: center`, so a
   scene that grows does not only grow — it moves the copy beside it and everything
@@ -563,7 +565,7 @@ Three more consequences worth knowing before editing any of it:
   document, so the space it keeps reads as bottom padding. For the same reason, a
   block in that scene that comes and goes with the baseline carries no `w-del`: a
   `w-del` is `display: none` when its block is not in the baseline, and one word
-  leaving the flow can cost the paragraph a line. `test-smoke.js` asserts all of it,
+  leaving the flow can cost the paragraph a line. `test-smoke.ts` asserts all of it,
   because the failure is a pulse and there is no browser here to see one in.
 
 The theme is applied by an inline script in the `<head>`, not by the module — the same
@@ -592,7 +594,7 @@ child's reach, which is the whole reason to prefer it.
 
 The same rule also kept the two kinds of band 34px out of line with each other, since
 `max-width` on a child is a content box and `max-width` on `.band` is a border box
-with the padding inside it. `test-smoke.js` asserts the padding form is still there
+with the padding inside it. `test-smoke.ts` asserts the padding form is still there
 and that no per-child margin has come back.
 
 ### A row of cards has to look like a row
@@ -641,7 +643,7 @@ puts within reach of a stranger: the Homebrew cask, and the dmg on the GitHub
 release beside it. The repository and that dmg are the only `github.com` links the
 page is allowed. There is no install from a checkout either: no `npm install` and no
 `git clone`. Building it is the README's business, not the page's. Both rules are
-asserted in `test-smoke.js`.
+asserted in `test-smoke.ts`.
 
 **The product the page sells is the app.** `npm start` and the browser tab it opens
 stay exactly where they are — they are how this repository is developed and tested —
@@ -665,7 +667,7 @@ and deserves the sentence it already has at the foot of *Get it*, not a scoreboa
 cell. The other two were `50` commits read in and `6` dependencies, which is the
 repository talking about itself. Counted as a figure, `0` invites the reader to work
 out what large would have meant, and the two numbers beside it answered in a unit
-that has nothing to do with them. `test-smoke.js` now asserts the page quotes no
+that has nothing to do with them. `test-smoke.ts` now asserts the page quotes no
 count of its own parts, so the next one has to be argued for.
 
 **And it does not print a keyboard map.** Keys are named in the prose of the feature
@@ -731,7 +733,7 @@ dashboard shows it too.
 
 `wrangler.toml` names the project and the directory for a local run. The workflow has no
 checkout to read it from, so it writes the same two on its command line, and
-`test-smoke.js` fails if they ever differ:
+`test-smoke.ts` fails if they ever differ:
 
 ```toml
 name = "redline"
@@ -758,13 +760,13 @@ It is **two jobs**, the way [the web app's](#publishing-the-web-app) is. `build`
 first, so the job needs the repository's dependencies, and `npm ci` runs every dependency's
 install scripts — and uploads `site/` without its `.ts`, since `landing.ts` sits beside the
 `landing.js` it compiled to and the page needs only the second (`!site/*.ts` in the step's
-`path`; asserted in `test-smoke.js`, and **not yet run on GitHub**: see [The page
+`path`; asserted in `test-smoke.ts`, and **not yet run on GitHub**: see [The page
 project](typescript.md#the-page-project)). `deploy` holds the Cloudflare token and runs
 nothing from the repository: it downloads that artifact and hands it to wrangler, with
 the project and the directory named on the command line, because it has no checkout and
 so no `wrangler.toml`. An unbuilt `site/` is the page with no icon and no link preview,
 and it would upload perfectly happily — which is why the staging step is asserted in
-`test-smoke.js` alongside the page itself.
+`test-smoke.ts` alongside the page itself.
 
 `site/_headers` is Cloudflare's own format and is committed rather than copied in;
 nothing in it is cached as immutable, because none of these filenames carries a
@@ -780,7 +782,7 @@ like anything, is unstyled buttons, scenes with no frame, and the diagrams drawi
 SVG's default black. `no-cache` is not `no-store`: both files stay in the browser
 cache, they are just revalidated, and the usual answer is a 304 with no body. Two
 files on a one-page site is not a bandwidth question. Images keep their day, because a
-slightly old icon is still the icon. `test-smoke.js` asserts the pair — the
+slightly old icon is still the icon. `test-smoke.ts` asserts the pair — the
 `no-cache` and the unversioned filenames — so adding a version string is a line that
 tells you to revisit this.
 

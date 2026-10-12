@@ -234,7 +234,7 @@ works at two levels, blocks and then words, on top of markdown-it's own parser. 
 word diff compares *rendered HTML* rather than markdown source, which is why a mark
 never splits a link or a run of bold text.
 
-**One test file, and it boots the real thing.** `test-smoke.js` has about 600
+**One test file, and it boots the real thing.** `test-smoke.ts` has about 600
 assertions, no test framework and no mocks. It starts the actual server on a temp
 file, edits the file, and checks what comes back. Then it searches the client code
 to make sure each feature is actually *wired up*, because a diff that is correct but
