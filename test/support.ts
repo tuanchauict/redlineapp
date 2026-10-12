@@ -7,7 +7,10 @@ import path from 'node:path';
 import { after } from 'node:test';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
+import assert from 'node:assert';
 import { createServer } from '../src/hosts/node/server.js';
+import { createMarkdown } from '../src/core/render.js';
+import { renderDocument } from '../src/core/document.js';
 import { rootUrl } from '../src/hosts/node/root.js';
 
 // Every server here listens on a TCP port, so address() is an AddressInfo; the string it can also
@@ -92,3 +95,66 @@ export function unbalanced(html: string) {
   }
   return stack.length ? `unclosed <${stack.join('>, <')}>` : null;
 }
+
+// The server sends the two versions of the text and the page renders them, so a test renders
+// them too -- what is asserted is what a reader ends up looking at, one step on from the
+// response. Exactly what `adopt` does in the page, for the same reason: rendering it a second way
+// here would be testing something nobody runs.
+export const mdPage = createMarkdown();
+export const render = (d) =>
+  d.text == null
+    ? d
+    : Object.assign(d, renderDocument(mdPage, d.text, d.base, { keys: d.acked, from: d.ackedFrom }));
+/** A reader talking to one server: fetch a document, render it, as the page does. */
+export const clientFor = (origin: string) => async (p: string, init?: RequestInit) =>
+  render(await (await fetch(origin + p, init)).json());
+
+/**
+ * `fn`'s answer once it has one. Reading a repo, a watch, another process: these land after the
+ * call that started them, so a test waits for them rather than assuming.
+ */
+export const until = async (fn, what, ms = 8000) => {
+  const t0 = Date.now();
+  for (;;) {
+    const v = await fn();
+    if (v) return v;
+    if (Date.now() - t0 > ms) assert.fail(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+};
+
+// IndexedDB as a Map, for the web platform and the web reader. `tx` stages what `fn` does and keeps it only if `fn`
+// finishes, one transaction at a time: the two things a readwrite transaction gives. What a Map
+// cannot do is end a transaction early, which is the thing `idb.ts` has to be built not to need.
+export const memoryKv = () => {
+  const data = new Map();
+  const seen = { puts: 0 };
+  const over = (m) => ({
+    get: async (k) => structuredClone(m.get(k)),
+    put: async (k, v) => void (seen.puts++, m.set(k, structuredClone(v))),
+    del: async (k) => void m.delete(k),
+    keys: async (prefix) => [...m.keys()].filter((k) => k.startsWith(prefix)).sort(),
+  });
+  let queue = Promise.resolve();
+  const tx = (fn) => {
+    const run = queue.then(async () => {
+      const staged = new Map(data);
+      const out = await fn(over(staged));
+      data.clear();
+      for (const [k, v] of staged) data.set(k, v);
+      return out;
+    });
+    queue = run.catch(() => {});
+    return run;
+  };
+  const now = over(data);
+  return {
+    data,
+    seen,
+    get: now.get,
+    keys: now.keys,
+    put: (k, v) => tx((t) => t.put(k, v)),
+    del: (k) => tx((t) => t.del(k)),
+    tx,
+  };
+};
