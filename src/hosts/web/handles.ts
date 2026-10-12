@@ -74,6 +74,14 @@ export class NoDocument extends Error {
   }
 }
 
+/**
+ * A handle the user granted. `queryPermission` is the File System Access API's and `lib.dom` does
+ * not declare it; `kind`, `name` and `isSameEntry` it does.
+ */
+export type GrantedHandle = FileSystemHandle & {
+  queryPermission(descriptor?: { mode?: 'read' | 'readwrite' }): Promise<PermissionState>;
+};
+
 export interface HandlesDeps {
   /** The `roots` store. */
   roots: Kv;
@@ -96,14 +104,14 @@ export function createHandles({
   // read the file by then.
   const info = new Map();
 
-  let chain = Promise.resolve();
-  const serial = (fn) => {
+  let chain: Promise<unknown> = Promise.resolve();
+  const serial = <T>(fn: () => T | Promise<T>): Promise<T> => {
     const run = chain.then(fn);
     chain = run.catch(() => {});
     return run;
   };
 
-  const same = async (a, b) => {
+  const same = async (a: FileSystemHandle, b: FileSystemHandle) => {
     try {
       return await a.isSameEntry(b);
     } catch {
@@ -111,7 +119,7 @@ export function createHandles({
     }
   };
 
-  async function root(rootId) {
+  async function root(rootId: string) {
     if (live.has(rootId)) return live.get(rootId);
     const rec = await roots.get(rootId);
     if (!rec) return null;
@@ -127,7 +135,7 @@ export function createHandles({
      * Keep a handle the user has just granted. Answers `{ rootId, name, kind }`, which is the
      * existing root's when the same folder or file is already there.
      */
-    addRoot: (handle) =>
+    addRoot: (handle: GrantedHandle) =>
       serial(async () => {
         for (const rootId of await roots.keys('')) {
           const rec = await roots.get(rootId);
@@ -146,14 +154,14 @@ export function createHandles({
       }),
 
     /** The root's name as the registry last saw it, or null. For labels. */
-    nameOf: (rootId) => info.get(rootId)?.name ?? null,
+    nameOf: (rootId: string) => info.get(rootId)?.name ?? null,
 
     /**
      * Whether a root may be read now: what `queryPermission` says (`granted`, `prompt`,
      * `denied`), or `gone` for a root the registry does not have or a handle that cannot be
      * asked. Never asks the user -- that is `requestPermission`, which only a page can call.
      */
-    async permission(rootId, mode = 'read') {
+    async permission(rootId: string, mode: 'read' | 'readwrite' = 'read') {
       const handle = await root(rootId);
       if (!handle) return 'gone';
       try {
@@ -164,17 +172,17 @@ export function createHandles({
     },
 
     /** Remember that this doc id is this file, for the reload that comes back with `?id=`. */
-    rememberOpened: (id, rootId, rel) => opened.put(id, { rootId, rel }),
+    rememberOpened: (id: string, rootId: string, rel: string) => opened.put(id, { rootId, rel }),
 
     /** What a doc id was, or null if the registry never saw it. */
-    openedAs: async (id) => (id === LAST ? null : ((await opened.get(id)) ?? null)),
+    openedAs: async (id: string) => (id === LAST ? null : ((await opened.get(id)) ?? null)),
 
     /**
      * Remember that a tab is showing this document now, so that a visit to the app's bare
      * address -- a bookmark, a new tab -- comes back to it instead of to the welcome. Only for an
      * id `rememberOpened` was told: anything else is a last document nothing could open.
      */
-    rememberLast: async (id) => {
+    rememberLast: async (id: string) => {
       await opened.put(LAST, id);
     },
 
@@ -185,7 +193,7 @@ export function createHandles({
      * How a path is shown: the root's name in front, so a folder's files read as part of it and a
      * dropped file says what it is.
      */
-    label(abs) {
+    label(abs: string) {
       const w = parseWebPath(abs);
       if (w) {
         const { name = 'folder', kind } = info.get(w.rootId) ?? {};

@@ -28,6 +28,7 @@ import { BadRequest, createSession } from '../../reader/session.js';
 import type { ReaderMessage } from '../../rpc/protocol.js';
 import { serveRpc } from '../../rpc/serve.js';
 import { createHandles, NeedsPermission, NoDocument, parseWebPath, webPath } from './handles.js';
+import type { GrantedHandle } from './handles.js';
 import { createIdbKv } from './idb.js';
 import { createWebPlatform } from './platform.js';
 import type { WebPlatformDeps } from './platform.js';
@@ -41,14 +42,17 @@ export const SILENT_MS = 30_000;
 /** How often to look for one. The page pings three times in a silence this long. */
 const SWEEP_MS = 5_000;
 
-const isHandle = (h) =>
+// A page is not trusted to send what it should, so what it sends is looked at before it is used.
+// The parameter has every member optional: nothing is known to be there until this has looked.
+const isHandle = (h: Partial<GrantedHandle> | null | undefined): h is GrantedHandle =>
   (h?.kind === 'directory' || h?.kind === 'file') &&
   typeof h.name === 'string' &&
   typeof h.queryPermission === 'function';
 
 // A dropped file is `drop:<name>`, and a name is all a path has to go on. Nothing a `File` can
 // be called is a separator, but the path is made here, so it is checked here.
-const safeName = (n) => typeof n === 'string' && n !== '.' && n !== '..' && /^[^/\\]+$/.test(n);
+const safeName = (n: unknown) =>
+  typeof n === 'string' && n !== '.' && n !== '..' && /^[^/\\]+$/.test(n);
 
 export interface WebHostOptions {
   /** The three IndexedDB stores, as `idb.ts` makes them. Default: those. */
@@ -64,6 +68,9 @@ export interface WebHostOptions {
    */
   makeReader?: typeof createReader;
 }
+
+/** What a connection asks of a port: a `MessagePort`, or anything shaped like one. */
+type PortLike = Pick<MessagePort, 'postMessage' | 'onmessage'> & { close?(): void };
 
 /** One page's connection. */
 interface Conn {
@@ -325,7 +332,7 @@ export function createWebHost({
        * that is not live -- after the `ret` that says it was subscribed, not before it.
        */
       watch(id, onEvent) {
-        let off = null;
+        let off: (() => void) | null = null;
         let stopped = false;
         const subscribe = () =>
           session.watch(mine(conn, id), (e) => {
@@ -340,7 +347,7 @@ export function createWebHost({
           });
         // `live` is told after the `ret` that says the watch is subscribed, never before it: the
         // page reads that `ret` as "live", and would undo a "not live" that came first.
-        const notLive = (err) => {
+        const notLive = (err: Error) => {
           if (stopped) return;
           if (err?.name === 'NeedsPermission') return live(false, err.message, 'permission');
           live(false, err?.name === 'Closed' ? 'That document is no longer open' : err.message);
@@ -383,9 +390,11 @@ export function createWebHost({
 
   // --- what only this host can be asked ------------------------------------
 
+  // What a page is meant to send, as `WebBackend` declares it. The checks inside are for the page
+  // that sends something else.
   const extra = {
     /** Keep a folder or file handle the page was given. Answers `{ rootId, name, kind }`. */
-    async addRoot(handle) {
+    async addRoot(handle: GrantedHandle) {
       if (!isHandle(handle)) throw new BadRequest('not a folder or file handle');
       return handles.addRoot(handle);
     },
@@ -395,7 +404,7 @@ export function createWebHost({
      * `<input type=file>`. Answers its path, which `open` takes from here. The same name dropped
      * again replaces it, so the next poll reads the new file and the history gains a version.
      */
-    addDrop(file) {
+    addDrop(file: File) {
       if (typeof file?.text !== 'function' || !safeName(file.name)) {
         throw new BadRequest('not a file');
       }
@@ -408,7 +417,7 @@ export function createWebHost({
      * it are taken now; ones already held are not touched, because the reader's poll is still
      * running and finds the file readable on its own.
      */
-    async grant(rootId) {
+    async grant(rootId: string) {
       if ((await handles.permission(rootId)) !== 'granted') return false;
       await readerP;
       for (const c of conns) if (c.pending?.rootId === rootId) c.ready = acquire(c);
@@ -423,7 +432,7 @@ export function createWebHost({
    * Serve one page over `port`: a MessagePort, or anything shaped like one (`postMessage`,
    * settable `onmessage`). Returns the function that stops serving it.
    */
-  function connect(port) {
+  function connect(port: PortLike) {
     const conn: Conn = {
       docId: null,
       held: null,

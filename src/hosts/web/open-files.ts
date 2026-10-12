@@ -19,6 +19,10 @@ export interface OpenFile {
   label: string;
 }
 
+/** What `note` is given: a file's identity, and `dir` and `label` when the caller has them. */
+export type NoteInput = Pick<OpenFile, 'id' | 'path' | 'name'> &
+  Partial<Pick<OpenFile, 'dir' | 'label'>>;
+
 const isEntry = (t: any): t is OpenFile =>
   typeof t?.id === 'string' && typeof t.path === 'string' && typeof t.name === 'string';
 
@@ -84,11 +88,12 @@ export function createOpenFiles({
      * the desktop app joins the window as a tab, and relabelled if it is -- a folder granted
      * again can come back under another name. Answers whether the list changed.
      */
-    note({ id, path, name, dir = '', label = path }) {
+    note({ id, path, name, dir = '', label = path }: NoteInput) {
       const t = { id, path, name, dir, label };
       const at = list.findIndex((o) => o.id === id);
       const was = list[at];
-      if (was && Object.keys(t).every((k) => was[k] === t[k])) return false;
+      // `t` has exactly an OpenFile's fields, which `Object.keys` cannot say.
+      if (was && (Object.keys(t) as (keyof OpenFile)[]).every((k) => was[k] === t[k])) return false;
       if (was) list[at] = t;
       else list.push(t);
       save();
@@ -100,7 +105,7 @@ export function createOpenFiles({
      * before when it was the last, as closing a tab goes to its neighbour -- or null when none
      * is left. Which is only the page's to act on if the file closed was the one on screen.
      */
-    close(id) {
+    close(id: string) {
       const at = list.findIndex((t) => t.id === id);
       if (at < 0) return null;
       list.splice(at, 1);

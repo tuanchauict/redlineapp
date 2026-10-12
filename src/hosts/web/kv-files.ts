@@ -47,13 +47,13 @@ export function createKvFiles(kv: Kv, root: string): KvFiles {
 
   // A path the store may name: `root` and what is under it. Not a prefix match on the string,
   // or `/redlinex` would be taken for part of `/redline`.
-  const inside = (p) => p === base || p.startsWith(base + '/');
-  const dir = (p) => {
+  const inside = (p: string) => p === base || p.startsWith(base + '/');
+  const dir = (p: string) => {
     if (!inside(p)) throw new Error(`not under ${base}: ${p}`);
     return p.replace(/\/+$/, '');
   };
   // A file is never the root itself, which is a directory.
-  const file = (p) => {
+  const file = (p: string) => {
     if (!p.startsWith(base + '/')) throw new Error(`not under ${base}/: ${p}`);
     return p;
   };
@@ -62,7 +62,8 @@ export function createKvFiles(kv: Kv, root: string): KvFiles {
   // does, so two writes in one millisecond would look like one. That matters wherever two
   // readers share one database, which is what a page without `SharedWorker` is. `previous + 1`
   // also keeps it moving if the clock steps back.
-  const stamp = (previous) => Math.max(Date.now(), (previous?.mtime ?? 0) + 1);
+  const stamp = (previous: { mtime: number } | undefined) =>
+    Math.max(Date.now(), (previous?.mtime ?? 0) + 1);
 
   return {
     async readText(p) {

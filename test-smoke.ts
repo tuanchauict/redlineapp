@@ -4425,13 +4425,7 @@ const memoryKv = () => {
       ],
       'the same folder granted twice, even at once, is one root',
     );
-    // `serial` in handles.ts is untyped, so addRoot is declared to resolve to nothing; it resolves
-    // to the root's record.
-    assert.strictEqual(
-      ((await handles.addRoot(other)) as unknown as { rootId: string }).rootId,
-      'root-2',
-      'another is another',
-    );
+    assert.strictEqual((await handles.addRoot(other)).rootId, 'root-2', 'another is another');
     assert.strictEqual(stores.roots.m.size, 2, 'and two are stored');
 
     assert.strictEqual(await handles.permission('root-1'), 'granted', 'a root says what it may');
