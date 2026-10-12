@@ -2,7 +2,8 @@
 
 Status: phase 1 (the build), the signal-backed `state` of phase 2, and the components of
 phase 4 for History, Contents, the change ruler, the bar, the tabs and the left column (merged),
-and Settings and the welcome (`preact-settings-welcome`) are implemented. Find's count and the
+and Settings and the welcome (merged) are implemented, and phase 3's split has begun with
+`layout/` (`split-layout`); `doc/` is next. Find's count and the
 version menu are still imperative.
 
 ## Goal and decisions

@@ -55,8 +55,8 @@
       if (sideOn) document.documentElement.classList.add("side-open");
       if (tocOn) document.documentElement.classList.add("toc-open");
 
-      // This mirrors `fitWidths` in app.js, which takes over from the first
-      // frame on; the two have to agree or opening the window is a visible
+      // This mirrors `fitWidths` in public/app/layout/widths.ts, which takes
+      // over from the first frame on; the two have to agree or opening the window is a visible
       // correction. 150 and 560 are what a column can usefully be, and the
       // document keeps 320px of the window however wide the pair were left.
       // Contents gives way first: the prose and the files you are moving
@@ -79,7 +79,8 @@
       root.setProperty("--toc-w", (tocOn ? tocW : wantW[1]) + "px");
 
       // Contents' height, the same deal turned on its side: this mirrors
-      // `applyTocH` in app.js, which takes over from the first frame on. 90 is
+      // `applyTocH` and `tocHMax` in public/app/layout/toc-height.ts, which
+      // takes over from the first frame on. 90 is
       // the least Contents can be and still be a list; 110 is what History
       // needs below it to still be one too; 34/38 is the titlebar, web or native.
       const tocH = Number(prefs.getItem("redline:toch")) || 180;
