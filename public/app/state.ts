@@ -99,30 +99,6 @@ export const menuFor = signal<string | null>(null);
  */
 export const cutFrom = signal<string | null>(null);
 
-// The change ruler's own state. `paintRuler` in main.ts measures the document and leaves the
-// marks here; `highlightRulerCurrent` says which node is current. ui/Ruler.tsx draws both.
-
-/** One mark: a run of touching changes of one kind, already scaled to the track. */
-export interface RulerBand {
-  kind: string;
-  /** Checked off, which draws it quieter. */
-  ok: boolean;
-  top: number;
-  height: number;
-  /** The blocks it stands for, first one first: where a click lands, what a hover tints. */
-  nodes: HTMLElement[];
-}
-
-/** The marks, top to bottom. Empty when the ruler has nothing to draw, or nothing to scale to. */
-export const rulerBands = signal<RulerBand[]>([]);
-
-/**
- * The change the ruler shows as current: the one under the pointer, or the one `n`/`p` last
- * landed on. A node rather than an index, because a band is several nodes and any of them makes
- * it current.
- */
-export const rulerCurrent = signal<HTMLElement | null>(null);
-
 // The bar's own state: what main.ts knows about the document and the window, left here for the
 // components on the bar to draw. Each is written in one place, named on each.
 
@@ -132,14 +108,6 @@ export const rulerCurrent = signal<HTMLElement | null>(null);
  * said before there was a page to ask. Written by `paint` and `showWelcome`.
  */
 export const barName = signal({ name: '…', dir: '', path: '' });
-
-/**
- * The count on the bar, as `paintCount` last worked it out: changes still to read, by kind and
- * in all, and how many are checked off. `nav` is how many `n`/`p` can reach, which is counted
- * off the page rather than the payload, so it is the one number here a component could not work
- * out itself.
- */
-export const tally = signal({ add: 0, mod: 0, del: 0, live: 0, done: 0, nav: 0 });
 
 /** The name of the version being read by itself, or null while the page compares. `paintSolo`. */
 export const soloName = signal<string | null>(null);

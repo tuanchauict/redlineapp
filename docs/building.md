@@ -300,15 +300,16 @@ byte, the bundle carries it with `NOTICE` and the third-party notices, and those
 notices are current with both lockfiles; and that the bundle identifier is still
 `com.redline.reader`, which everything the app remembers is filed under.
 
-It also greps `public/` to check that each of those features is actually **wired
-up** — the id exists, the handler exists, the CSS rule exists. A diff that is
-correct and unreachable would otherwise pass. The page's source is read through
-`pageSource()`, every `.ts` and `.tsx` under `public/app/` as one text, so which module a
-line lives in is not the assertion's business. What is executed, the helpers lifted out of
-the page and run in a `vm`, is read from `public/app/main.ts` with its types stripped by
-esbuild, and not from the bundle: in `app.js` Preact sits in beside the page, and esbuild
-renames a page name wherever it meets one of Preact's own. The checks on what is *served*
-(the four imports, the preference fallback) do read `app.js`.
+It also greps `public/` to check that each of those features is actually **wired up** — the id
+exists, the handler exists, the CSS rule exists. A diff that is correct and unreachable would
+otherwise pass. The page's source is read through `pageSource()`, every `.ts` and `.tsx` under
+`public/app/` as one text, so which module a line lives in is not the assertion's business. What
+is executed, the helpers lifted out of the page and run in a `vm`, is read from
+`public/app/main.ts` and the viewmodels they have moved to (`vm/changes.ts`, `vm/acks.ts`) with
+its types stripped by esbuild, file by file and with `export` taken off, and not from the
+bundle: in `app.js` Preact sits in beside the page, and esbuild renames a page name wherever it
+meets one of Preact's own. The checks on what is *served* (the four imports, the preference
+fallback) do read `app.js`.
 
 It cannot watch a hostile document fail to run, because there is no DOM here. What
 it checks instead is that each layer from

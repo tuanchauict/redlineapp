@@ -1386,15 +1386,16 @@ assert.match(
 assert.match(pageCss, /\.ruler-current \{/, 'and the stylesheet gives that mark its own look');
 
 // What runs in a vm has to be JavaScript, and annotated TypeScript is not: `fn`, `konst` and
-// `applySchemeSrc` lift their text out of main.ts with its types stripped, where the greps for
-// how the source is written read the .ts. Stripped, not read from the bundle: app.js has Preact
-// scope-hoisted in beside the page, and esbuild renames the page's top-level names wherever they
-// meet Preact's minified ones -- `$` is `$2` there -- so a lifted function would call a helper
-// the vm's fakes do not name. Transforming the one file renames nothing.
-const pageRun = (await import('esbuild')).transformSync(
-  fs.readFileSync(rootUrl('public/app/main.ts'), 'utf8'),
-  { loader: 'ts', target: 'es2022' },
-).code;
+// `applySchemeSrc` lift their text out of main.ts and the viewmodels with its types stripped,
+// where the greps for how the source is written read the .ts. Stripped, not read from the bundle:
+// app.js has Preact scope-hoisted in beside the page, and esbuild renames the page's top-level
+// names wherever they meet Preact's minified ones -- `$` is `$2` there -- so a lifted function
+// would call a helper the vm's fakes do not name. Transforming file by file renames nothing.
+const { transformSync } = await import('esbuild');
+const pageRun = ['public/app/main.ts', 'public/app/vm/changes.ts', 'public/app/vm/acks.ts']
+  .map((file) =>
+    transformSync(fs.readFileSync(rootUrl(file), 'utf8'), { loader: 'ts', target: 'es2022' }).code)
+  .join('\n');
 
 // Stepping through the changes, run over fakes the way `applyScheme` is below: the arrows, `n`,
 // `p` and the count on the bar all go through `goToChange`, and what it has to get right is
@@ -1402,15 +1403,20 @@ const pageRun = (await import('esbuild')).transformSync(
 {
   const vm = await import('node:vm');
   const { renderRawDiff } = await import('./src/core/diff.js');
-  const fn = (name) => pageRun.match(new RegExp(`\\nfunction ${name}\\(.*?\\n\\}\\n`, 's'))?.[0];
+  // `export` is taken off what is lifted: the vm runs it as a script, where it is not a word.
+  const unexport = (src) => src?.replace(/^\nexport /, '\n');
+  const fn = (name) =>
+    unexport(pageRun.match(new RegExp(`\\n(?:export )?function ${name}\\(.*?\\n\\}\\n`, 's'))?.[0]);
   // One line ending in `;`, or an arrow function that closes with `};` in the first column.
   const konst = (name) =>
-    pageRun.match(new RegExp(`\\nconst ${name} = (?:[^\\n]*;|[\\s\\S]*?\\n\\};)\\n`))?.[0];
+    unexport(pageRun.match(
+      new RegExp(`\\n(?:export )?const ${name} = (?:[^\\n]*;|[\\s\\S]*?\\n\\};)\\n`),
+    )?.[0]);
   for (const name of ['stepIndex', 'goToChange', 'changeNodes']) {
-    assert.ok(fn(name), `main.ts has ${name}`);
+    assert.ok(fn(name), `vm/changes.ts has ${name}`);
   }
   for (const name of ['changeKind', 'continuesRun', 'LANDING_MS']) {
-    assert.ok(konst(name), `main.ts has ${name}`);
+    assert.ok(konst(name), `vm/changes.ts has ${name}`);
   }
 
   // The count and the arrows reach it, and the count says which kind it was pressed on.
@@ -1553,7 +1559,7 @@ const pageRun = (await import('esbuild')).transformSync(
 // `rulerBands`; `highlightRulerCurrent` only names the current node, so hover and `n`/`p`
 // measure nothing again. Marks are keyed by position, so a repaint keeps the elements on screen
 // and `.ruler-mark`'s opacity transition has a "before" to fade from.
-assert.match(pageJs, /mountRuler\(ruler, \{/, 'the marks are mounted on the ruler');
+assert.match(pageJs, /mountRuler\(\$\('ruler'\), \{/, 'the marks are mounted on the ruler');
 assert.match(pageJs, /rulerBands\.value = bands\.map\(/, 'from the bands paintRuler measured');
 assert.match(
   pageJs,
@@ -1586,7 +1592,7 @@ assert.match(
 assert.match(pageJs, /onClick=\{\(\) => actions\.go\(nodes\[0\]\)\}/, 'a mark can be clicked');
 assert.match(
   pageJs,
-  /mountRuler\(ruler, \{\s*go: \(node\) => \{[\s\S]*?goToNode\(node\);/,
+  /mountRuler\(\$\('ruler'\), \{\s*go: \(node\) => \{[\s\S]*?goToNode\(node\);/,
   'and lands the same way n\\/p do',
 );
 assert.match(pageJs, /onPointerEnter=\{\(\) => actions\.hover\(nodes\)\}/,
@@ -1773,6 +1779,33 @@ console.log('✓ the layout is its own modules, wired from main.ts');
   assert.match(chromeTs, /box\.hidden = text === null;/, 'and the notice from its');
   assert.ok(!/\$\('findCount'\)|\$\('notice'\)|\$\('peek'\)/.test(mainTs),
     'and main.ts writes none of them');
+
+  // The changes and their check-offs. acks.ts repaints the count and the ruler after it moves
+  // the classes they read, so it imports changes.ts; the other way round would be a circle.
+  assert.match(vm('acks.ts'), /^import \{[^}]*\} from '\.\/changes\.js';$/m,
+    'check-offs repaint through the changes viewmodel');
+  assert.ok(!/from '\.\/acks\.js'/.test(vm('changes.ts')), 'which knows nothing of them');
+  assert.match(vm('changes.ts'), /new ResizeObserver\(queueRuler\)\.observe\(doc\);/,
+    'the ruler watches the document settle');
+  assert.match(vm('changes.ts'), /doc\.addEventListener\('pointerover'/,
+    'and hears the pointer over a change');
+  assert.match(vm('acks.ts'), /doc\.addEventListener\('click'/, 'a tag in the margin checks off');
+  // `hoverNode` is read by acks.ts through the live binding, and only its own module may assign
+  // it -- an assignment anywhere else is a TypeError at run time, and a silent one in a listener.
+  assert.ok(!/hoverNode =/.test(vm('acks.ts') + mainTs), 'and the hover is changes.ts\'s to set');
+  assert.match(mainTs, /hidePeek\(\);\s*forgetHover\(\);/,
+    'which paint has forget the node it is about to replace');
+  const moved = 'paintRuler|paintCount|changeNodes|goToChange|keepAnchored|setAck|tapCheck';
+  assert.ok(!new RegExp(`^(?:async )?function (?:${moved})\\(`, 'm').test(mainTs),
+    'and none of it is in main.ts any more');
+  const stateTs = fs.readFileSync(rootUrl('public/app/state.ts'), 'utf8');
+  assert.ok(!/export const (?:rulerBands|rulerCurrent|tally) /.test(stateTs),
+    'the ruler and the count are the viewmodel\'s signals, not the shared state\'s');
+  for (const [f, names] of [['Ruler.tsx', 'rulerBands, rulerCurrent'], ['Changes.tsx', 'tally']]) {
+    assert.match(fs.readFileSync(rootUrl(`public/app/ui/${f}`), 'utf8'),
+      new RegExp(`^import \\{ ${names} \\} from '\\.\\./vm/changes\\.js';$`, 'm'),
+      `ui/${f} reads them from there`);
+  }
 }
 console.log('✓ the viewmodels are modules of their own, and import only downwards');
 
