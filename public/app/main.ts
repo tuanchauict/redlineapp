@@ -5,13 +5,15 @@ import {
   walkPath,
   shorten,
   MD_LINK,
-} from './vendor/render.js';
-import { sanitizeDocument, sanitizeSvg } from './vendor/sanitize.js';
-import { createBackend } from './backend.js';
+} from '../vendor/render.js';
+import { sanitizeDocument, sanitizeSvg } from '../vendor/sanitize.js';
+import { createBackend } from '../backend.js';
+import { prefs, state, shownHistory, menuFor, cutFrom } from './state.js';
+import { mountHistory, askPrune, isBaseline, versionName } from './ui/History.js';
 // Nothing here names the type: the import is for native.ts's own `declare global`, which types
 // `window.mdNative` from what `installNative` leaves, so the page's calls on the shell are
 // checked against what the Tauri host provides. tsc drops it from the emitted file.
-import type { MdNative } from '../src/hosts/tauri/native.js';
+import type { MdNative } from '../../src/hosts/tauri/native.js';
 
 // Every id is in index.html, so the element is there, and the caller is the one that knows
 // which kind it is: `$<HTMLInputElement>('findInput')`.
@@ -20,10 +22,6 @@ const doc = $('doc');
 // The scroll area is the document pane, not the page — see `main` in the CSS.
 const pane = document.querySelector('main');
 const darkMode = matchMedia('(prefers-color-scheme: dark)');
-// Where preferences live. A host that has no usable localStorage (a VS Code webview's is
-// per-panel and not kept) fills this in synchronously from host.js; the head script in
-// index.html does the same, so the two have to read the same store.
-const prefs = globalThis.__REDLINE_PREFS ?? localStorage;
 
 // The scheme and the tint are both the page's to say, as `data-scheme` and
 // `data-tint` on <html>, set by the head script and then by `applySettings`.
@@ -60,7 +58,7 @@ let mermaidBroken = false;
 async function getMermaid() {
   if (mermaid || mermaidBroken) return mermaid;
   try {
-    mermaid = (await import('./vendor/mermaid/mermaid.esm.min.mjs')).default;
+    mermaid = (await import('../vendor/mermaid/mermaid.esm.min.mjs')).default;
     mermaid.initialize(mermaidConfig());
   } catch (err) {
     console.error('mermaid failed to load', err);
@@ -68,51 +66,6 @@ async function getMermaid() {
   }
   return mermaid;
 }
-
-const state = {
-  // Which of the server's open documents this page is showing. One server
-  // backs every window, so every request has to say which document it means;
-  // a lone browser tab can leave it empty and get the only one.
-  docId: new URLSearchParams(location.search).get('id') || '',
-  view: prefs.getItem('redline:view') || 'rendered',
-  // Show the change marks, or just read the document. Hiding them is a page
-  // concern only: the baseline keeps tracking, so turning them back on costs
-  // no round trip and nothing is forgotten in between.
-  diff: prefs.getItem('redline:diff') !== '0',
-  // Read the chosen version by itself rather than the file marked against it.
-  // A mode rather than a click, so stepping down the history reads each row in
-  // turn until it is switched off. Not remembered across a restart, on purpose:
-  // a window that opened on last week's text with no marks would look exactly
-  // like the file as it is now.
-  solo: false,
-  baseline: 'read',
-  data: null,
-  // What the reader behind this page can do — `{ git, plantuml }` — as the last payload said.
-  // Null until one has come, which is also the answer on the welcome, where nothing is open.
-  caps: null,
-  changeIndex: -1,
-  // The changes ticked off in this document, by the server's name for each.
-  // Kept per document rather than per page, so closing the tab does not undo an
-  // afternoon of reading through a long set of edits.
-  acked: new Set(),
-  // The contents rows and the headings they stand for, paired up at paint time:
-  // the scroll spy runs on every frame the document moves and cannot be asking
-  // the sidebar what is in it each time.
-  toc: [],
-  tocAt: -1,
-  // The open files: a native window's tabs, as the shell pushes them, or the
-  // web app's, as it keeps them itself (`openFiles`). A CLI tab has none.
-  tabs: [],
-  // Whether each sidebar is showing — the files down the left, the contents and
-  // versions down the right. Read back from the classes the inline script set
-  // before first paint, so neither flashes.
-  side: document.documentElement.classList.contains('side-open'),
-  tocSide: document.documentElement.classList.contains('toc-open'),
-  // The version whose "forget everything older" is waiting to be confirmed.
-  // Deleting is the one thing in the sidebar that cannot be undone, so it asks
-  // in the row itself rather than throwing a dialog over the window.
-  pruneAsk: null,
-};
 
 /** Where each document was left, so switching back does not lose the place. */
 const scrollMemory = new Map();
@@ -1467,74 +1420,8 @@ function notify(text) {
 
 // ---------- history ----------
 
-// Every version of the document, newest first. The list is in the sidebar and
-// not on the toolbar because a history gets long, and because a row has the
-// room to say what a version actually is — when it is from, how far it moved,
-// which commit it was — where a dropdown on a one-line bar has room for none
-// of that. Picking a row is how you choose what the file is compared against.
-//
-// It is also the only place that is asked. The bar used to carry a shortlist of
-// the same versions and a button for the read mark; both said, less well, what
-// a row here says in place — so the bar now holds what the document is and what
-// the app is showing, and everything about versions is here.
-
-const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-const AGO: [Intl.RelativeTimeFormatUnit, number][] = [
-  ['year', 31557600],
-  ['month', 2629800],
-  ['week', 604800],
-  ['day', 86400],
-  ['hour', 3600],
-  ['minute', 60],
-];
-
-/** Said in full: a row down the side has the room a toolbar never had. */
-function longAgo(ts) {
-  const s = (Date.now() - ts) / 1000;
-  if (s < 45) return 'just now';
-  for (const [unit, secs] of AGO) {
-    if (s >= secs) return rtf.format(-Math.round(s / secs), unit);
-  }
-  return rtf.format(-1, 'minute');
-}
-
-const CLOCK = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
-const DATE = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
-const DATE_YEAR = new Intl.DateTimeFormat(undefined, {
-  year: 'numeric',
-  month: 'short',
-  day: 'numeric',
-});
-
-const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
-
-/**
- * A name for a version nobody named.
- *
- * "9 hours ago" cannot be one. It is a different string every time you look at
- * it, so the row you meant to come back to is not called what it was called;
- * and an evening of saves says it four times over, so it does not pick out a
- * row either. A clock time does both: it holds still, and two versions of one
- * file rarely land in the same minute.
- */
-function clockName(ts) {
-  const then = new Date(ts);
-  const now = new Date();
-  const days = Math.round((midnight(now) - midnight(then)) / 86400000);
-  const at = CLOCK.format(then);
-  if (days <= 1) return `${capital(rtf.format(-days || 0, 'day'))} ${at}`;
-  if (then.getFullYear() === now.getFullYear()) return `${DATE.format(then)}, ${at}`;
-  return `${DATE_YEAR.format(then)}, ${at}`;
-}
-
-/** Bytes as a person says them, and never to more precision than is real. */
-function bytes(n) {
-  const abs = Math.abs(n);
-  if (abs < 1024) return `${n} B`;
-  if (abs < 1024 * 1024) return `${(n / 1024).toFixed(abs < 10240 ? 1 : 0)} kB`;
-  return `${(n / 1048576).toFixed(1)} MB`;
-}
+// The list itself is ui/History.tsx. What is here is what the list does — the menu on a row,
+// marking a version read, forgetting some — and the switch and the tag that read one alone.
 
 const el = (tag, className?, text?) => {
   const n = document.createElement(tag);
@@ -1542,26 +1429,6 @@ const el = (tag, className?, text?) => {
   if (text != null) n.textContent = text;
   return n;
 };
-
-/**
- * Whether this row is what the document is being compared against — which is a
- * version whether it was picked by name or reached through the "last read"
- * pointer, and the list should say so either way.
- *
- * The newest row is the other end of the same question: comparing the file
- * against itself is the plain document, which is the marks put away.
- */
-function isBaseline(d, v) {
-  if (v.current) return !state.diff;
-  if (!state.diff) return false;
-  if (d.baseline === `snap:${v.hash}`) return true;
-  if (d.baseline === 'read') return v.baseline;
-  // git HEAD has no row of its own, and needs none: the newest version carrying
-  // a commit is the newest commit that touched this file, which is exactly what
-  // HEAD holds of it. Reached only through the Settings default.
-  if (d.baseline === 'git:HEAD') return v.hash === d.history.find((h) => h.git)?.hash;
-  return false;
-}
 
 /**
  * The two sidebars for a page with no document. The welcome hides `#doc`, but Contents and
@@ -1572,14 +1439,12 @@ function isBaseline(d, v) {
  */
 function clearSidebars() {
   paintToc({});
-  paintHistory({});
+  paintHistory(null);
   $('tocList').replaceChildren();
-  $('histList').replaceChildren();
 }
 
 function paintHistory(d) {
-  const list = $('histList');
-  const versions = d.history ?? [];
+  const versions = d?.history ?? [];
   // A row's menu is about a row that is about to be replaced, and possibly
   // with different numbers in it — a save has arrived, or a version has gone.
   closeVerMenu();
@@ -1589,120 +1454,35 @@ function paintHistory(d) {
   // Nothing older to read with one version — but never hidden while on, or it
   // could not be found again to switch off.
   $('histSolo').hidden = versions.length < 2 && !state.solo;
-  if (!state.tocSide) return;
-
-  if (versions.length < 2) {
-    list.replaceChildren(el('p', 'side-empty', 'No earlier versions yet.'));
-    return;
-  }
-  list.replaceChildren(
-    ...versions.map((v, i) =>
-      state.pruneAsk === v.hash ? pruneAskRow(v, versions.length - i) : versionRow(d, v, i),
-    ),
-  );
+  // The list draws itself from this, and again whenever anything else it reads changes.
+  shownHistory.value = d;
 }
 
-/**
- * A committed version is better named by its commit than by our hash of its
- * bytes: the subject is what the person who wrote it chose to call it. One that
- * was only ever saved has no such name, so it is called when it was.
- */
-const versionName = (v) => (v.git ? v.git.subject || 'Commit' : clockName(v.ts));
-
-function versionRow(d, v, i) {
-  const row = el('button', 'ver');
-  row.type = 'button';
-  const name = versionName(v);
-  // Everything a 236 px column had to shorten: the whole of a subject, the
-  // exact time behind both the clock above and the "9 hours ago" below, and
-  // the hash that used to sit in the row itself — a row already carrying a
-  // name and two flags had no room left to spend on an identifier nobody
-  // reads at a glance, so it moved here instead of disappearing.
-  const when = new Date(v.ts).toLocaleString();
-  row.title = v.git
-    ? `${name}\n${when} · commit ${v.git.sha.slice(0, 12)}`
-    : `${when} · ${v.hash.slice(0, 12)}`;
-  if (isBaseline(d, v)) {
-    row.classList.add('on');
-    row.setAttribute('aria-current', 'true');
-  }
-
-  const text = el('span', 'ver-text');
-
-  const top = el('span', 'ver-top');
-  top.append(el('span', 'ver-name', name));
-  // "now" is the file as it stands on disk; "read" is the version the change
-  // marks are measured from. They can be the same version, and often are. Set
-  // as quiet text rather than a filled chip — the row already says which
-  // version it is by its name, so these are a note, not a badge.
-  const flags = [v.current && 'now', v.baseline && 'read'].filter(Boolean);
-  if (flags.length) top.append(el('span', 'ver-flags', flags.join(' · ')));
-
-  // Underneath, the particulars, in one shape for every row: how long ago this
-  // was, and how far the file moved arriving here.
-  const sub = el('span', 'ver-sub');
-  const moved = v.delta
-    ? `${v.delta > 0 ? '+' : '−'}${bytes(Math.abs(v.delta))}`
-    : v.size == null
-      ? ''
-      : bytes(v.size);
-  sub.append(el('span', 'ver-note', [longAgo(v.ts), moved].filter(Boolean).join(' · ')));
-  text.append(top, sub);
-
-  // How many would go with it: this row and every row under it, which is the
-  // same arithmetic the confirmation does.
-  const n = d.history.length - i;
-  row.append(text, moreButton(row, v, n));
-  // A right-click opens the same menu, at the pointer, in place of the
-  // browser's own: Back, Reload and Inspect have nothing to say about a
-  // version, and a right-click on an item in a list is where any app keeps
-  // what is done to it less often than a click does.
-  row.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // The context-menu key has no pointer to open at, and reports the corner.
-    const keyboard = !e.clientX && !e.clientY;
-    const from = keyboard ? row.querySelector('.ver-more') : null;
-    openVerMenu(row, v, n, { from, keyboard, x: e.clientX, y: e.clientY });
-  });
-
-  // The version on disk: picking it leaves nothing to compare, which is the
-  // document read plainly. It is still not a version to throw away, though —
-  // everything else in the list is compared against it.
+/** What a click on a row does: History hands it the version, and this decides what that means. */
+function pickVersion(v) {
+  state.pruneAsk = null;
   if (v.current) {
-    row.classList.add('head');
-    // Added to rather than replacing: what the click does is worth saying, but
-    // not at the price of the one place the exact time is written out.
-    row.title += '\nRead the file as it is now, with nothing compared';
-    row.addEventListener('click', () => {
-      state.pruneAsk = null;
-      setMarks(false);
-    });
-    return row;
+    setMarks(false);
+    return;
   }
-
-  row.addEventListener('click', () => {
-    state.pruneAsk = null;
-    // Marks on first: picking a version to compare against and seeing nothing
-    // marked would look like the click missed. It also keeps the scroll anchored
-    // across the blocks that hiding the marks had collapsed. Reading versions
-    // by themselves, it is what says "an older one" rather than the file — but
-    // not redrawn yet, or the version being left would flash up before the
-    // load below brings the one clicked.
-    setMarks(true, { redraw: false });
-    // Named outright, which is also how the choice sticks: the reader keeps
-    // the baseline it was asked for by name, and hands it back the next time
-    // this document is opened. Nothing to store here.
-    //
-    // The row carrying the read mark is named as `read` rather than by its
-    // hash, because that is what the row means: the version counted as read,
-    // which moves as you read rather than staying where it is now. It is also
-    // the way back — a choice is kept from now on, so naming that row by hash
-    // would pin the document to it with nothing in the list to unpin it.
-    state.baseline = v.baseline ? 'read' : `snap:${v.hash}`;
-    load({ keepScroll: true });
-  });
-  return row;
+  // Marks on first: picking a version to compare against and seeing nothing
+  // marked would look like the click missed. It also keeps the scroll anchored
+  // across the blocks that hiding the marks had collapsed. Reading versions
+  // by themselves, it is what says "an older one" rather than the file — but
+  // not redrawn yet, or the version being left would flash up before the
+  // load below brings the one clicked.
+  setMarks(true, { redraw: false });
+  // Named outright, which is also how the choice sticks: the reader keeps
+  // the baseline it was asked for by name, and hands it back the next time
+  // this document is opened. Nothing to store here.
+  //
+  // The row carrying the read mark is named as `read` rather than by its
+  // hash, because that is what the row means: the version counted as read,
+  // which moves as you read rather than staying where it is now. It is also
+  // the way back — a choice is kept from now on, so naming that row by hash
+  // would pin the document to it with nothing in the list to unpin it.
+  state.baseline = v.baseline ? 'read' : `snap:${v.hash}`;
+  load({ keepScroll: true });
 }
 
 /**
@@ -1787,59 +1567,10 @@ async function markRead(at?) {
   pane.scrollTo(0, y);
 }
 
-/** Turn a row into its own question, and put the keyboard on the answer. */
-function askPrune(hash) {
-  state.pruneAsk = hash;
-  paintHistory(state.data);
-  $('histList').querySelector<HTMLElement>('.ask-go')?.focus();
-}
-
-/**
- * The row's "…": what can be done to a version besides comparing against it.
- *
- * Comparing is what a click on the row does, because it is what is done to a
- * version all the time; marking one read and forgetting one are done now and
- * then, and one of them cannot be undone, so neither is a click away. They
- * used to be one control each, at the end of the row, and a row has room for
- * one. The cut icon that forgot versions was the third attempt at a picture of
- * "this one and everything older" — a bin, then scissors, then a perforation —
- * and a menu item can simply say it.
- *
- * Out of sight until the row is pointed at, like the × on an open file. A
- * right-click on the row opens the same menu, for anyone who reaches for that
- * first; this is for those who do not, and for the keyboard.
- */
-function moreButton(row, v, n) {
-  const more = el('span', 'ver-more');
-  more.role = 'button';
-  more.tabIndex = 0;
-  more.title = 'Mark as read, forget…';
-  more.setAttribute('aria-label', 'Actions for this version');
-  more.setAttribute('aria-haspopup', 'menu');
-  more.setAttribute('aria-expanded', 'false');
-  more.innerHTML =
-    '<svg class="i" viewBox="0 0 16 16" aria-hidden="true">' +
-    '<circle cx="3.5" cy="8" r="1.25" /><circle cx="8" cy="8" r="1.25" />' +
-    '<circle cx="12.5" cy="8" r="1.25" /></svg>';
-
-  const open = (e, keyboard) => {
-    // Inside the row, which is a button: a click here is not a click on it.
-    e.stopPropagation();
-    e.preventDefault();
-    if (verMenu.more === more) closeVerMenu();
-    else openVerMenu(row, v, n, { from: more, keyboard });
-  };
-  more.addEventListener('click', (e) => open(e, false));
-  more.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') open(e, true);
-  });
-  return more;
-}
-
-// The row the menu is open for and the "…" on it. Kept rather than looked up,
-// because the list can be repainted under an open menu — a save arrives — and
-// the menu has to let go of what it lit even once that row has been replaced.
-const verMenu = { row: null, more: null };
+// The "…" of the row the menu is open for, to put the keyboard back on. Kept rather than
+// looked up, because the list can be repainted under an open menu — a save arrives. Which row
+// is lit is `menuFor`, by hash, which outlives the node.
+const verMenu = { more: null };
 
 /**
  * One menu for every row, filled for the row it is opened on. `n` is how many
@@ -1887,7 +1618,7 @@ function openVerMenu(row, v, n, { from, keyboard = false, x = 0, y = 0 }) {
     // On the row rather than on the list, so the stylesheet can take it from
     // there with `~`: what goes is this row and every row below it, which is
     // exactly what a sibling combinator says.
-    const mark = (on) => row.classList.toggle('cutting', on);
+    const mark = (on) => (cutFrom.value = on ? v.hash : null);
     forget.addEventListener('pointerenter', () => mark(true));
     forget.addEventListener('pointerleave', () => mark(false));
     forget.addEventListener('focus', () => mark(true));
@@ -1901,10 +1632,8 @@ function openVerMenu(row, v, n, { from, keyboard = false, x = 0, y = 0 }) {
 
   menu.replaceChildren(...items);
   menu.hidden = false;
-  verMenu.row = row;
   verMenu.more = row.querySelector('.ver-more');
-  row.classList.add('held');
-  verMenu.more?.setAttribute('aria-expanded', 'true');
+  menuFor.value = v.hash;
 
   const w = menu.offsetWidth;
   const h = menu.offsetHeight;
@@ -1934,10 +1663,10 @@ function closeVerMenu({ refocus = false } = {}) {
   menu.hidden = true;
   // Taken off here and not only on the item's blur: Escape with the pointer
   // still on Forget leaves the menu without the pointer ever leaving it.
-  verMenu.row?.classList.remove('held', 'cutting');
-  verMenu.more?.setAttribute('aria-expanded', 'false');
+  menuFor.value = null;
+  cutFrom.value = null;
   if (refocus && verMenu.more?.isConnected) verMenu.more.focus();
-  verMenu.row = verMenu.more = null;
+  verMenu.more = null;
 }
 
 $('verMenu').addEventListener('keydown', (e) => {
@@ -1971,31 +1700,6 @@ $('histList').addEventListener('scroll', () => closeVerMenu());
 addEventListener('resize', () => closeVerMenu());
 addEventListener('blur', () => closeVerMenu());
 
-/** The row, turned into its own confirmation. `n` is how many would go. */
-function pruneAskRow(v, n) {
-  // `cutting` as well as `ask`: the repaint that puts the question here would
-  // otherwise drop the dim that hovering the cut icon had just shown, exactly
-  // when the question "how many is that?" is being asked. The number in the
-  // text and the rows gone grey say the same thing twice, on purpose.
-  const row = el('div', 'ver ask cutting');
-  row.append(el('span', 'ask-text', `Forget ${n} version${n === 1 ? '' : 's'}?`));
-
-  const go = el('button', 'btn ask-go', 'Forget');
-  go.type = 'button';
-  go.title = 'This cannot be undone';
-  go.addEventListener('click', () => prune(v.hash));
-
-  const no = el('button', 'btn ask-no', 'Cancel');
-  no.type = 'button';
-  no.addEventListener('click', () => {
-    state.pruneAsk = null;
-    paintHistory(state.data);
-  });
-
-  row.append(go, no);
-  return row;
-}
-
 async function prune(upto) {
   const y = pane.scrollTop;
   state.pruneAsk = null;
@@ -2024,9 +1728,16 @@ for (const [on, when] of [
   [false, 'blur'],
 ] as [boolean, string][]) {
   $('histClear').addEventListener(when, () => {
-    $('histList').children[1]?.classList.toggle('cutting', on);
+    cutFrom.value = on ? (shownHistory.value?.history?.[1]?.hash ?? null) : null;
   });
 }
+
+mountHistory($('histList'), {
+  pick: pickVersion,
+  menu: openVerMenu,
+  closeMenu: () => closeVerMenu(),
+  prune,
+});
 
 /** What a marked node is, which the raw view's removed lines — marked by a class — do not say. */
 const changeKind = (n) => n.dataset.chg || 'del';

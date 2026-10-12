@@ -112,6 +112,47 @@ for (const { entry, out } of BUNDLES) {
   }
 }
 
+// And the page itself: public/app/ bundled into public/app.js, beside the files it imports.
+//
+// Not in BUNDLES, because it is not one of them. It is not built from src/, it is not written
+// to vendor/, and it is not minified, so a stack trace in the webview console names the
+// function it is in. (The suite lifts functions from main.ts, not from here: bundling renames
+// the page's top-level names where they meet Preact's.)
+//
+// Bundled at all because Preact is imported by its package name, and so is the JSX runtime
+// every component compiles to; a browser resolves neither. What it imports by a path of its own
+// stays a separate file, written as the page sees it from public/ — the source is a directory
+// deeper — so app.js imports exactly what it did when tsc wrote it: the renderer, DOMPurify, the
+// backend, Mermaid. stage-page.mts versions those four, and the suite counts them.
+const PAGE_EXTERNAL = /^\.\.\/(vendor\/.+|backend\.js)$/;
+const pageOut = path.join(ROOT, 'public', 'app.js');
+await esbuild.build({
+  entryPoints: [path.join(ROOT, 'public', 'app', 'main.ts')],
+  outfile: pageOut,
+  bundle: true,
+  format: 'esm',
+  target: ['safari17', 'chrome120'],
+  sourcemap: dev,
+  legalComments: 'eof',
+  // tsconfig.app.json says the same for tsc; esbuild finds no tsconfig beside the source to
+  // read it from, because the root one holds only references.
+  jsx: 'automatic',
+  jsxImportSource: 'preact',
+  plugins: [
+    {
+      name: 'page-external',
+      setup(build) {
+        build.onResolve({ filter: PAGE_EXTERNAL }, (args) =>
+          args.importer.startsWith(path.join(ROOT, 'public', 'app') + path.sep)
+            ? { path: `./${PAGE_EXTERNAL.exec(args.path)[1]}`, external: true }
+            : undefined,
+        );
+      },
+    },
+  ],
+});
+console.log(`\n  ${path.relative(ROOT, pageOut)}  ${kb(fs.statSync(pageOut).size)}`);
+
 const markdownCss = require.resolve('github-markdown-css/github-markdown.css');
 const markdownOut = path.join(VENDOR, 'github-markdown.css');
 fs.writeFileSync(markdownOut, keyToScheme(fs.readFileSync(markdownCss, 'utf8')));

@@ -1,15 +1,18 @@
 # Architecture
 
-Node ESM and hand-written CSS, no framework. `src/`, `bin/`, `scripts/`, the page
-(`public/`, `site/`) and the test (`test-smoke.ts`) are TypeScript, apart from the two
-classic scripts that have to stay JavaScript ([typescript.md](typescript.md)). The code Node
-runs (`bin/`, `scripts/`, `src/hosts/node/`, the test) goes through `tsc` into `out/` first.
-The page's three files compile in place
-instead, to the `.js` that a URL names, so `public/app.ts` is what is edited and
-`public/app.js` is what is served. What esbuild bundles is `src/` as written. The only
-dependencies that reach the page are vendored as they ship (`highlight.js` themes,
-`mermaid`), and `github-markdown-css` with its two palettes re-keyed from the system's scheme
-to the page's by `build:web` (`scripts/markdown-css.mts`) and nothing else changed.
+Node ESM and hand-written CSS, with Preact for the page's chrome and nothing for the
+document ([The client](#the-client)). `src/`, `bin/`, `scripts/`, the page (`public/`,
+`site/`) and the test (`test-smoke.ts`) are TypeScript, apart from the two classic scripts
+that have to stay JavaScript ([typescript.md](typescript.md)). The code Node runs (`bin/`,
+`scripts/`, `src/hosts/node/`, the test) goes through `tsc` into `out/` first. The page is
+different: it is edited as the directory `public/app/` and served as one file,
+`public/app.js`, which `build:web` bundles from it, so `tsc` checks it and writes nothing.
+Two page files, `public/backend.ts` and `site/landing.ts`, compile in place instead, to the
+`.js` that a URL names. What esbuild bundles is TypeScript as written: `src/` into
+`public/vendor/`, and `public/app/` into `app.js`. The dependencies that reach the page
+outside a bundle are vendored as they ship (`highlight.js` themes, `mermaid`), and
+`github-markdown-css` with its two palettes re-keyed from the system's scheme to the page's
+by `build:web` (`scripts/markdown-css.mts`) and nothing else changed.
 
 **One reader, three shells.** Everything that decides what a document is — the
 renderer, the diff, the snapshot store, the git import — runs in whichever
@@ -77,8 +80,12 @@ src/hosts/web/          the web app's shell: no server, no node, files in Indexe
 public/host.js          a classic script, first in the head, empty here; a host's own shim
                         (the web app's is `src/hosts/web/host.js`, put over this one by its build)
 public/index.html       the page: toolbar, two sidebars, document pane, Settings sheet
-public/app.ts           the whole client. Compiled in place to `app.js`, which is gitignored
-public/backend.ts       the seam: an http server, or the reader in the page. Compiled in place too
+public/app/             the whole client, as source: `main.ts` is the page, `state.ts` is what
+                        it knows (signals), `ui/` is the panels drawn by components (History,
+                        so far). Checked by `tsconfig.app.json` (`noEmit`, JSX for Preact),
+                        and bundled by `build:web` into `app.js` beside it, which is the file
+                        a page loads and is gitignored
+public/backend.ts       the seam: an http server, or the reader in the page. Compiled in place
 public/styles.css       the whole stylesheet
 
 shell/src/main.rs       the desktop shell: launch, files arriving, window events
@@ -88,7 +95,7 @@ shell/src/cmds.rs       what the page may ask of the shell
 shell/src/host.rs       what the page may ask of the disk, and what it may not
 shell/src/prefs.rs      window.json: bounds, session, recent, settings
 
-scripts/build-web.mts   src/ -> public/vendor/, for a page with no node
+scripts/build-web.mts   src/ -> public/vendor/, for a page with no node; public/app/ -> app.js
 scripts/markdown-css.mts  github-markdown-css, its palette keyed to the page's scheme
 scripts/stage-page.mts  the page for a host with no server: public/, the vendored CSS, Mermaid,
                         the icon, and that host's own bundles and shim
@@ -148,7 +155,7 @@ Some things the reader does live on an element and not in the payload — a `<de
 being open is the one there is today, and a task-list checkbox would be the next. A
 rebuild would undo them, so `paint` reads them off the old nodes before `innerHTML` is
 replaced and writes them onto the new ones straight after (`readKept` / `writeKept` in
-`public/app.ts`), before anything is measured or drawn. What it carries is the `kept`
+`public/app/main.ts`), before anything is measured or drawn. What it carries is the `kept`
 table, and a new kind of state is one more entry in it: a selector, a name, how to read
 the state and how to put it back.
 
@@ -301,7 +308,7 @@ The fallback travels inside the token because it comes from **Compare against** 
 the settings sheet, which the page holds and the reader does not. A `last:` request
 is not itself a choice, so it is not stored; nor is `none`, which names no version.
 `src/hosts/node/server.ts` answers a request with no `baseline` param as `last:read`, and
-`public/app.ts` sends `keptBaseline()` wherever it shows a document and
+`public/app/main.ts` sends `keptBaseline()` wherever it shows a document and
 `defaultBaseline()` only when the setting changes.
 
 ## The store
@@ -392,16 +399,37 @@ into lines, and diff the lines.
 
 ## The client
 
-One module, `public/app.ts`, ~3.5k lines, organised in commented sections: state, painting,
-tabs, change navigation, checked changes, contents, history, settings, keys. There
-is no component model — the document pane is `innerHTML` from the payload, through
-`sanitizeDocument` on the way in, and everything else is a handful of
-`replaceChildren` calls over small builders.
+The page's source is the directory `public/app/`: `main.ts`, ~3.2k lines in commented
+sections (painting, the sidebars, tabs, change navigation, checked changes, find, settings,
+keys), and the two modules that have left it so far, `state.ts` and `ui/History.tsx`.
+`build:web` bundles the directory into the one `public/app.js` that a page loads, so a module
+can leave `main.ts` without a new file for any host to serve: the bundle still imports exactly
+the renderer, DOMPurify, the backend and Mermaid, which `stage-page.mts` versions and the
+suite counts.
 
-- **`state`** holds the payload, the view, the baseline, the checked keys and the
-  contents rows. Anything derived is derived at paint time.
+The document pane is an **imperative island**. It is `innerHTML` from the payload, through
+`sanitizeDocument` on the way in, written by markdown-it and the diff; a component never
+diffs inside it, which is also what keeps the per-block rendering and the tag-for-tag word
+diff ([The diff](#the-diff)) out of a framework's reach. The chrome around it — the sidebars,
+History, Settings, the tabs — was state kept in sync with the DOM by hand, in `classList`,
+`hidden =`, `textContent =` and `createElement` calls, and a component that re-renders from
+state replaces that code. Preact and `@preact/signals` are in the page for that, and the
+chrome moves onto them a panel at a time. History is the first: `ui/History.tsx` draws the
+version list from signals and re-renders when one changes, and `paintHistory` in `main.ts`
+only hands it the payload. Every other panel is still those `classList`, `hidden =` and
+`replaceChildren` calls over small builders. A component imports `state.ts` and never
+`main.ts`, which is what lets a panel come out of it without a cycle: what a row *does* comes
+in as callbacks, from `main.ts`.
+
+- **`state`**, in `state.ts`, holds the payload, the view, the baseline, the checked keys and
+  the contents rows. It reads and writes as the plain object it always was (`state.diff =
+  false`), and each field is a signal underneath, so a component that reads one is
+  re-rendered when it changes while the code that is not a component sees no difference. A
+  field is a signal of its value and not of what is inside it: `state.acked.add(key)` mutates
+  a Set the signal still holds and tells no one, so a component has to be given a new one.
+  Anything derived is derived at paint time.
 - **Preferences live in `localStorage`**, reached as `prefs` — `globalThis.__REDLINE_PREFS
-  ?? localStorage`, in `app.ts` and in the head script alike, so a host that has no usable
+  ?? localStorage`, in `state.ts` and in the head script alike, so a host that has no usable
   `localStorage` can put a synchronous store of its own there from `host.js` — under
   `redline:settings`, `redline:side`,
   `redline:sidew`, `redline:toc`, `redline:tocw`, `redline:diff`, `redline:view` and
@@ -413,15 +441,15 @@ is no component model — the document pane is `innerHTML` from the payload, thr
   key would undo each other. Whether there is a left column at all is decided there as
   well: `html.native` from `?native`, `html.web` from the web app's `host.js`, and with
   neither — a CLI tab — `redline:side` is not honoured, the `#side` button is not
-  drawn, and ⌘B does nothing (`leftColumn` in `app.ts`). The two sidebar
+  drawn, and ⌘B does nothing (`leftColumn` in `main.ts`). The two sidebar
   widths are clamped against each other so the document keeps 320px whatever they
   were dragged to, and that clamp is therefore in two places: `fitWidths` in
-  `app.ts` and the same arithmetic in the inline script. Either alone is a visible
+  `main.ts` and the same arithmetic in the inline script. Either alone is a visible
   correction on the first frame.
 - **Light or dark is the page's to draw**, as `data-scheme` on `<html>`, and sepia is
   `data-tint` over light. A browser tab cannot be told it is dark the way the shell
   tells a window, so nothing reads `prefers-color-scheme` but the code that resolves
-  **System**: the head script before first paint and `applyScheme` in `app.ts` after,
+  **System**: the head script before first paint and `applyScheme` in `main.ts` after,
   which also switch highlight.js's two stylesheets by their `media`. Every dark palette
   is `screen` only, so print stays light. In the app the shell still pins the window's
   theme from the same setting, for the chrome and for what System reads.
@@ -448,7 +476,7 @@ for the traffic lights and hides the rows and buttons that are the shell's to an
 — the Settings gear, which the app menu provides instead — and the app icon a browser
 tab starts its bar with (`.app-icon`, the favicon's `icon.svg`): the traffic lights have
 that edge, and the dock has the icon. Everything else in
-`app.ts` is written once and does not ask.
+`main.ts` is written once and does not ask.
 
 - **A native window's first document comes from `onTabs`, not from a blind
   `load()`.** A browser tab's starting document is whatever `?id=` names, or with
@@ -543,7 +571,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
   open files gone back to, `open` on a lapsed root, whose first read is refused — is not the
   document on screen, and the button must ask for the file being opened. The page then stays on
   what it was showing, shows the welcome with a way back, and opens that file again after the
-  grant (`pendingLink` in `app.ts`), rather than the document it was reading.
+  grant (`pendingLink` in `main.ts`), rather than the document it was reading.
 - **Handles go to the worker as they are** (`addRoot`, over `postMessage`), and only the worker
   writes the `roots` store, so two tabs picking one file at once are one root
   (`isSameEntry`). The page reads the stores, to hold the handle it will ask about.
@@ -552,7 +580,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
 - **The welcome is the only door.** A desktop reader is handed a file and a server is told one; a
   page is handed nothing, so `welcome.ts` (mounted by `backend.welcome(el, hooks)` into
   `<section id="welcome">`) is how anything gets opened. The page owns *whether* it shows
-  (`showWelcome` and `hideWelcome` in `app.ts`: they hide `#doc` and set `html.welcoming`) and
+  (`showWelcome` and `hideWelcome` in `main.ts`: they hide `#doc` and set `html.welcoming`) and
   the module owns what is inside; it builds it with `createElement` and `textContent`, because a
   file name is the user's. It shows when `doc` is `NoDocument` (and then drops `?id=` from the
   address, and empties Contents and History, which are outside `#doc` and would go on listing a
@@ -598,7 +626,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
 - **The left column is the open files, kept by the page.** A desktop window's are its tabs,
   which the shell keeps and pushes over `md:tabs`; a browser tab has no shell, so
   `backend.openFiles` (`open-files.ts`) keeps the list, `{ id, path, name, dir, label }` in the
-  order opened, and `app.ts` puts it in `state.tabs` for `paintTabs` to draw with the same
+  order opened, and `main.ts` puts it in `state.tabs` for `paintTabs` to draw with the same
   rows. Every way a document arrives — a pick, a drop, a link, a reload, the one a bare visit
   resumes — ends in `load()`, which calls `noteOpen()`: the document joins the end of the list,
   or is relabelled in place, and the column opens by itself at the second file while
@@ -617,7 +645,7 @@ its connection on `versionchange`. The page learns the build from the shim the b
     to seed a tab that has none of its own. Both are written on every change, and either
     refusing is not an error — the list then lasts as long as the page. It is not a
     preference and not in the head script: nothing about the layout depends on it, and the
-    rows are drawn by `app.ts` before the first load, so a file that has to be asked for
+    rows are drawn by `main.ts` before the first load, so a file that has to be asked for
     again does not hold the rest of them up.
   - **A tab that closed everything is not handed a file back.** A bare address is given the
     document a tab last showed (`last`), which after closing every file is the one just
@@ -786,7 +814,7 @@ run git and write the store. So there are three layers, and each one assumes the
 one before it has failed.
 
 **Sanitized at insertion.** `src/page/sanitize.ts` runs DOMPurify over the document —
-rendered or raw — as `app.ts` assigns it to the pane, and over each PlantUML SVG
+rendered or raw — as `main.ts` assigns it to the pane, and over each PlantUML SVG
 as it replaces its fence. That happens in the page, after the diff, not in
 `render.js`: the renderer also runs in Node, where DOMPurify has no DOM and gives
 its input back unchanged. And one call on the way in covers the inline word marks
@@ -860,15 +888,23 @@ file.
 ## Conventions
 
 - Comments say **why**, not what. The code says what.
-- No framework. One compiler, `tsc`, and it is here for one reason: the three hosts
-  (node, Tauri, web) share a payload, a `Platform`, an rpc protocol and a session, and
-  the compiler is what fails when they disagree. It compiles what node runs into `out/`
-  and never into `src/`; the page's three files are the exception, compiled in place beside
-  their sources because their `.js` names are URLs. The two page build steps exist because
-  the app's page has no node to import from and no server to fetch from, and they are not a
-  second compile of anything: `build-web.mts` bundles `src/` as it is, and `stage-page.mts`
-  only copies. The one rewrite is github-markdown-css's palette, keyed to the page's
-  scheme (`markdown-css.mts`). [typescript.md](typescript.md) has the layout.
+- Preact, with `@preact/signals`, for the page's chrome, and nothing for the document. The
+  chrome is state that is kept in sync with the DOM by hand, and a component re-rendering
+  from state replaces that code; the rendered markdown stays imperative, written by
+  markdown-it and the diff, and Preact never diffs inside it.
+- One type-checker, `tsc`, and it is here for one reason: the three hosts (node, Tauri, web)
+  share a payload, a `Platform`, an rpc protocol and a session, and the compiler is what
+  fails when they disagree. It compiles what node runs into `out/` and never into `src/`;
+  `public/backend.ts` and `site/landing.ts` are the exception, compiled in place beside their
+  sources because their `.js` names are URLs. The page it only checks (`tsconfig.app.json`,
+  `noEmit`): esbuild bundles `public/app/` into `app.js`, because Preact and the JSX runtime
+  are imported by package name and a browser cannot resolve one. esbuild already bundled
+  `src/` into `vendor/`, so the page is one more step in the same script. The two page build
+  steps exist because the app's page has no node to import from and no server to fetch from,
+  and they are not a second compile of anything: `build-web.mts` bundles `src/` and
+  `public/app/` as they are, and `stage-page.mts` only copies. The one rewrite is
+  github-markdown-css's palette, keyed to the page's scheme (`markdown-css.mts`).
+  [typescript.md](typescript.md) has the layout.
 - One stylesheet, custom properties at the top, sections in the same order as
   `index.html`.
 - An author `display` beats the browser's own `[hidden] { display: none }` whatever

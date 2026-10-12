@@ -9,47 +9,53 @@ Step 1 landed the build. Step 2 converted `src/`: every file in it is TypeScript
 `src/hosts/web/host.js`, and the hosts are checked against the contract below. Step 3
 converted `bin/` and `scripts/`. Step 4 converted the page: `public/app.ts`,
 `public/backend.ts` and `site/landing.ts`, compiled in place by a project of their own
-([The page project](#the-page-project)). Step 5 converted the suite, `test-smoke.ts`, which
-the node project checks like the code it tests. Nothing the build is meant to compile is
-JavaScript any more. The two classic scripts, `src/hosts/web/host.js` and `public/host.js`,
-stay JavaScript and are copied as they are ([What stays
-JavaScript](#what-stays-javascript)); the first is still read by `tsc`, which that section
-explains. A `.js` file is not type-checked (`allowJs` on, `checkJs` off; the page project turns
-`allowJs` off, and says why below), and a `.ts` file is checked leniently
+([The page project](#the-page-project)). `public/app.ts` has since become the directory
+`public/app/`, which `tsc` only checks and esbuild bundles into `app.js`, so that project
+compiles two files and not three ([The app project](#the-app-project)). Step 5 converted the
+suite, `test-smoke.ts`, which the node project checks like the code it tests. Nothing the
+build is meant to compile is JavaScript any more. The two classic scripts,
+`src/hosts/web/host.js` and `public/host.js`, stay JavaScript and are copied as they are
+([What stays JavaScript](#what-stays-javascript)); the first is still read by `tsc`, which
+that section explains. A `.js` file is not type-checked (`allowJs` on, `checkJs` off; the page
+and app projects turn `allowJs` off, and say why below), and a `.ts` file is checked leniently
 (`strict: false`): for what it declares and what the compiler can infer, with an untyped
 parameter left as `any`. The one exception is the `src` project (`src/` except
 `src/hosts/node/`, which is in the node project), which the ratchet has begun on: it has
-`noImplicitAny`, so an untyped parameter there is an error. The node and page projects, and
-every other flag, are still lenient ([The ladder](#the-ladder)).
+`noImplicitAny`, so an untyped parameter there is an error. The node, page and app projects,
+and every other flag, are still lenient ([The ladder](#the-ladder)).
 
-## Two homes for compiled code
+## Three homes for built code
 
-| | Where it lives | Compiled to |
+| | Where it lives | Built to |
 | --- | --- | --- |
-| Run by Node: `bin/`, `src/`, `scripts/`, `test-smoke.ts` | the repository | `out/`, mirroring the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`) |
-| Named by a URL: `public/app.ts`, `public/backend.ts`, `site/landing.ts` | the repository | **in place**, gitignored: `public/app.js`, `public/backend.js` and `site/landing.js`, each beside its source. The server, `stage-page.mts`, the `?v=` rewrite and the tests all name those paths, and compiling to `out/` would have renamed every one |
+| Run by Node: `bin/`, `src/`, `scripts/`, `test-smoke.ts` | the repository | `out/`, mirroring the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`), by `tsc` |
+| Named by a URL, and standing alone: `public/backend.ts`, `site/landing.ts` | the repository | **in place**, gitignored, by `tsc`: `public/backend.js` and `site/landing.js`, each beside its source. The server, `stage-page.mts`, the `?v=` rewrite and the tests all name those paths, and compiling to `out/` would have renamed every one |
+| The page: `public/app/` | the repository | `public/app.js`, gitignored, by esbuild in `build-web.mts`. `tsc` type-checks it and writes nothing ([The app project](#the-app-project)) |
 
 `out/` is gitignored and is **not** `dist/`, which holds release artifacts. Every npm
 script that runs a script runs it from `out/` and compiles first (`npm run build:ts`,
 which is `tsc -b` behind a check that the page's `.js` is still there, described under
 [Three things that look like bugs](#three-things-that-look-like-bugs)); an up-to-date compile
 is a no-op. `node out/bin/redline.js` from a fresh checkout therefore does not work before
-`npm run build:ts`; `npm start` does it for you. The same compile makes the page's `.js`, so a
-fresh checkout has no `public/app.js` either until one has run, and every script that serves
-or stages the page runs it first.
+`npm run build:ts`; `npm start` does it for you. The same compile makes `public/backend.js`,
+and `npm run build:web` makes `public/app.js`, so a fresh checkout has neither until they have
+run, and every script that serves or stages the page runs the one it needs first
+(`stage-page.mts` names `build:web` for any file that is missing).
 
-esbuild is a separate thing. `build-web.mts` bundles `src/` **as written**, from the source,
-so a type error does not stop a bundle. `tsc` is what fails the build.
+esbuild is a separate thing. `build-web.mts` bundles `src/` and `public/app/` **as written**,
+from the source, so a type error does not stop a bundle. `tsc` is what fails the build, and
+it comes first: `build:web` runs `build:ts` before it bundles anything.
 
 ## Extensions
 
-`bin/redline.ts` and `scripts/*.mts`; the page's three files are plain `.ts`, because they
-emit the `.js` that a URL names. A `.mts` compiles to `.mjs`, the names that every npm
-script, `dev.mts` and `bundle.mts` ran when these were JavaScript (`node
-out/scripts/build-web.mjs`), so nothing that runs a script had to change; a plain `.ts` would
-have emitted `.js` and renamed all of them. The CLI is a `.ts` because `package.json`'s `bin`
-already named `out/bin/redline.js`. `tsc` keeps its `#!/usr/bin/env node` line, and `npm`
-marks the compiled file executable when it installs it.
+`bin/redline.ts` and `scripts/*.mts`; the page's `backend.ts` and `landing.ts` are plain
+`.ts`, because they emit the `.js` that a URL names. Under `public/app/` a module is `.ts` and a
+component is `.tsx`, and neither is emitted, so the extension names no URL there. A `.mts`
+compiles to `.mjs`, the names that every npm script, `dev.mts` and `bundle.mts` ran when these
+were JavaScript (`node out/scripts/build-web.mjs`), so nothing that runs a script had to
+change; a plain `.ts` would have emitted `.js` and renamed all of them. The CLI is a `.ts`
+because `package.json`'s `bin` already named `out/bin/redline.js`. `tsc` keeps its
+`#!/usr/bin/env node` line, and `npm` marks the compiled file executable when it installs it.
 
 An import keeps the name of what it will find *after* compiling: `./stage-page.mjs` for the
 sibling `stage-page.mts`, and `../src/hosts/node/root.js` for `root.ts`. That is how `NodeNext`
@@ -70,16 +76,18 @@ Those existence checks only mean something from a clean `out/`, which is what CI
 | --- | --- | --- |
 | `tsconfig.src.json` | `src/` except `src/hosts/node/` | DOM lib, **no node types** |
 | `tsconfig.node.json` | `src/hosts/node/`, `bin/`, `scripts/`, `test-smoke.ts` | `@types/node` |
-| `tsconfig.page.json` | `public/*.ts`, `site/*.ts`, `types/` | DOM lib, **no node types** |
+| `tsconfig.page.json` | `public/*.ts` (`backend.ts`), `site/*.ts` (`landing.ts`), `types/` | DOM lib, **no node types** |
+| `tsconfig.app.json` | `public/app/`, `types/` | DOM lib, **no node types**, JSX for Preact, **`noEmit`** |
 
 The `src` project has `"types": []` so that "nothing under `core/`, `page/` or `reader/`
 may reach for a node built-in" — a rule `test-smoke.ts` checks with a grep — is also a
 compile error in a `.ts` file. `core/hash.ts` is where it showed: it uses Node's `Buffer`
 only where there is no `TextEncoder`, and says so with a `declare const Buffer` of its own
-rather than with the node types. The `page` project has `"types": []` for the same reason: it
-is code that a browser runs. It references `src`, because the types the page is checked
-against are written there (`Backend`, `WebBackend`, `MdNative`); [The page
-project](#the-page-project) is the rest of it.
+rather than with the node types. The `page` and `app` projects have `"types": []` for the
+same reason: it is code that a browser runs. Both reference `src`, because the types the page
+is checked against are written there (`Backend`, `WebBackend`, `MdNative`), and `app`
+references `page` as well, for `public/backend.ts`; [The page project](#the-page-project) and
+[The app project](#the-app-project) are the rest of it.
 
 The node project holds the suite along with the code it runs, and checks it the same lenient
 way. The suite's fakes (a window with a message port, the DOM class `El`, a file handle, a
@@ -115,13 +123,13 @@ would need the fallback taken out. The PR that turns a flag on adds it to the ta
 entry, or one more flag in an existing one) and leaves the logic alone.
 It is a floor and not a target: it fails a step backwards and does not ask for a step
 forward, so a project it does not list is held to nothing, and one it does list is not made
-to take the next flag. The node and page projects are not listed, and no entry is scheduled
-for them ([The ladder](#the-ladder)). A second assertion walks every `.ts` under `src/`, the
-`.d.ts` shim included, and fails on a `@ts-nocheck`, `@ts-ignore` or `@ts-expect-error`, since
-a comment would keep the flag on and hide the error. It covers all of `src/`, `src/hosts/node/`
-too, which is outside the flag. It reads the `.ts` sources and not `out/`, because the shim is
-never emitted and because a check on how the source is written reads the source (the read
-rule, below).
+to take the next flag. The node, page and app projects are not listed, and no entry is
+scheduled for them ([The ladder](#the-ladder)). A second assertion walks every `.ts` under
+`src/`, the `.d.ts` shim included, and fails on a `@ts-nocheck`, `@ts-ignore` or
+`@ts-expect-error`, since a comment would keep the flag on and hide the error. It covers all
+of `src/`, `src/hosts/node/` too, which is outside the flag. It reads the `.ts` sources and
+not `out/`, because the shim is never emitted and because a check on how the source is
+written reads the source (the read rule, below).
 
 ## `src/contract/`
 
@@ -165,8 +173,9 @@ whether they are there by asking, so they cannot be required. They are derived w
 and not written out because a test greps that `public/backend.ts` and the other two
 backends never name a `welcome` or a `linkNote`: only the web backend has one, so the page
 must never show it in a shell or a server. The page's calls on the shell are checked the same
-way, against `MdNative`, which `app.ts` reaches with an `import type` of `native.ts` (the file
-that declares `window.mdNative`); no test greps that one, the compiler is all there is.
+way, against `MdNative`, which `public/app/main.ts` reaches with an `import type` of
+`native.ts` (the file that declares `window.mdNative`); no test greps that one, the compiler
+is all there is.
 
 ## What stays JavaScript
 
@@ -181,30 +190,32 @@ what reads the `__REDLINE_VERSION` that the staged copy sets, and declares it as
 `public/host.js` is the same kind of file, and stays for the same reason: the empty host shim,
 first in the page's `<head>`, which the web app's build replaces with the one above. It is
 hand-written and tracked, and the page project does not compile it (its `include` is
-`public/*.ts`), which is why `.gitignore` names the three compiled page files one by one and
+`public/*.ts`), which is why `.gitignore` names the three built page files one by one and
 not `public/*.js`.
 
 **`allowJs` is now only for `src/hosts/web/host.js`.** The base config still has it on, and
 with the suite converted that one file is all it brings into a project: the `src` project
-includes `src/`, and so reads it; the node project lists no `.js`, and the page project turns
-`allowJs` off. `tsc` does not check it (`checkJs` is off) but does emit it, to
+includes `src/`, and so reads it; the node project lists no `.js`, and the page and app
+projects turn `allowJs` off. `tsc` does not check it (`checkJs` is off) but does emit it, to
 `out/src/hosts/web/host.js` with `export {};` appended, and nothing reads that copy:
 `stage-page.mts` copies the source. This is an observation and not a change: the flag was
 left alone, and whether it should go off now is for a later step to decide.
 
 ## The page project
 
-`public/*.ts` and `site/*.ts` are what a browser loads, so `tsconfig.page.json` compiles them
-**in place**: `outDir` is `.`, `public/app.ts` comes out as `public/app.js` and
-`site/landing.ts` as `site/landing.js`, each beside its source. That is the opposite of the
-other two projects, and the URLs decided it. `index.html` loads `app.js` and `site/index.html`
-loads `landing.js`; the server serves `public/` as it finds it; `stage-page.mts` names `app.js`
-and `backend.js` (`MODULES`, where the `?v=` is written into their imports) and refuses to stage
-a page that has no `app.js`; and the tests read those paths. An `out/` for the page would have
-renamed every one of them. The compiled files are gitignored, and a test asserts it,
-because a tracked copy goes stale against its `.ts` and looks exactly like the change not
-working. The config is JSON and cannot say why it is the way it is, so the reasons are here,
-and `test-smoke.ts` holds each line they explain.
+`public/*.ts` and `site/*.ts` are what a browser loads as they are, so `tsconfig.page.json`
+compiles them **in place**: `outDir` is `.`, `public/backend.ts` comes out as
+`public/backend.js` and `site/landing.ts` as `site/landing.js`, each beside its source. That is
+the opposite of the node project, and the URLs decided it. `index.html` loads `app.js`, which
+imports `./backend.js`, and `site/index.html` loads `landing.js`; the server serves `public/`
+as it finds it; `stage-page.mts` names `app.js` and `backend.js` (`MODULES`, where the `?v=` is
+written into their imports) and refuses to stage a page that has no `app.js`; and the tests
+read those paths. An `out/` for the page would have renamed every one of them. `app.js` sits
+beside its sources for the same reason, though esbuild writes it and not this project ([The app
+project](#the-app-project)). The built files are gitignored, and a test asserts it, because a
+tracked copy goes stale against its source and looks exactly like the change not working. The
+config is JSON and cannot say why it is the way it is, so the reasons are here, and
+`test-smoke.ts` holds each line they explain.
 
 **It names its own `exclude`.** With `outDir` set to `.`, `tsc`'s default `exclude` (`node_modules`
 and the `outDir`) is the whole repository, so the project includes nothing: `tsc -b` compiles
@@ -214,9 +225,9 @@ been built. So the config says `"exclude": ["node_modules", "out"]` itself, and 
 if it stops.
 
 **`declarationDir` is `out/page-types`.** `composite` makes `tsc` write declarations, and with
-`outDir` at `.` they would land as a `public/app.d.ts` that nothing wants, in the directory the
-server serves. `rootDir` is `.`, so what goes to `out/page-types` mirrors the repository
-(`out/page-types/public/app.d.ts`, `out/page-types/site/landing.d.ts`).
+`outDir` at `.` they would land as a `public/backend.d.ts` that nothing wants, in the directory
+the server serves. `rootDir` is `.`, so what goes to `out/page-types` mirrors the repository
+(`out/page-types/public/backend.d.ts`, `out/page-types/site/landing.d.ts`).
 
 **`allowJs` is off, though the base config has it on.** `rootDirs`, below, makes `tsc` try a
 specifier as written before it tries the other root, so with `allowJs` on, `./vendor/render.js`
@@ -227,13 +238,15 @@ JavaScript) and TS5055 (it would overwrite its own input). Only a tree that has 
 `build:web` is spared, which is a fresh clone for exactly one compile. Nothing in the page
 project needs a `.js` as an input, so it is off, and a test holds it there.
 
-**`rootDirs` and the shims in `types/vendor/`.** The page imports its code from `./vendor/`:
+**`rootDirs` and the shims in `types/vendor/`.** The page imports its code from `vendor/`:
 `render.js`, `sanitize.js`, `backend-tauri.js` and `backend-web.js`, which `build:web` writes
-and which are gitignored, and Mermaid's `./vendor/mermaid/mermaid.esm.min.mjs`, which the
+and which are gitignored, and Mermaid's `vendor/mermaid/mermaid.esm.min.mjs`, which the
 staging copies from `node_modules`. None of them exists in a fresh checkout, and a type check
 of esbuild's output would not check what the page is held to anyway. So `types/vendor/` holds
 a one-line shim for each, and `rootDirs: ["public", "types"]` lays that directory over `public/`
-so that `./vendor/render.js`, written in `public/app.ts`, finds `types/vendor/render.d.ts`.
+so that `./vendor/render.js` finds `types/vendor/render.d.ts`, and `../vendor/render.js`, written
+in `public/app/main.ts`, does too. The app project sets the same `rootDirs` and reads the same
+shims.
 Each shim is an `export *` from the source its bundle is built from: `render` is
 `src/core/document.ts`, `sanitize` is `src/page/sanitize.ts`, `backend-tauri` is
 `src/hosts/tauri/backend.ts` and `backend-web` is `src/hosts/web/backend.ts`. A test holds each
@@ -244,9 +257,11 @@ own types. The worker bundle, `reader-worker.js`, has no shim because the page n
 it: `web/backend.ts` starts it by URL.
 
 **`stage-page` leaves the `.ts` out.** It copies `public/` whole, and the sources now sit in
-it, so its copy filter drops a name that ends in `.ts`. Without it `app.ts` would be staged
+it, so its copy filter drops a name that ends in `.ts`. Without it `backend.ts` would be staged
 into `shell/dist` and `dist/web` and shipped; a test asserts that the staged top is the page and
-nothing else.
+nothing else, by its files at the top. **And it skips `public/app/` whole**, because all of it
+is source, `app.js` being its bundle, and because a filter on `.ts` alone lets `History.tsx`
+through. A second test walks the whole staged tree for any `.ts`, `.tsx` or `app/` entry.
 
 **`pages.yml` leaves `site/*.ts` out of the artifact.** The landing page deploys `site/` as
 the build job left it, `landing.ts` included, so the upload step's `path` is `site` with
@@ -258,24 +273,33 @@ deployed site should serve `landing.js` and not `landing.ts`.
 **While `npm run dev` runs**, `scripts/dev.mts` spawns `npx tsc -b --watch --preserveWatchOutput`
 beside `tauri dev`, and the restage follows what `tsc` emits into `public/`: its own watch
 skips a `.ts`, because restaging on the edit would stage the previous compile and then stage
-again on the emit. `tsc -b` emits through a type error, so a mistake is a message in that
-terminal and the window still updates. It is stopped the way `npx tauri dev` is, by signalling
-`npx`, which passes SIGINT and SIGTERM to what it started and cannot pass SIGKILL (checked on
-npm 11.6.4; an older npm was not); a hard kill of `dev.mts` can leave a `tsc` watching. The
-one thing about it that is **unverified** from here is the live watch under `tauri dev`, which
-needs a native window. What has been seen is that the config compiles and that `tsc -b` writes
-`public/*.js` through an error. Nobody has watched `tsc -b --watch` start under `dev.mts`, or
-an edit compile, restage and reload in the window, and nothing about the page's layout has
-been seen in a browser either: there is none here.
+again on the emit. That reasoning holds for `backend.ts` and not for `public/app/`, which `tsc`
+does not emit: an edit there restages nothing until `npm run build:web` runs, and the
+[dev loop](building.md#the-dev-loop) says so. `tsc -b` emits through a type error, so a
+mistake is a message in that terminal and the window still updates. It is stopped the way
+`npx tauri dev` is, by signalling `npx`, which passes SIGINT and SIGTERM to what it started
+and cannot pass SIGKILL (checked on npm 11.6.4; an older npm was not); a hard kill of
+`dev.mts` can leave a `tsc` watching. The one thing about it that is **unverified** from here
+is the live watch under `tauri dev`, which needs a native window. What has been seen is that
+the config compiles and that `tsc -b` writes `public/*.js` through an error. Nobody has
+watched `tsc -b --watch` start under `dev.mts`, or an edit compile, restage and reload in the
+window, and nothing about the page's layout has been seen in a browser either: there is none
+here.
 
-**The read rule.** `tsc` reprints what it emits: it re-indents, splits a one-line `if` over
-lines and drops every annotation, so the compiled `public/app.js` is not the file whose shape
-anyone wrote. A grep for how the *source* is written therefore reads the `.ts`: `appJs` in
-`test-smoke.ts` is `public/app.ts`, the `Backend` signatures are read from `public/backend.ts`,
+**The read rule.** `tsc` and esbuild both reprint what they emit: they re-indent, split a
+one-line `if` over lines and drop every annotation, and esbuild writes a bundle's top-level
+`const` as `var`, so the built `public/app.js` is not the file whose shape anyone wrote. A grep
+for how the *source* is written therefore reads the `.ts`: `appJs` in `test-smoke.ts` is
+`pageSource()`, every `.ts` and `.tsx` under `public/app/` joined into one text, so a grep does
+not care which module a line is in. The `Backend` signatures are read from `public/backend.ts`
 and the landing page's checks from `site/landing.ts`. Anything that is *executed* or *served*
-reads the compiled `.js`, because annotated TypeScript is not JavaScript and what shipped is
-what is worth checking: the helpers lifted out of the page and run in a `vm` (`pageRun`), the
-`import()` of `public/backend.js`, the URL checks and the staged output.
+reads built JavaScript, because annotated TypeScript is not JavaScript and what shipped is
+what is worth checking: the `import()` of `public/backend.js`, the URL checks and the staged
+output, which read `app.js`. The helpers lifted out of the page and run in a `vm` (`pageRun`)
+are the one exception: they are read from `public/app/main.ts` with its types stripped by
+esbuild's `transformSync`, and not from the bundle, because in the bundle esbuild renames a
+page name that collides with one of Preact's, and a lifted function would then call a helper
+the `vm`'s fakes do not name.
 
 The `innerHTML` allow-list is a read of the source, and it is a security check, since every
 assignment has to be sanitised or on a short list. Its regex finds `x.innerHTML =` and
@@ -285,6 +309,46 @@ compares the number of left-hand sides that the regex captured with the number o
 `.innerHTML =` in the file, and fails if they differ. It still cannot see `.innerHTML=` with
 no space, `+=`, `['innerHTML'] =` or `insertAdjacentHTML`; those would need a rule of their
 own.
+
+## The app project
+
+`public/app/` is the client, and `tsconfig.app.json` is what checks it. It is the page project
+with three differences, each with a reason the JSON cannot give.
+
+**It is `noEmit`.** `tsc` would write a `.js` per module, and a module that imports `preact`
+by name is not one a browser can load: a bare package name resolves to nothing there, and
+neither does the `preact/jsx-runtime` that every component compiles to. So esbuild bundles
+the directory into `public/app.js`, in `build-web.mts` after the vendor bundles, and `tsc`
+only answers whether it type-checks. The type error still stops the build, because `build:web`
+runs `build:ts` first; esbuild alone would bundle through one. What the bundle leaves outside
+itself is `../vendor/*` and `../backend.js`, written as the page sees them from `public/`
+(the source is a directory deeper), so `app.js` still imports the same four files it did when
+`tsc` wrote it, and `stage-page.mts` still versions those four. It is not minified, which
+leaves a stack trace in the webview naming the function it is in.
+
+**It reads JSX as Preact's.** `jsx: react-jsx` with `jsxImportSource: preact`, so a component
+is checked against Preact's types and compiles to its runtime. esbuild is told the same in
+`build-web.mts` (`jsx: 'automatic'`, `jsxImportSource: 'preact'`), because it finds no
+`tsconfig` beside the source to read it from: the root one holds only references. It is two
+places that have to say the same. `"types": []` keeps the node globals out and does not stop
+`preact` or `@preact/signals` resolving, which ship their own types.
+
+**It references `page` as well as `src`.** `main.ts` imports `../backend.js`, which is
+`public/backend.ts`, a file of the page project, so the app project reads that project's
+declarations from `out/page-types/` and has to build after it. `allowJs` is off and
+`rootDirs` is `["public", "types"]` for the reasons the page project gives above, and the
+shims in `types/vendor/` are the same files.
+
+An import in `public/app/` is spelled as the compiled file would be, as everywhere else:
+`./state.js` for `state.ts`, `./ui/History.js` for `History.tsx`. esbuild finds the `.ts` or
+`.tsx` behind the `.js`. A component imports `state.ts` and never `main.ts` (what a row does
+comes in as callbacks), so a module can come out of `main.ts` without a cycle.
+
+The project is as lenient as the rest, `strict: false`, and with the suite it is where most of
+the implicit `any`s are: `main.ts` has untyped parameters throughout, and the ratchet has no
+entry for it ([The ladder](#the-ladder)). `test-smoke.ts` does not hold `tsconfig.app.json`
+the way it holds the page project's lines (`allowJs` off, `rootDirs`, the `exclude`): nothing
+fails if `noEmit` goes, or the JSX settings drift from esbuild's, short of the build breaking.
 
 ## What the conversion needed
 
@@ -338,14 +402,14 @@ where it wants a signal name (`as const` on the list), and `JSON.parse` handed t
 that `execFileSync` answers unless it is told an encoding (`encoding: 'utf8'`).
 
 Step 4 was the largest count. Renaming the page's three files and running `tsc` gave 97 errors:
-70 in `app.ts`, 18 in `landing.ts` and nine in `backend.ts`. The spike that sized the step
-had counted 101 (74, 18 and nine); the four it had over were the web-only capabilities
-(`openFiles`, `welcome`, `onNeedsPermission`, `linkNote`), which `PageBackend` had already
-answered by the time the files were renamed. By code, 66 were TS2339, 20 TS2554, five TS2345
-and six one-offs (TS2551 twice, and one each of TS2322, TS2363, TS2365 and TS2769). It is
-`src/`'s count over again, a property read off a type that was too wide for what the caller
-knows, and parameters that its callers leave off. The page's answer for the first is the `$`
-helper, whose caller names the kind of element it is asking for
+70 in `app.ts` (now `public/app/main.ts`), 18 in `landing.ts` and nine in `backend.ts`. The
+spike that sized the step had counted 101 (74, 18 and nine); the four it had over were the
+web-only capabilities (`openFiles`, `welcome`, `onNeedsPermission`, `linkNote`), which
+`PageBackend` had already answered by the time the files were renamed. By code, 66 were
+TS2339, 20 TS2554, five TS2345 and six one-offs (TS2551 twice, and one each of TS2322, TS2363,
+TS2365 and TS2769). It is `src/`'s count over again, a property read off a type that was too
+wide for what the caller knows, and parameters that its callers leave off. The page's answer
+for the first is the `$` helper, whose caller names the kind of element it is asking for
 (`$<HTMLInputElement>('findInput')`), since `getElementById` can only say `HTMLElement`.
 The step found no drift: no error was a call that a host could not answer.
 
@@ -367,7 +431,8 @@ the suite still passes. After a delete or a rename, remove `out/` and compile ag
 The page's output is the same and sits somewhere worse: a `public/old.js` whose `old.ts` has
 gone is still served, and `stage-page` still copies it, because the copy drops a `.ts` and
 keeps every `.js`. Remove it by hand. `git status` will list it unless it is one of the
-three names that `.gitignore` has.
+three names that `.gitignore` has. `public/app.js` is spared this: esbuild bundles what
+`main.ts` reaches, so a module that is deleted leaves nothing behind in it.
 
 **`tsc` follows a literal dynamic import.** `await import('./public/backend.js')` in a
 file `tsc` compiles pulls `public/` into the program and emits a stray `out/public/`. Now that
@@ -379,19 +444,22 @@ the one the server serves, and not a second copy of it in `out/`. A static `impo
 `.js` file is followed as well, which is what you want for the code `tsc` is meant to check
 and not for a file it is not.
 
-**The `.js` beside a page's `.ts` is output, and `git status` will not say so.** The three
-are ignored by name, so a compile leaves the tree looking clean, and a hand edit to
-`public/app.js` is overwritten the next time `app.ts` changes. A new page file, `public/x.ts`,
-emits an `x.js` that git lists as untracked: that is the prompt to add its name to
-`.gitignore` and to the list that the test reads, and not a file to commit.
+**The `.js` beside a page's source is output, and `git status` will not say so.** The three
+are ignored by name, so a build leaves the tree looking clean, and a hand edit to
+`public/app.js` is overwritten by the next `build:web`, as one to `public/backend.js` is the
+next time `backend.ts` changes. A new page file, `public/x.ts`, emits an `x.js` that git lists
+as untracked: that is the prompt to add its name to `.gitignore` and to the list that the test
+reads, and not a file to commit. (A new file under `public/app/` emits nothing: it is bundled
+into `app.js` once something imports it.)
 
-The same silence is why a stale compile looks exactly like the change not working. Edit
-`public/app.ts`, or pull a branch, and the `public/app.js` that the server serves is still the
-last compile until something runs `tsc -b`: `npm run build:ts` is the fix, and `npm start`,
-`npm run app` and `npm test` run it for you. The window is one step further on. It does not
-read `public/app.js` but the copy that `npm run build:dist` stages into `shell/dist` (which
-`npm run app` embeds and `npm run dev` serves), so `build:ts` alone does not refresh a window
-that is open.
+The same silence is why a stale build looks exactly like the change not working. Edit
+`public/app/main.ts`, or pull a branch, and the `public/app.js` that the server serves is
+still the last bundle until something runs `npm run build:web`, which runs `tsc -b` first.
+`build:ts` alone checks the page and writes nothing for it, only `backend.js` and
+`landing.js`; `npm start`, `npm run app` and `npm test` run `build:web` for you. The window is
+one step further on. It does not read `public/app.js` but the copy that `npm run build:dist`
+stages into `shell/dist` (which `npm run app` embeds and `npm run dev` serves), so `build:web`
+alone does not refresh a window that is open.
 
 `tsc -b` decides that a project is up to date from `out/tsconfig.page.tsbuildinfo`, which holds
 the hash of every input, and it never checks that the outputs are there. That makes two cases
@@ -402,7 +470,8 @@ where it says nothing when it should say something:
   come back, and git removes the three, which are ignored here, and leaves `out/` alone. Then
   `tsc -b` prints "Updating unchanged output timestamps" and writes nothing, because the hashes
   still match, and touching the `.ts` does not help for the same reason. Everything that serves
-  or stages the page fails, or serves a blank one.
+  or stages the page fails, or serves a blank one. `app.js` is healed by `build:web` and not by
+  this: it bundles again on every run and keeps no record of what it built.
 - **`git mv` keeps a file's mtime.** A `.js` renamed to `.ts` is a new input with an old
   timestamp, older than the record, so `tsc -b` reports "up to date" and emits nothing until
   the file is touched. (A `.ts` renamed to another `.ts` is noticed, because the old name was
@@ -432,7 +501,8 @@ Each step is its own PR, with `npm test` and `npm run bundle` green.
 3. `scripts/` and `bin/` (done), as `.mts` and `.ts`; see [Extensions](#extensions).
 4. The `page` project (done): `app.ts`, `backend.ts`, `landing.ts`, each a single rename, plus
    `tsc -b --watch` in `scripts/dev.mts` and the vendor shims in `types/vendor/`; see
-   [The page project](#the-page-project).
+   [The page project](#the-page-project). `app.ts` has since moved to `public/app/` and a
+   project of its own, bundled by esbuild; see [The app project](#the-app-project).
 5. `test-smoke.ts` (done): the suite renamed and checked as part of the node project, with
    its fakes typed where they are declared; see [The projects](#the-projects).
 6. The ratchet (in progress), one flag per project: `noImplicitAny`, then `strictNullChecks`,
@@ -442,12 +512,12 @@ Each step is its own PR, with `npm test` and `npm run bundle` green.
    written) and then `strict`. One cast
    goes with `strictNullChecks`: `render.ts` reads `(value as FrontText).text`, because
    `FrontRow` types a keyless row's value as any `FrontValue` while `readMap` only builds text
-   for a keyless row, and a union does not narrow at `strict: false`. The node and page
-   projects stay lenient and their flags are not scheduled: `test-smoke.ts` and
-   `public/app.ts` hold most of the implicit `any`s in them (643 `noImplicitAny` errors
-   between the two projects when this was written, 590 of them in those two files), a flag
-   applies to a whole project, and the decision is not to type those two files. That can be
-   revisited.
+   for a keyless row, and a union does not narrow at `strict: false`. The node, page and app
+   projects stay lenient and their flags are not scheduled: `test-smoke.ts` and `app.ts`
+   (now `public/app/main.ts`) hold most of the implicit `any`s in them (643 `noImplicitAny`
+   errors between the node and page projects when this was written, 590 of them in those two
+   files, when `app.ts` was still in the page project), a flag applies to a whole project, and
+   the decision is not to type those two files. That can be revisited.
 
 What the design decided is in this file and in [architecture.md](architecture.md); the
 design document itself is not in the repository.
@@ -506,3 +576,8 @@ process (about 0.02 s on its own) that lists two directories, and the change tha
 came after step 4 was measured. Timed in a scratch copy at the end of that change, with the
 load not recorded, an up-to-date `npm run build:ts` went from about 0.17 s to about 0.20 s, and
 one from no `out/` and no compiled page took about 1.3 s.
+
+None of this includes the app project or the esbuild bundle of the page, which came after
+step 6 was measured and have not been timed: the app project adds `public/app/` to what
+`tsc -b` checks, and `build:web` adds a bundle of the page, with Preact in it, to the bundles
+it already made.

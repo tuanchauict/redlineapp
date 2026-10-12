@@ -2,13 +2,17 @@
 // forget the page project's build record so the compile that follows writes them again.
 //
 // Why it exists: `tsc -b` decides a project is up to date from its tsbuildinfo, which holds the
-// hash of every input, and never looks to see that the outputs are there. The page's outputs are
-// gitignored files beside their sources (public/app.js, public/backend.js, site/landing.js), and
+// hash of every input, and never looks to see that the outputs are there. The page project's
+// outputs are gitignored files beside their sources (public/backend.js, site/landing.js), and
 // they are also tracked files on the branches that predate the page being TypeScript. Check one
-// of those branches out and back, and git deletes the three, leaves out/ alone, and `tsc -b`
+// of those branches out and back, and git deletes the two, leaves out/ alone, and `tsc -b`
 // answers "Updating unchanged output timestamps" and writes nothing. Everything that serves or
 // stages the page then fails or serves a blank one, and the advice it prints (run the build
 // again) changes nothing. Touching the .ts does not help, because the hash has not changed.
+//
+// public/app.js is not one of them. It is not tsc's output (tsconfig.app.json is noEmit) but
+// build:web's, which bundles it again on every run whatever is on disk and keeps no record of
+// what it built, so a branch switch that deletes it is healed by running build:web.
 //
 // What it does about it is the one thing that does help, which is removing the record. A project
 // with no record is built from scratch, and the rest of out/ is untouched. A checkout that has
@@ -18,7 +22,8 @@
 // makes scripts/ runnable and so cannot be one of the things that compile produces. It has no
 // list of files: the sources and the record's name are read from tsconfig.page.json, which is
 // where the page project says what it builds. Each `public/*.ts` emits a `.js` beside it
-// (outDir is "."), and a `.d.ts` emits nothing.
+// (outDir is "."), and a `.d.ts` emits nothing. `public/app/` is a subdirectory, which that
+// pattern does not reach, and which tsc only checks.
 //
 //   node bootstrap/heal-page-build.mjs [root]   root defaults to this file's parent directory
 import fs from 'node:fs';

@@ -431,8 +431,18 @@ assert.deepStrictEqual(shellConf.app.security.dangerousDisableAssetCspModificati
 // Sanitized where it goes in. Every innerHTML in the page is named here: the
 // two that carry what a document said go through DOMPurify, and the rest are
 // the page's own constant markup. A new one has to be one or the other.
-const appJs = fs.readFileSync(rootUrl('public/app.ts'), 'utf8');
-assert.match(appJs, /import \{ sanitizeDocument, sanitizeSvg \} from '\.\/vendor\/sanitize\.js';/,
+// The page's source is every module under public/app/, read as one text: these greps are about
+// what the page does, and which file of it a line moved to is not their business.
+const pageSource = () => {
+  const dir = fileURLToPath(rootUrl('public/app/'));
+  return fs.readdirSync(dir, { recursive: true, encoding: 'utf8' })
+    .filter((f) => /\.tsx?$/.test(f))
+    .sort()
+    .map((f) => fs.readFileSync(path.join(dir, f), 'utf8'))
+    .join('\n');
+};
+const appJs = pageSource();
+assert.match(appJs, /import \{ sanitizeDocument, sanitizeSvg \} from '\.\.\/vendor\/sanitize\.js';/,
   'the page loads the sanitizer');
 assert.match(appJs, /const source = raw \? d\.rawHtml : d\.html;[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);/,
   'the document, rendered or raw, is sanitized on its way into the page');
@@ -440,7 +450,7 @@ assert.match(appJs, /closest\('\.diagram'\)\.innerHTML = sanitizeSvg\(out\.svg\)
   'and so is a PlantUML drawing, which the jar made from the document');
 assert.deepStrictEqual(
   [...appJs.matchAll(/([\w$]+)(?:\([^)]*\))?\.innerHTML =/g)].map((m) => m[1]).sort(),
-  ['ack', 'closest', 'count', 'doc', 'more', 'x'],
+  ['ack', 'closest', 'count', 'doc', 'x'],
   'no innerHTML the page does not know is safe',
 );
 // The capture above sees `x.innerHTML =` and `x(…).innerHTML =`, but not the forms TypeScript
@@ -770,6 +780,23 @@ console.log('✓ the contract is wired into every host, and can fail');
     JSON.parse(text('tsconfig.json')).references.some((r) => r.path === './tsconfig.page.json'),
     'tsc -b builds it',
   );
+
+  // tsc checks public/app/ and esbuild compiles it, each told about JSX on its own: the root
+  // tsconfig holds only references, so esbuild has none to read the setting from.
+  const app = JSON.parse(text('tsconfig.app.json'));
+  assert.strictEqual(app.compilerOptions.noEmit, true,
+    'the app project only checks: app.js is build:web\'s, and an emit would be a second one');
+  assert.strictEqual(app.compilerOptions.jsx, 'react-jsx', 'it reads JSX as the automatic runtime');
+  const buildWeb = text('scripts/build-web.mts');
+  assert.ok(
+    /jsx: 'automatic'/.test(buildWeb) &&
+      buildWeb.includes(`jsxImportSource: '${app.compilerOptions.jsxImportSource}'`),
+    'and esbuild compiles it against the same runtime tsc checked it against',
+  );
+  assert.ok(
+    JSON.parse(text('tsconfig.json')).references.some((r) => r.path === './tsconfig.app.json'),
+    'tsc -b checks it',
+  );
 }
 console.log('✓ the page project has its shims, and each names the bundle it stands for');
 
@@ -1014,7 +1041,7 @@ const [pageHtml, pageCss] = await Promise.all(
 );
 // The greps below are about how the page is written, so they read the source: tsc reprints what
 // it emits. What is served is the compiled file, and the checks on that read it instead.
-const pageJs = fs.readFileSync(rootUrl('public/app.ts'), 'utf8');
+const pageJs = pageSource();
 const pageServed = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
 
 // The page has to load from any base URL: the web app may be served under a path, and a VS
@@ -1022,7 +1049,7 @@ const pageServed = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
 // The `/api/...` URLs in backend.js stay absolute, because only this server answers them.
 assert.ok(!/(?:href|src)="\//.test(pageHtml), 'the page names its files relative to itself');
 assert.ok(!pageServed.includes("import('/"), 'and so does the lazy mermaid import');
-assert.match(pageServed, /import\('\.\/vendor\/mermaid\//, 'which is still the vendored one');
+assert.match(pageServed, /import\(['"]\.\/vendor\/mermaid\//, 'which is still the vendored one');
 // Every preference goes through one name, so a host without localStorage can supply a store
 // of its own. The one line that names localStorage is the fallback, in each file.
 const bareStorage = (src) => src.match(/\blocalStorage\b/g)?.length ?? 0;
@@ -1030,7 +1057,8 @@ for (const [name, src] of [['index.html', pageHtml], ['app.js', pageServed]]) {
   assert.ok(!/\blocalStorage\./.test(src), `${name} reaches no preference through localStorage`);
   assert.match(
     src,
-    /const prefs = globalThis\.__REDLINE_PREFS \?\? localStorage;/,
+    // `var` in app.js: esbuild writes a bundle's top-level `const` as one.
+    /(?:const|var) prefs = globalThis\.__REDLINE_PREFS \?\? localStorage;/,
     `${name} has the one fallback line`,
   );
 }
@@ -1074,7 +1102,7 @@ assert.strictEqual(
 // A row has to be callable by a name that is the same name tomorrow, so the
 // relative time is the line underneath and never the one you read first.
 assert.match(pageJs, /function clockName/, 'a version nobody named is named by its clock');
-assert.match(pageJs, /'ver-name', name/, 'and that name is the row title');
+assert.match(pageJs, /<span class="ver-name">\{name\}<\/span>/, 'and that name is the row title');
 assert.ok(pageCss.includes('.ver-name'), 'which the stylesheet sets as one');
 assert.ok(!pageCss.includes('.ver-when'), 'the relative time is no longer it');
 for (const rule of ['.no-diff .chg', '.no-diff .chg-del', '.no-diff .w-del', '.no-diff .raw-del']) {
@@ -1211,15 +1239,16 @@ assert.match(pageJs, /No headings in this document/, 'an empty contents list say
 // only while the list is rows in one order.
 assert.ok(!pageJs.includes('cutButton') && !pageCss.includes('.ver-cut'), 'the cut icon is gone');
 assert.match(pageHtml, /<div id="verMenu" class="menu" role="menu"/, 'a version has a menu');
-assert.match(pageJs, /row\.append\(text, moreButton\(row, v, n\)\);/, 'behind a "…" on every row');
+assert.match(pageJs, /<\/span>\s*<More v=\{v\} n=\{n\} actions=\{actions\} \/>\s*<\/button>/,
+  'behind a "…" on every row');
 assert.match(
   pageJs,
-  /row\.addEventListener\('contextmenu', \(e\) => \{\s*e\.preventDefault\(\);/,
+  /const onContextMenu = \(e: MouseEvent\) => \{\s*e\.preventDefault\(\);[\s\S]*?onContextMenu=\{onContextMenu\}/,
   'and behind a right-click on it, which the browser no longer answers',
 );
 assert.match(
   pageJs,
-  /const mark = \(on\) => row\.classList\.toggle\('cutting', on\);\s*forget\.addEventListener\('pointerenter'/,
+  /const mark = \(on\) => \(cutFrom\.value = on \? v\.hash : null\);\s*forget\.addEventListener\('pointerenter'/,
   'Forget… says what it would take',
 );
 assert.match(pageJs, /if \(!v\.current\) \{\s*const one = n === 1;\s*const forget = /, 'and is never offered for the version on disk');
@@ -1243,10 +1272,18 @@ assert.match(
   /function paintHistory\(d\) \{[^}]*closeVerMenu\(\);/,
   'and a repaint closes a menu about a row it is replacing',
 );
-assert.match(pageJs, /'ver ask cutting'/, 'the confirmation keeps the dim it was reached from');
+assert.match(pageJs, /<div class="ver ask cutting">/,
+  'the confirmation keeps the dim it was reached from');
+// Preact owns the rows, so nothing else may set a class on one: the row reads `held` and
+// `cutting` off the signals the menu and Clear history set, and a class put on by hand would be
+// taken off again by the next render, or left on a node Preact has moved to another version.
+assert.match(pageJs, /menuFor\.value === v\.hash && 'held',\s*cutFrom\.value === v\.hash && 'cutting',/,
+  'a row is lit and dimmed from state');
+assert.ok(!/classList\.\w+\([^)]*'(?:held|cutting)'/.test(pageJs),
+  'and never by a hand on its classes');
 assert.match(
   pageJs,
-  /children\[1\]\?\.classList\.toggle\('cutting'/,
+  /cutFrom\.value = on \? \(shownHistory\.value\?\.history\?\.\[1\]\?\.hash \?\? null\) : null;/,
   'and Clear history previews the same act the same way',
 );
 
@@ -1327,9 +1364,15 @@ assert.match(
 assert.match(pageCss, /\.ruler-current \{/, 'and the stylesheet gives that mark its own look');
 
 // What runs in a vm has to be JavaScript, and annotated TypeScript is not: `fn`, `konst` and
-// `applySchemeSrc` lift their text out of the compiled page, where the greps for how the source
-// is written read the .ts.
-const pageRun = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
+// `applySchemeSrc` lift their text out of main.ts with its types stripped, where the greps for
+// how the source is written read the .ts. Stripped, not read from the bundle: app.js has Preact
+// scope-hoisted in beside the page, and esbuild renames the page's top-level names wherever they
+// meet Preact's minified ones -- `$` is `$2` there -- so a lifted function would call a helper
+// the vm's fakes do not name. Transforming the one file renames nothing.
+const pageRun = (await import('esbuild')).transformSync(
+  fs.readFileSync(rootUrl('public/app/main.ts'), 'utf8'),
+  { loader: 'ts', target: 'es2022' },
+).code;
 
 // Stepping through the changes, run over fakes the way `applyScheme` is below: the arrows, `n`,
 // `p` and the count on the bar all go through `goToChange`, and what it has to get right is
@@ -1342,10 +1385,10 @@ const pageRun = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
   const konst = (name) =>
     pageRun.match(new RegExp(`\\nconst ${name} = (?:[^\\n]*;|[\\s\\S]*?\\n\\};)\\n`))?.[0];
   for (const name of ['stepIndex', 'goToChange', 'changeNodes']) {
-    assert.ok(fn(name), `app.js has ${name}`);
+    assert.ok(fn(name), `main.ts has ${name}`);
   }
   for (const name of ['changeKind', 'continuesRun', 'LANDING_MS']) {
-    assert.ok(konst(name), `app.js has ${name}`);
+    assert.ok(konst(name), `main.ts has ${name}`);
   }
 
   // The count and the arrows reach it, and the count says which kind it was pressed on.
@@ -1648,7 +1691,7 @@ console.log('✓ Contents resizes against History, and defaults to room for a do
 // what?" must open the column the answer is actually in.
 assert.match(
   pageJs,
-  /function paintHistory[\s\S]*?if \(!state\.tocSide\) return;/,
+  /function History\([\s\S]*?if \(!d \|\| !state\.tocSide\) return null;/,
   'History paints against the column it is actually in',
 );
 assert.match(
@@ -1913,7 +1956,7 @@ console.log('✓ sepia wired through page, head script, stylesheet and shell');
 
   // `applyScheme` out of app.js, over the same fakes.
   const applySchemeSrc = pageRun.match(/\nfunction applyScheme\(\) \{[\s\S]*?\n\}\n/)?.[0];
-  assert.ok(applySchemeSrc, 'app.js has applyScheme');
+  assert.ok(applySchemeSrc, 'main.ts has applyScheme');
   assert.ok(pageJs.includes(`const darkMode = matchMedia('${DARK_QUERY}');`),
     'and reads System off the same query the head script does');
   const appScheme = (appearance, systemDark) => {
@@ -5716,10 +5759,11 @@ const memoryKv = () => {
       clearing.trim().split('\n').map((l) => l.trim()),
       [
         'paintToc({});',
-        'paintHistory({});',
+        'paintHistory(null);',
         "$('tocList').replaceChildren();",
-        "$('histList').replaceChildren();",
       ],
+      // History's list is Preact's, and empties itself on null; a replaceChildren under it
+      // would leave Preact diffing against rows that are no longer there.
       'which resets what they keep and empties their lists',
     );
     assert.ok(
@@ -6076,8 +6120,8 @@ const memoryKv = () => {
   );
   assert.match(
     stageSrc,
-    /file === 'app\.js' \? 'build:ts' : 'build:web'/,
-    'and a missing app.js points at the compile that heals it, a missing bundle at the bundler',
+    /is missing \$\{file\} — run npm run build:web first/,
+    'and a missing file, app.js or a bundle, points at the step that writes it',
   );
   console.log('✓ stagePage will not empty the repository, or anything that holds it');
 
@@ -6319,6 +6363,9 @@ const memoryKv = () => {
         'vendor/render.js', 'vendor/sanitize.js'].map((f) => f.split('/').join(path.sep)).sort(),
       'these are the modules there are to look in',
     );
+    // A filter on `.ts` alone let public/app/ui/History.tsx through: the bundle is what ships.
+    assert.deepStrictEqual(walk(built).filter((f) => /\.tsx?$|^app[\\/]/.test(f)), [],
+      'and none of the page\'s source is staged beside it');
     const found = {};
     for (const f of loaded) {
       for (const [, , spec] of staged(f).matchAll(specifier)) {
@@ -6863,6 +6910,10 @@ assert.match(devJs, /build-dist\.mjs/, 'and staged, or the window shows the last
 // `tauri dev -- [runnerArgs] -- [appArgs]`: one `--` short and `sample.md` is
 // handed to cargo, which fails in a way that looks nothing like the cause.
 assert.match(devJs, /'--', '--', \.\.\.appArgs/, 'a file to open reaches the app, not cargo');
+// tsc emits nothing for public/app/, so skipping a `.ts` there would be waiting forever.
+assert.match(devJs, /const page = !src && file\?\.startsWith\(`app\$\{path\.sep\}`\);/,
+  'an edit to the page\'s source is noticed');
+assert.match(devJs, /touchedSrc \|\|= src \|\| page;/, 'and rebundles it, as a src/ edit does');
 
 // The load-bearing one. Tauri's dev watcher honours .gitignore, and shell/dist
 // being ignored is the only reason restaging the page does not trip the Rust

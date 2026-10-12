@@ -7,8 +7,10 @@ out/
 # script that needs it builds it first.
 public/vendor/
 
-# Compiled beside their sources by tsconfig.page.json, because the URLs the page is loaded by
-# (backend.js, app.js, landing.js) are those names. public/host.js is hand-written and tracked.
+# Built beside their sources, because the URLs the page is loaded by (backend.js, app.js,
+# landing.js) are those names. backend.js and landing.js are compiled in place by
+# tsconfig.page.json; app.js is bundled from public/app/ by scripts/build-web.mts, and `tsc`
+# only checks that source. public/host.js is hand-written and tracked.
 public/app.js
 public/backend.js
 site/landing.js

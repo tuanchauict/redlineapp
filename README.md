@@ -227,12 +227,14 @@ that ships with macOS instead of bundling a browser, so the whole app is one bin
 of about 8 MB per architecture. Most of that is the page compiled into it, and most
 of the page is the Mermaid renderer.
 
-**No framework, one compiler, six dependencies.** `tsc` compiles the code Node runs and
-nothing else; the page runs what you read in `src/` and `public/`, bundled but not
-translated: one client module and one hand-written stylesheet. The diff
-works at two levels, blocks and then words, on top of markdown-it's own parser. The
-word diff compares *rendered HTML* rather than markdown source, which is why a mark
-never splits a link or a run of bold text.
+**Preact for the chrome, nothing for the document, nine dependencies.** `tsc` type-checks
+the code and compiles what Node runs; the page is `public/app/`, which esbuild bundles into
+the one `app.js` it loads, because Preact is imported by package name and a browser cannot
+resolve one. The sidebars and settings move onto Preact and signals a panel at a time. The
+rendered document does not: it is HTML from markdown-it and the diff, written to the page and
+left alone. One hand-written stylesheet. The diff works at two levels, blocks and then
+words, on top of markdown-it's own parser. The word diff compares *rendered HTML* rather
+than markdown source, which is why a mark never splits a link or a run of bold text.
 
 **One test file, and it boots the real thing.** `test-smoke.ts` has about 600
 assertions, no test framework and no mocks. It starts the actual server on a temp
