@@ -1,5 +1,5 @@
-// The window's fixed chrome -- the bar's buttons, the dot, the sidebar disclosures -- kept to the
-// signals that say what each shows.
+// The window's fixed chrome -- the bar's buttons, the dot, the sidebar disclosures, the find bar
+// and the notice -- kept to the signals that say what each shows.
 //
 // Not components, on purpose. These are on screen from the first frame, before app.js has run,
 // so they are markup in index.html, where the browser draws them with the rest of the page; a
@@ -8,7 +8,9 @@
 // it runs once now, against whatever the head script and the stored prefs already say, and again
 // whenever a signal it read changes. Code elsewhere sets the signal and never the attribute.
 import { effect } from '@preact/signals';
-import { state, liveWhy, findOpen, shut } from '../state.js';
+import { state, liveWhy, shut } from '../state.js';
+import { findOpen, findCount } from '../vm/find.js';
+import { notice } from '../vm/notice.js';
 
 const $ = (id: string) => document.getElementById(id) as HTMLElement;
 
@@ -31,6 +33,19 @@ export function bindChrome() {
   effect(() => {
     $('findBar').hidden = !findOpen.value;
     $('find').setAttribute('aria-pressed', String(findOpen.value));
+  });
+  effect(() => {
+    $('findCount').textContent = findCount.value;
+  });
+
+  // Not on screen in the first frame, but markup all the same: a live region has to be in the
+  // page before what it says changes, or a screen reader has nothing to announce. Put away, it
+  // keeps its last words, which nothing can see.
+  effect(() => {
+    const text = notice.value;
+    const box = $('notice');
+    if (text !== null) box.textContent = text;
+    box.hidden = text === null;
   });
 
   // Each toggle's band, filled while its column is open, is drawn off `aria-pressed`.

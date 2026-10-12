@@ -123,8 +123,12 @@ for (const { entry, out } of BUNDLES) {
 // every component compiles to; a browser resolves neither. What it imports by a path of its own
 // stays a separate file, written as the page sees it from public/ — the source is a directory
 // deeper — so app.js imports exactly what it did when tsc wrote it: the renderer, DOMPurify, the
-// backend, Mermaid. stage-page.mts versions those four, and the suite counts them.
-const PAGE_EXTERNAL = /^\.\.\/(vendor\/.+|backend\.js)$/;
+// backend, Mermaid. stage-page.mts versions those four, and the suite counts them. Which file
+// is meant is read off the resolved path, not the specifier: `../vendor/` from main.ts and
+// `../../vendor/` from vm/ are the same file, and `./backend.js` from main.ts is the page's own
+// public/app/backend.ts, which is bundled.
+const PUBLIC = path.join(ROOT, 'public');
+const PAGE_EXTERNAL = /^(vendor\/.+|backend\.js)$/;
 const pageOut = path.join(ROOT, 'public', 'app.js');
 await esbuild.build({
   entryPoints: [path.join(ROOT, 'public', 'app', 'main.ts')],
@@ -142,11 +146,12 @@ await esbuild.build({
     {
       name: 'page-external',
       setup(build) {
-        build.onResolve({ filter: PAGE_EXTERNAL }, (args) =>
-          args.importer.startsWith(path.join(ROOT, 'public', 'app') + path.sep)
-            ? { path: `./${PAGE_EXTERNAL.exec(args.path)[1]}`, external: true }
-            : undefined,
-        );
+        build.onResolve({ filter: /^\.\.?\// }, (args) => {
+          if (!args.importer.startsWith(path.join(PUBLIC, 'app') + path.sep)) return undefined;
+          const served = path.relative(PUBLIC, path.resolve(args.resolveDir, args.path));
+          const name = served.split(path.sep).join('/');
+          return PAGE_EXTERNAL.test(name) ? { path: `./${name}`, external: true } : undefined;
+        });
       },
     },
   ],

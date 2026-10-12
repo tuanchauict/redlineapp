@@ -245,7 +245,7 @@ staging copies from `node_modules`. None of them exists in a fresh checkout, and
 of esbuild's output would not check what the page is held to anyway. So `types/vendor/` holds
 a one-line shim for each, and `rootDirs: ["public", "types"]` lays that directory over `public/`
 so that `./vendor/render.js` finds `types/vendor/render.d.ts`, and `../vendor/render.js`, written
-in `public/app/main.ts`, does too. The app project sets the same `rootDirs` and reads the same
+in `public/app/main.ts`, does too, as does `../../vendor/render.js` from `public/app/vm/`. The app project sets the same `rootDirs` and reads the same
 shims.
 Each shim is an `export *` from the source its bundle is built from: `render` is
 `src/core/document.ts`, `sanitize` is `src/page/sanitize.ts`, `backend-tauri` is
@@ -321,9 +321,11 @@ neither does the `preact/jsx-runtime` that every component compiles to. So esbui
 the directory into `public/app.js`, in `build-web.mts` after the vendor bundles, and `tsc`
 only answers whether it type-checks. The type error still stops the build, because `build:web`
 runs `build:ts` first; esbuild alone would bundle through one. What the bundle leaves outside
-itself is `../vendor/*` and `../backend.js`, written as the page sees them from `public/`
-(the source is a directory deeper), so `app.js` still imports the same four files it did when
-`tsc` wrote it, and `stage-page.mts` still versions those four. It is not minified, which
+itself is whatever resolves into `public/vendor/` or to `public/backend.js`, rewritten as the
+page sees it from `public/` (the source is a directory or two deeper), so `app.js` still
+imports the same four files it did when `tsc` wrote it, and `stage-page.mts` still versions
+those four. It is the resolved path that is matched, not what the import says: `./backend.js`
+from `main.ts` is `public/app/backend.ts`, the page's own module, and is bundled. It is not minified, which
 leaves a stack trace in the webview naming the function it is in.
 
 **It reads JSX as Preact's.** `jsx: react-jsx` with `jsxImportSource: preact`, so a component
