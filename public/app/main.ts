@@ -8,9 +8,18 @@ import {
 } from '../vendor/render.js';
 import { sanitizeDocument, sanitizeSvg } from '../vendor/sanitize.js';
 import { createBackend } from '../backend.js';
-import { prefs, state, shownHistory, menuFor, cutFrom } from './state.js';
+import {
+  prefs,
+  state,
+  shownHistory,
+  menuFor,
+  cutFrom,
+  rulerBands,
+  rulerCurrent,
+} from './state.js';
 import { mountHistory, askPrune, isBaseline, versionName } from './ui/History.js';
 import { mountContents } from './ui/Contents.js';
+import { mountRuler } from './ui/Ruler.js';
 // Nothing here names the type: the import is for native.ts's own `declare global`, which types
 // `window.mdNative` from what `installNative` leaves, so the page's calls on the shell are
 // checked against what the Tauri host provides. tsc drops it from the emitted file.
@@ -1799,9 +1808,9 @@ function paintCount() {
 // marks at document scale answers it at a glance, and keeps answering it while
 // you scroll.
 
+// The marks themselves are drawn by ui/Ruler.tsx; what is here is the measuring, and what a
+// mark does when it is pointed at.
 const ruler = $('ruler');
-// A mark carries the blocks it stands for, set by `paintRuler` (see `_nodes` there).
-type RulerMark = HTMLElement & { _nodes: HTMLElement[] };
 
 /** Everything the ruler stands for: marked blocks rendered, marked lines raw. */
 const rulerNodes = () => doc.querySelectorAll<HTMLElement>('[data-chg], .raw-del');
@@ -1835,46 +1844,33 @@ doc.addEventListener('pointerout', (e) => {
 // subtree has no selector that reaches. `hoverNode` is still set, to one
 // node of the band, purely so `highlightRulerCurrent` keeps this same mark
 // current without having to learn that a band is more than one node.
-let hoverMark = null;
-ruler.addEventListener('pointerover', (e) => {
-  const mark = (e.target as Element).closest<RulerMark>('.ruler-mark');
-  if (!mark || mark === hoverMark) return;
-  hoverMark = mark;
-  for (const node of mark._nodes) node.classList.add('chg-hot');
-  hoverNode = mark._nodes[0];
+let hoverBand: HTMLElement[] | null = null;
+function hoverMarks(nodes: HTMLElement[] | null) {
+  for (const node of hoverBand ?? []) node.classList.remove('chg-hot');
+  hoverBand = nodes;
+  for (const node of nodes ?? []) node.classList.add('chg-hot');
+  hoverNode = nodes?.[0] ?? null;
   highlightRulerCurrent();
-});
-ruler.addEventListener('pointerout', (e) => {
-  const mark = (e.target as Element).closest<RulerMark>('.ruler-mark');
-  if (mark !== hoverMark || mark?.contains(e.relatedTarget as Node)) return;
-  hoverMark = null;
-  for (const node of mark._nodes) node.classList.remove('chg-hot');
-  hoverNode = null;
-  highlightRulerCurrent();
-});
+}
 
-// A mark answers "where am I" as well as "take me there": the first node of
-// its band lands the same way `n`/`p` would, and a band with no index of its
-// own -- a raw-removed line, an already-checked change -- still scrolls,
-// just with nothing for `c` to act on once it arrives (see `goToNode`).
-ruler.addEventListener('click', (e) => {
-  const mark = (e.target as Element).closest<RulerMark>('.ruler-mark');
-  if (!mark) return;
-  const node = mark._nodes[0];
-  state.changeIndex = changeNodes().indexOf(node);
-  goToNode(node);
+mountRuler(ruler, {
+  go: (node) => {
+    state.changeIndex = changeNodes().indexOf(node);
+    goToNode(node);
+  },
+  hover: hoverMarks,
 });
 
 function paintRuler() {
   const on = state.diff && !!state.data;
   ruler.hidden = !on;
-  if (!on) return void ruler.replaceChildren();
+  if (!on) return void (rulerBands.value = []);
 
   const span = pane.scrollHeight;
   const track = ruler.clientHeight;
   // Nothing to scale against yet — a document mid-layout, or a window with no
   // height. The observer below brings us back once there is.
-  if (span <= 0 || track <= 0) return void ruler.replaceChildren();
+  if (span <= 0 || track <= 0) return void (rulerBands.value = []);
 
   // Rects are viewport coordinates; this is where the top of the scrolled
   // content sits in them, so subtracting it gives an offset into the document.
@@ -1882,11 +1878,6 @@ function paintRuler() {
   // Scaled against scrollHeight, tail padding included, because the ruler is
   // only worth anything if a mark is level with the thumb that reaches it.
   const at = (y) => (y / span) * track;
-
-  // The one change `n`/`p` last took you to, or the one the pointer is over
-  // right now — so the ruler can answer "where am I" as well as "where are
-  // the changes", the way the scrollbar thumb answers it for scroll position.
-  const current = hoverNode ?? (state.diff ? changeNodes()[state.changeIndex] : undefined);
 
   const bands = [];
   for (const node of rulerNodes()) {
@@ -1898,7 +1889,6 @@ function paintRuler() {
     // having no block to belong to — they are removals all the same.
     const kind = node.dataset.chg || 'del';
     const ok = node.classList.contains('chg-ok');
-    const isCurrent = node === current;
     const top = at(rect.top - origin);
     const bottom = at(rect.bottom - origin);
     const last = bands.at(-1);
@@ -1907,42 +1897,29 @@ function paintRuler() {
     // becomes a dotted line whose gaps mean nothing.
     if (last && last.kind === kind && last.ok === ok && top <= last.bottom + 1) {
       last.bottom = Math.max(last.bottom, bottom);
-      last.current = last.current || isCurrent;
       last.nodes.push(node);
     } else {
-      bands.push({ kind, ok, top, bottom, current: isCurrent, nodes: [node] });
+      bands.push({ kind, ok, top, bottom, nodes: [node] });
     }
   }
 
-  ruler.replaceChildren(
-    ...bands.map(({ kind, ok, top, bottom, current, nodes }) => {
-      const cls =
-        `ruler-mark ruler-${kind}${ok ? ' ruler-ok' : ''}` + (current ? ' ruler-current' : '');
-      const mark = el('div', cls);
-      // Floored to something you can see: one edited line in a long file is a
-      // fraction of a pixel, and being seeable is the whole job.
-      const height = Math.max(3, bottom - top);
-      mark.style.top = `${Math.max(0, Math.min(top, track - height))}px`;
-      mark.style.height = `${height}px`;
-      // Kept for `highlightRulerCurrent` below, so hover and `n`/`p` can flip
-      // the one class that changes on the very element already on screen,
-      // rather than rebuilding the ruler and losing the "before" a fade needs.
-      mark._nodes = nodes;
-      return mark;
-    }),
-  );
+  rulerBands.value = bands.map(({ kind, ok, top, bottom, nodes }) => {
+    // Floored to something you can see: one edited line in a long file is a
+    // fraction of a pixel, and being seeable is the whole job.
+    const height = Math.max(3, bottom - top);
+    return { kind, ok, top: Math.max(0, Math.min(top, track - height)), height, nodes };
+  });
+  highlightRulerCurrent();
 }
 
-// Hover and `n`/`p` don't move a single mark or change how many there are —
-// only which one is current — so answering them by calling `paintRuler` again
-// would replace every mark with a fresh element for a CSS transition to find
-// no "before" state on. This instead flips `.ruler-current` on the marks
-// already drawn, which is what makes losing it fade rather than snap.
+// The one change `n`/`p` last took you to, or the one the pointer is over
+// right now — so the ruler can answer "where am I" as well as "where are
+// the changes", the way the scrollbar thumb answers it for scroll position.
+// Hover and `n`/`p` don't move a single mark or change how many there are,
+// so they come here and not to `paintRuler`: nothing is measured again.
 function highlightRulerCurrent() {
-  const current = hoverNode ?? (state.diff ? changeNodes()[state.changeIndex] : undefined);
-  for (const mark of ruler.children as HTMLCollectionOf<RulerMark>) {
-    mark.classList.toggle('ruler-current', !!current && mark._nodes.includes(current));
-  }
+  rulerCurrent.value =
+    hoverNode ?? (state.diff ? changeNodes()[state.changeIndex] : undefined) ?? null;
 }
 
 // Every call measures every change, and the things that move them — a diagram

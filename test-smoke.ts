@@ -1540,15 +1540,23 @@ const pageRun = (await import('esbuild')).transformSync(
     'though it marks more lines than that');
   console.log('✓ the arrows and the count step from where the reader is, one stop per change');
 }
-// `highlightRulerCurrent` flips the class on marks already drawn instead of
-// asking `paintRuler` to rebuild them, since a freshly rebuilt element has no
-// "before" state for `.ruler-mark`'s opacity transition to fade from.
+// The marks are a component (ui/Ruler.tsx). `paintRuler` measures and leaves bands in
+// `rulerBands`; `highlightRulerCurrent` only names the current node, so hover and `n`/`p`
+// measure nothing again. Marks are keyed by position, so a repaint keeps the elements on screen
+// and `.ruler-mark`'s opacity transition has a "before" to fade from.
+assert.match(pageJs, /mountRuler\(ruler, \{/, 'the marks are mounted on the ruler');
+assert.match(pageJs, /rulerBands\.value = bands\.map\(/, 'from the bands paintRuler measured');
 assert.match(
   pageJs,
-  /function highlightRulerCurrent/,
-  'the mark is relit without rebuilding the ruler',
+  /function highlightRulerCurrent\(\) \{\s*rulerCurrent\.value =/,
+  'the mark is relit without measuring the ruler again',
 );
-assert.match(pageJs, /mark\._nodes = nodes/, 'each mark remembers what it stands for');
+assert.match(pageJs, /current && nodes\.includes\(current\) && 'ruler-current'/,
+  'a band is current when any node it stands for is');
+assert.match(pageJs, /rulerBands\.value\.map\(\(\{ kind, ok, top, height, nodes \}, i\) => \(\s*<div\s*key=\{i\}/,
+  'each mark keeps its element across a repaint');
+assert.ok(!/ruler\.replaceChildren|ruler\.children/.test(pageJs),
+  'and nothing reaches past the component into the marks');
 assert.match(pageCss, /\.ruler-mark \{[^}]*transition: opacity/, 'so losing current can fade');
 // The same highlight on hover, not only on `n`/`p` -- delegated, since the
 // marked blocks are replaced whole on every paint and a listener bound to one
@@ -1566,14 +1574,16 @@ assert.match(
 // A mark is also something to point at, not only something to read: a click
 // lands on the change it stands for, and hovering it tints the block(s) back,
 // the reverse of the doc-to-ruler hover above.
-assert.match(pageJs, /ruler\.addEventListener\('click'/, 'a mark can be clicked');
+assert.match(pageJs, /onClick=\{\(\) => actions\.go\(nodes\[0\]\)\}/, 'a mark can be clicked');
 assert.match(
   pageJs,
-  /ruler\.addEventListener\('click'[\s\S]*?goToNode\(/,
+  /mountRuler\(ruler, \{\s*go: \(node\) => \{[\s\S]*?goToNode\(node\);/,
   'and lands the same way n\\/p do',
 );
-assert.match(pageJs, /ruler\.addEventListener\('pointerover'/, 'and hovering one is caught too');
-assert.match(pageJs, /ruler\.addEventListener\('pointerout'/, 'and leaving it is too');
+assert.match(pageJs, /onPointerEnter=\{\(\) => actions\.hover\(nodes\)\}/,
+  'and hovering one is caught too');
+assert.match(pageJs, /onPointerLeave=\{\(\) => actions\.hover\(null\)\}/, 'and leaving it is too');
+assert.match(pageJs, /hover: hoverMarks,/, 'which tint and untint the blocks it stands for');
 assert.match(
   pageJs,
   /classList\.add\('chg-hot'\)/,
