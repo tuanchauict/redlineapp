@@ -82,7 +82,9 @@ public/host.js          a classic script, first in the head, empty here; a host'
 public/index.html       the page: toolbar, two sidebars, document pane, Settings sheet
 public/app/             the whole client, as source: `main.ts` is the page, `state.ts` is what
                         it knows (signals), `ui/` is the panels drawn by components (History,
-                        Contents and the change ruler, so far). Checked by `tsconfig.app.json`
+                        Contents, the change ruler, Open files, the chevron's menu, and the
+                        bar's name and change count) and `ui/chrome.ts`, which keeps the
+                        bar's fixed buttons to their signals. Checked by `tsconfig.app.json`
                         (`noEmit`, JSX for Preact),
                         and bundled by `build:web` into `app.js` beside it, which is the file
                         a page loads and is gitignored
@@ -403,7 +405,9 @@ into lines, and diff the lines.
 The page's source is the directory `public/app/`: `main.ts`, ~3.2k lines in commented
 sections (painting, the sidebars, tabs, change navigation, checked changes, find, settings,
 keys), and the modules that have left it so far: `state.ts`, `ui/History.tsx`,
-`ui/Contents.tsx` and `ui/Ruler.tsx`.
+`ui/Contents.tsx`, `ui/Ruler.tsx`, `ui/Files.tsx`, `ui/TabMenu.tsx`, `ui/Name.tsx`,
+`ui/Changes.tsx`, `ui/TabLabel.tsx` (the name-over-directory label, and `ltrPath`) and
+`ui/chrome.ts`.
 `build:web` bundles the directory into the one `public/app.js` that a page loads, so a module
 can leave `main.ts` without a new file for any host to serve: the bundle still imports exactly
 the renderer, DOMPurify, the backend and Mermaid, which `stage-page.mts` versions and the
@@ -426,8 +430,37 @@ rows, lights the one at `tocAt` and scrolls it into view. The change ruler is sp
 way: `paintRuler` measures and leaves finished bands in `rulerBands`, `highlightRulerCurrent`
 names the current node in `rulerCurrent`, and `ui/Ruler.tsx` places the marks, keyed by
 position so a repaint moves the elements on screen rather than replacing them, which is what
-lets a mark that stops being current fade. Every other panel is still those `classList`,
-`hidden =` and `replaceChildren` calls over small builders. A component imports `state.ts` and never
+lets a mark that stops being current fade.
+
+The bar and the left column came next, and they add the one rule that was not needed
+inside a sidebar: **what is on screen in the first frame stays markup.** `index.html` is
+drawn before `app.js` has loaded, and the bar is the native window's title bar, so a bar
+built by a component would be an empty strip until the bundle came. So the bar is split by
+what it shows on that first frame:
+
+- What is hidden or blank until a document arrives is a component, mounted into an empty
+  `<span class="slot">` that is `display: contents`, so what it draws lays out as the bar's
+  own children and every `.bar` selector still finds it. `ui/Name.tsx` is the name over its
+  path, from `barName`, which `paint` and `showWelcome` set. `ui/Changes.tsx` is the solo
+  tag, the count, the checked-off count, the arrows and the divider after them, from
+  `tally` and `soloName`: `paintCount` works the numbers out of the payload and counts how
+  many changes `n`/`p` can reach off the page, and `paintSolo` names the version.
+  `ui/TabMenu.tsx` is the chevron and its list, which are two mounts sharing `tabMenuAt`
+  (where the chevron was when it was pressed, or null): the list's slot is after the
+  `<header>`, because `.bar` has a `backdrop-filter`, which makes it the containing block of
+  a `position: fixed` child, and a menu drawn inside it would be placed against the bar.
+  An effect shuts the menu when the chevron goes, so the chevron coming back does not bring
+  it back open.
+- What is on screen from the start — the view and find buttons, the two column toggles, the
+  dot, the sidebar disclosures — stays in `index.html` and is kept to its signal by an
+  `effect` in `ui/chrome.ts`: `state.view`, `findOpen`, `state.side`, `state.tocSide`,
+  `liveWhy` and `shut`. Code elsewhere sets the signal and never the attribute.
+
+`ui/Files.tsx` draws Open files from `state.tabs` and `state.docId`, so switching files
+relights a row without anything saying so, and the list is drawn whether the column is open
+or shut, so opening it has nothing to fill in. What is still those `classList`, `hidden =`
+and `replaceChildren` calls over small builders is Settings, the welcome, find's count and
+the version menu. A component imports `state.ts` and never
 `main.ts`, which is what lets a panel come out of it without a cycle: what a row *does* comes
 in as callbacks, from `main.ts`.
 
@@ -500,7 +533,7 @@ that edge, and the dock has the icon. Everything else in
   of calling `load()` itself; calling both was a race `load()`'s own guard against
   overlapping loads could not catch, because the guard compares against the id a
   call started with and the blind call started with none. Losing that race left a
-  tab looking selected in **Open files** — `paintTabs()` runs synchronously, ahead
+  tab looking selected in **Open files** — `state.tabs` is set synchronously, ahead
   of either `load()` — while the pane silently showed whichever document the blind
   call happened to resolve to.
 
@@ -637,8 +670,8 @@ its connection on `versionchange`. The page learns the build from the shim the b
 - **The left column is the open files, kept by the page.** A desktop window's are its tabs,
   which the shell keeps and pushes over `md:tabs`; a browser tab has no shell, so
   `backend.openFiles` (`open-files.ts`) keeps the list, `{ id, path, name, dir, label }` in the
-  order opened, and `main.ts` puts it in `state.tabs` for `paintTabs` to draw with the same
-  rows. Every way a document arrives — a pick, a drop, a link, a reload, the one a bare visit
+  order opened, and `main.ts` puts it in `state.tabs` for `ui/Files.tsx` to draw with the
+  same rows. Every way a document arrives — a pick, a drop, a link, a reload, the one a bare visit
   resumes — ends in `load()`, which calls `noteOpen()`: the document joins the end of the list,
   or is relabelled in place, and the column opens by itself at the second file while
   `redline:side` is unset, as `onTabs` does. A row's click and × go through `selectTab` and
@@ -648,9 +681,9 @@ its connection on `versionchange`. The page learns the build from the shim the b
   goes to its neighbour (`close` answers which), and to `closeDocument()` — the welcome, with
   nothing behind it and nothing of it left on the bar: no count, arrows, version tag, ruler or
   dropped-watch dot — when there is none or it will not open; a neighbour refused for a lapsed
-  grant keeps the welcome asking for that file, so granting it opens it. `paintTabs`
-  remembers which document it drew around (`tabsFor`), so the change and history events that
-  load the same one again do not redraw the rows under the pointer.
+  grant keeps the welcome asking for that file, so granting it opens it. `noteOpen` sets
+  `state.tabs` only when the list changed, and the rows are keyed by id, so the change and
+  history events that load the same document again leave the rows under the pointer alone.
   - **Kept twice, under `redline:open`.** sessionStorage holds the tab's own, so a reload keeps
     it and two tabs on the app each have one; localStorage holds the last list any tab wrote,
     to seed a tab that has none of its own. Both are written on every change, and either

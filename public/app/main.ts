@@ -16,10 +16,22 @@ import {
   cutFrom,
   rulerBands,
   rulerCurrent,
+  barName,
+  tally,
+  soloName,
+  tabMenuAt,
+  liveWhy,
+  findOpen,
+  shut,
 } from './state.js';
 import { mountHistory, askPrune, isBaseline, versionName } from './ui/History.js';
 import { mountContents } from './ui/Contents.js';
 import { mountRuler } from './ui/Ruler.js';
+import { mountFiles } from './ui/Files.js';
+import { mountTabMenu } from './ui/TabMenu.js';
+import { mountName } from './ui/Name.js';
+import { mountChanges } from './ui/Changes.js';
+import { bindChrome } from './ui/chrome.js';
 // Nothing here names the type: the import is for native.ts's own `declare global`, which types
 // `window.mdNative` from what `installNative` leaves, so the page's calls on the shell are
 // checked against what the Tauri host provides. tsc drops it from the emitted file.
@@ -153,20 +165,8 @@ function showWelcome({ reopen = null } = {}) {
   welcome.sync({ reopen, back });
   if (!back) {
     document.title = 'Redline';
-    $('name').textContent = 'Redline';
-    setNameDir('');
-    $('nameBox').title = '';
+    barName.value = { name: 'Redline', dir: '', path: '' };
   }
-}
-
-/**
- * The path behind the bar's name, `ltrPath`'d. Hovering the name swaps it for this, and with no
- * path -- nothing open, or a file granted by itself, which has no folder to name -- the swap
- * would only blank the bar, so the box is marked as having none.
- */
-function setNameDir(text) {
-  $('nameDir').textContent = text;
-  $('nameBox').classList.toggle('no-path', !text);
 }
 
 function hideWelcome() {
@@ -307,7 +307,6 @@ function closeDocument({ reopen = null } = {}) {
   paintCount();
   paintRuler();
   state.changeIndex = -1;
-  paintTabs();
   unwatch?.();
   unwatch = null;
   // A watch that had dropped is not one to complain of with nothing being watched.
@@ -423,9 +422,11 @@ function paint({ reuse = false } = {}) {
   //
   // Only when there is a title to show, or the bar would say the filename twice.
   document.title = d.title || d.name;
-  $('name').textContent = d.title || d.name;
-  setNameDir(ltrPath(d.title ? d.pathLabel : d.dirLabel));
-  $('nameBox').title = d.path;
+  barName.value = {
+    name: d.title || d.name,
+    dir: d.title ? d.pathLabel : d.dirLabel,
+    path: d.path,
+  };
 
   const raw = state.view === 'raw';
   const source = raw ? d.rawHtml : d.html;
@@ -448,12 +449,6 @@ function paint({ reuse = false } = {}) {
   }
   doc.classList.toggle('raw-view', raw);
 
-  const view = $('view');
-  view.dataset.view = state.view;
-  view.setAttribute('aria-pressed', String(raw));
-  view.title = raw ? 'Show rendered (r)' : 'Show raw source (r)';
-  view.setAttribute('aria-label', view.title);
-
   applyMarks();
   applyAcks();
   paintHistory(d);
@@ -467,69 +462,13 @@ function paint({ reuse = false } = {}) {
   // a find still open has to be redone against the document now on screen,
   // not scrolled to again -- the repaint is not something the reader asked for.
   // Not when the article stood: its marks are where they were.
-  if (!stay && !$('findBar').hidden) {
+  if (!stay && findOpen.value) {
     find.matches = markMatches(find.query);
     const last = find.matches.length - 1;
     find.index = last < 0 ? -1 : Math.max(0, Math.min(find.index, last));
     paintFindCount();
     highlightCurrent();
   }
-}
-
-// Which document the list was last drawn around, so that the web app's change
-// and history events, which load the same one again, do not redraw it under the
-// pointer each time.
-let tabsFor = null;
-
-/**
- * The open files, one row each. The list lives in the sidebar; with it closed
- * the chevron next to the filename opens the same list as a menu, and appears
- * only once there is more than one file to choose between.
- */
-function paintTabs() {
-  $('tabMenu').hidden = state.side || state.tabs.length < 2;
-  if ($('tabMenu').hidden) closeTabMenu();
-  if (!state.side) return;
-  tabsFor = state.docId;
-
-  $('fileList').replaceChildren(
-    ...state.tabs.map((t) => {
-      const el = document.createElement('button');
-      el.className = t.id === state.docId ? 'tab on' : 'tab';
-      el.title = t.label ?? t.path;
-      el.ariaCurrent = t.id === state.docId ? 'true' : 'false';
-      el.addEventListener('click', () => selectTab(t.id));
-      el.addEventListener('auxclick', (e) => e.button === 1 && closeTab(t.id));
-
-      // Name over directory: two files called README.md are told apart by the
-      // only thing that differs, and it is the line that can be clipped.
-      const label = document.createElement('span');
-      label.className = 'label';
-      const name = document.createElement('span');
-      name.className = 'label-name';
-      name.textContent = t.name;
-      const dir = document.createElement('span');
-      dir.className = 'label-dir';
-      dir.textContent = ltrPath(t.dir);
-      label.append(name, dir);
-
-      const x = document.createElement('span');
-      x.className = 'x';
-      x.role = 'button';
-      x.innerHTML =
-        '<svg class="i" viewBox="0 0 16 16" aria-hidden="true">' +
-        '<path d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5" /></svg>';
-      x.title = `Close ${t.name}`;
-      x.setAttribute('aria-label', x.title);
-      x.addEventListener('click', (e) => {
-        e.stopPropagation();
-        closeTab(t.id);
-      });
-
-      el.append(label, x);
-      return el;
-    }),
-  );
 }
 
 /** What a row does. The desktop app's tabs are the shell's to switch and close. */
@@ -542,6 +481,10 @@ function closeTab(id) {
   if (native) native.closeTab(id);
   else closeOpen(id);
 }
+
+// The rows are drawn wherever the list is, the column open or shut, so opening it has nothing to
+// fill in: the list is already the files open.
+mountFiles($('fileList'), { select: selectTab, close: closeTab });
 
 /**
  * Whether there is a left column at all. Both apps fill it with the files
@@ -568,12 +511,11 @@ function noteOpen() {
     dir: d.dirLabel,
     label: d.pathLabel,
   });
-  if (!changed && tabsFor === state.docId) return;
+  if (!changed) return;
   state.tabs = openFiles.list();
   // As in the desktop app: the column shows itself once there is a second
   // file to choose between, until the toggle has been used either way.
   if (prefs.getItem('redline:side') === null && state.tabs.length > 1) setSide(true, false);
-  paintTabs();
 }
 
 /**
@@ -592,8 +534,8 @@ async function switchTo(id) {
   if (state.data && welcomeEl.hidden) scrollMemory.set(state.docId, pane.scrollTop);
   if (!(await openFile(t.path, { unopened: `Could not open ${t.name}.` }))) return false;
   pane.scrollTo(0, scrollMemory.get(id) ?? 0);
-  // Picking a row redraws the list under the click, so focus would be left
-  // nowhere and the arrow keys would stop scrolling.
+  // Picking a row leaves focus on it, or on a menu that has just shut, and
+  // either way the arrow keys would stop scrolling the document.
   const held = document.activeElement;
   if (held === document.body || held?.closest('.side, .menu')) {
     pane.focus({ preventScroll: true });
@@ -609,7 +551,6 @@ async function switchTo(id) {
 async function closeOpen(id) {
   const next = openFiles.close(id);
   state.tabs = openFiles.list();
-  paintTabs();
   if (id !== state.docId) return;
   if (next && (await switchTo(next.id))) return;
   // A neighbour that would not open leaves the welcome too, not the file just
@@ -624,16 +565,9 @@ function setSide(on, remember = true) {
   state.side = on;
   if (remember) prefs.setItem('redline:side', on ? '1' : '0');
   document.documentElement.classList.toggle('side-open', on);
-  const btn = $('side');
-  btn.setAttribute('aria-pressed', String(on));
-  btn.title = on ? 'Hide sidebar (⌘B)' : 'Show sidebar (⌘B)';
-  btn.setAttribute('aria-label', btn.title);
   // Opening a column changes what the window has left for the other one and
   // for the document, so both widths are worked out again from scratch.
   applyWidths();
-  // The list is not built while the column is shut — there is nothing to
-  // build it into — so opening it is what fills it.
-  paintTabs();
 }
 
 /**
@@ -647,10 +581,6 @@ function setTocSide(on, remember = true) {
   state.tocSide = on;
   if (remember) prefs.setItem('redline:toc', on ? '1' : '0');
   document.documentElement.classList.toggle('toc-open', on);
-  const btn = $('tocBtn');
-  btn.setAttribute('aria-pressed', String(on));
-  btn.title = on ? 'Hide contents (⌥⌘B)' : 'Show contents (⌥⌘B)';
-  btn.setAttribute('aria-label', btn.title);
   applyWidths();
   // Neither list is built while the column is shut — there is nothing to
   // build it into — so opening it is what fills both.
@@ -899,73 +829,35 @@ applyTocH();
 
 const SHUT_KEY = 'redline:shut';
 
-const shutNow = () =>
-  [...document.querySelectorAll<HTMLElement>('.side-twist')]
-    .filter((b) => b.getAttribute('aria-expanded') === 'false')
-    .map((b) => b.dataset.shut);
-
 for (const twist of document.querySelectorAll<HTMLElement>('.side-twist')) {
-  const open = !document.documentElement.classList.contains(`shut-${twist.dataset.shut}`);
-  twist.setAttribute('aria-expanded', String(open));
   twist.addEventListener('click', () => {
-    const on = twist.getAttribute('aria-expanded') === 'true';
-    twist.setAttribute('aria-expanded', String(!on));
-    document.documentElement.classList.toggle(`shut-${twist.dataset.shut}`, on);
-    prefs.setItem(SHUT_KEY, JSON.stringify(shutNow()));
+    const key = twist.dataset.shut;
+    const opening = shut.value.includes(key);
+    shut.value = opening ? shut.value.filter((k) => k !== key) : [...shut.value, key];
+    prefs.setItem(SHUT_KEY, JSON.stringify(shut.value));
     // A list coming back should open already pointing at where you are in the
     // document, not at the top of it.
-    if (!on) spyToc();
+    if (opening) spyToc();
   });
 }
 
-/** The chevron's list — the sidebar's rows, for when the sidebar is closed. */
-function openTabMenu() {
+/** The chevron's list — the sidebar's rows, for when the sidebar is closed. ui/TabMenu.tsx. */
+function toggleTabMenu(left) {
+  if (tabMenuAt.value !== null) return closeTabMenu();
   closeVerMenu();
-  const list = $('tabList');
-  list.replaceChildren(
-    ...state.tabs.map((t) => {
-      const b = document.createElement('button');
-      b.title = t.path;
-
-      const tick = document.createElement('span');
-      tick.className = 'tick';
-      tick.textContent = t.id === state.docId ? '✓' : '';
-
-      const label = document.createElement('span');
-      label.className = 'label';
-      const name = document.createElement('span');
-      name.className = 'label-name';
-      name.textContent = t.name;
-      const dir = document.createElement('span');
-      dir.className = 'label-dir';
-      dir.textContent = ltrPath(t.dir);
-      label.append(name, dir);
-
-      b.append(tick, label);
-      b.addEventListener('click', () => {
-        closeTabMenu();
-        selectTab(t.id);
-      });
-      return b;
-    }),
-  );
-
-  list.hidden = false;
-  $('tabMenu').setAttribute('aria-expanded', 'true');
-  // Under the chevron, nudged back inside the window if it would hang off.
-  const left = $('tabMenu').getBoundingClientRect().left - 6;
-  list.style.left = `${Math.max(6, Math.min(left, innerWidth - list.offsetWidth - 6))}px`;
+  tabMenuAt.value = left;
 }
 
 function closeTabMenu() {
-  $('tabList').hidden = true;
-  $('tabMenu').setAttribute('aria-expanded', 'false');
+  tabMenuAt.value = null;
 }
 
-$('tabMenu').addEventListener('click', (e) => {
-  e.stopPropagation();
-  if ($('tabList').hidden) openTabMenu();
-  else closeTabMenu();
+mountTabMenu($('tabMenuSlot'), $('tabListSlot'), {
+  toggle: toggleTabMenu,
+  select(id) {
+    closeTabMenu();
+    selectTab(id);
+  },
 });
 document.addEventListener('click', () => closeTabMenu());
 document.addEventListener('keydown', (e) => e.key === 'Escape' && closeTabMenu());
@@ -1079,14 +971,6 @@ darkMode.addEventListener('change', () => {
   mermaid?.initialize(mermaidConfig());
   paint(); // re-paints from source, so diagrams redraw in the new theme
 });
-
-/**
- * A path, wrapped so it reads left to right inside a box that clips from the
- * left. `.name-dir` / `.label-dir` are `direction: rtl` to put the ellipsis at
- * the front; without an isolate around the text, the leading slash is a
- * neutral character and lands at the far end instead — `/tmp/x` as `tmp/x/`.
- */
-const ltrPath = (p) => (p ? `\u2066${p}\u2069` : '');
 
 // ---------- link peek ----------
 
@@ -1509,14 +1393,7 @@ function paintSolo(d) {
   btn.setAttribute('aria-label', btn.title);
 
   const v = soloVersion(d);
-  const tag = $('soloTag');
-  tag.hidden = !v;
-  if (!v) return;
-  $('soloName').textContent = versionName(v);
-  tag.title =
-    `Reading ${versionName(v)} by itself, not the file as it is now — ` +
-    'click for what changed since (v)';
-  tag.setAttribute('aria-label', tag.title);
+  soloName.value = v ? versionName(v) : null;
 }
 
 /**
@@ -1533,7 +1410,6 @@ function setSolo(on) {
 
 const toggleSolo = () => setSolo(!state.solo);
 $('histSolo').addEventListener('click', toggleSolo);
-$('soloTag').addEventListener('click', () => setSolo(false));
 
 /**
  * Move the read mark: to `at`, a version in the list, or without it to the
@@ -1765,35 +1641,16 @@ function paintCount() {
   const changes = state.data?.changes ?? [];
   const live = changes.filter((c) => !state.acked.has(c.key));
   const of = (kind) => live.reduce((n, c) => n + (c.kind === kind ? 1 : 0), 0);
-  const added = of('add');
-  const modified = of('mod');
-  const removed = of('del');
-  const done = changes.length - live.length;
-
-  const count = $('count');
-  count.hidden = live.length === 0 || !state.diff;
-  count.innerHTML = live.length
-    ? [
-        added && `<span class="c-add" data-kind="add" title="${added} added">+${added}</span>`,
-        modified &&
-          `<span class="c-mod" data-kind="mod" title="${modified} changed">~${modified}</span>`,
-        removed &&
-          `<span class="c-del" data-kind="del" title="${removed} removed">−${removed}</span>`,
-      ]
-        .filter(Boolean)
-        .join('')
-    : '';
-
-  const ack = $('ackCount');
-  ack.hidden = done === 0 || !state.diff;
-  ack.innerHTML = `${TICK_SVG}${done}`;
-  ack.title = `${done} change${done === 1 ? '' : 's'} checked off — bring them back (⇧C)`;
-  ack.setAttribute('aria-label', ack.title);
-
-  const hasNav = state.diff && changeNodes().length > 0;
-  $('prev').hidden = $('next').hidden = !hasNav;
-  // It separates a pair; with nothing on its left it would be a line on its own.
-  $('divide').hidden = count.hidden && ack.hidden && !hasNav && $('soloTag').hidden;
+  // How many `n` and `p` can reach is the page's to say, not the payload's: a change inside a
+  // run is reached with the run. ui/Changes.tsx draws the rest from this.
+  tally.value = {
+    add: of('add'),
+    mod: of('mod'),
+    del: of('del'),
+    live: live.length,
+    done: changes.length - live.length,
+    nav: changeNodes().length,
+  };
 }
 
 // ---------- change ruler ----------
@@ -1954,9 +1811,6 @@ addEventListener('resize', queueRuler);
 // and moves what everything is measured from. This says "that bit is seen", one
 // block at a time, and the file has still moved.
 
-const TICK_SVG =
-  '<svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.4 3 3 6-6.9" /></svg>';
-
 /** Every marked block the checked state applies to. The raw view has none. */
 const ackNodes = () => [...doc.querySelectorAll<HTMLElement>('.chg[data-key]')];
 
@@ -2049,7 +1903,6 @@ doc.addEventListener('click', (e) => {
   setAck(key, !state.acked.has(key));
 });
 
-$('ackCount').addEventListener('click', () => clearAcks());
 
 // ---------- change navigation ----------
 
@@ -2273,8 +2126,7 @@ function stepFind(step) {
 }
 
 function openFind() {
-  $('findBar').hidden = false;
-  $('find').setAttribute('aria-pressed', 'true');
+  findOpen.value = true;
   const input = $<HTMLInputElement>('findInput');
   input.focus();
   input.select();
@@ -2282,16 +2134,15 @@ function openFind() {
 }
 
 function closeFind() {
-  if ($('findBar').hidden) return;
-  $('findBar').hidden = true;
-  $('find').setAttribute('aria-pressed', 'false');
+  if (!findOpen.value) return;
+  findOpen.value = false;
   clearMatches();
   find.matches = [];
   find.index = -1;
   pane.focus({ preventScroll: true });
 }
 
-const toggleFind = () => ($('findBar').hidden ? openFind() : closeFind());
+const toggleFind = () => (findOpen.value ? closeFind() : openFind());
 
 $('find').addEventListener('click', toggleFind);
 $('findClose').addEventListener('click', closeFind);
@@ -2308,19 +2159,11 @@ document.addEventListener('keydown', (e) => e.key === 'Escape' && closeFind());
 
 // ---------- events ----------
 
-// A number of changes is something to go and look at, so the count is a way to them rather than
-// a number you can only read: click the figure for one kind to go to the next of that kind, the
-// gap between them for the next of any, with ⇧ to go back. The versions it was counted against
-// are in the right column, which has a button and a key of its own.
-$('count').addEventListener('click', (e) => {
-  goToChange(
-    e.shiftKey ? -1 : 1,
-    (e.target as Element).closest<HTMLElement>('[data-kind]')?.dataset.kind,
-  );
+mountChanges($('changesSlot'), {
+  unsolo: () => setSolo(false),
+  go: goToChange,
+  unack: () => clearAcks(),
 });
-
-$('next').addEventListener('click', () => goToChange(1));
-$('prev').addEventListener('click', () => goToChange(-1));
 
 $('view').addEventListener('click', () => toggleView());
 
@@ -2330,8 +2173,13 @@ $('view').addEventListener('click', () => toggleView());
 $('side').addEventListener('click', () => setSide(!state.side));
 $('tocBtn').addEventListener('click', () => setTocSide(!state.tocSide));
 
-// Run once with `remember` off, to set the buttons and the widths from the
-// classes the inline script put on the root before first paint. Nothing is
+// The buttons keep to the signals from here on (ui/chrome.ts), already showing what the inline
+// script and the prefs say.
+bindChrome();
+mountName($('nameSlot'));
+
+// Run once with `remember` off, to set the widths from the classes the
+// inline script put on the root before first paint. Nothing is
 // being chosen here, so nothing is written back.
 setSide(state.side, false);
 setTocSide(state.tocSide, false);
@@ -2591,7 +2439,6 @@ if (native) {
       scrollMemory.set(state.docId, pane.scrollTop);
       setDocId(active);
     }
-    paintTabs();
     if (!switching) {
       openedFirstTab();
       return;
@@ -3055,15 +2902,9 @@ async function initSettings() {
 
 // ---------- live reload ----------
 
-// Only the broken state has anything to say, so only the broken state gets a
-// name: while the watch is up there is nothing on the bar to read or announce.
+// The dot is ui/chrome.ts's to draw, from this.
 function setLive(on, why?) {
-  const live = $('live');
-  live.classList.toggle('off', !on);
-  live.title = on ? '' : why;
-  live.setAttribute('aria-hidden', String(on));
-  if (on) live.removeAttribute('aria-label');
-  else live.setAttribute('aria-label', why);
+  liveWhy.value = on ? null : why;
 }
 
 // One watch at a time: switching tabs re-points this at the new document, and
@@ -3147,7 +2988,6 @@ if (native) {
 } else {
   // The web app's list is there before its document: a file that has to be
   // asked for again holds the load up, and the other files need not wait on it.
-  paintTabs();
   if (!state.docId && openFiles?.closedAll()) {
     // Every file this tab had was closed, and a bare address would be handed the
     // document a tab last showed -- the one just closed, back as if it had not been.

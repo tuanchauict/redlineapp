@@ -1,7 +1,9 @@
 # Splitting the page into modules, with Preact — design
 
-Status: phase 1 (the build), the signal-backed `state` of phase 2, and three components of
-phase 4 are implemented: History and Contents (merged), and the change ruler (`preact-ruler`).
+Status: phase 1 (the build), the signal-backed `state` of phase 2, and the components of
+phase 4 for History, Contents and the change ruler (merged), and the bar, the tabs and the left
+column (`preact-header-tabs`) are implemented. Settings, the welcome and the version menu are
+still imperative.
 
 ## Goal and decisions
 

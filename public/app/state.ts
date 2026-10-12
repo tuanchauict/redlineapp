@@ -121,3 +121,44 @@ export const rulerBands = signal<RulerBand[]>([]);
  * it current.
  */
 export const rulerCurrent = signal<HTMLElement | null>(null);
+
+// The bar's own state: what main.ts knows about the document and the window, left here for the
+// components on the bar to draw. Each is written in one place, named on each.
+
+/**
+ * The name on the bar and the path that hovering it brings forward, `ltrPath`'d by the bar
+ * rather than here. "…" until a document or the welcome says otherwise, which is what the bar
+ * said before there was a page to ask. Written by `paint` and `showWelcome`.
+ */
+export const barName = signal({ name: '…', dir: '', path: '' });
+
+/**
+ * The count on the bar, as `paintCount` last worked it out: changes still to read, by kind and
+ * in all, and how many are checked off. `nav` is how many `n`/`p` can reach, which is counted
+ * off the page rather than the payload, so it is the one number here a component could not work
+ * out itself.
+ */
+export const tally = signal({ add: 0, mod: 0, del: 0, live: 0, done: 0, nav: 0 });
+
+/** The name of the version being read by itself, or null while the page compares. `paintSolo`. */
+export const soloName = signal<string | null>(null);
+
+/**
+ * The chevron's menu, open: where the chevron's left edge was when it was pressed, which the
+ * list is put under. Null while it is shut.
+ */
+export const tabMenuAt = signal<number | null>(null);
+
+/** Why the watch on the file dropped, or null while it is up. `setLive`. */
+export const liveWhy = signal<string | null>(null);
+
+/** Whether the find bar is up. The bar's button shows it pressed. */
+export const findOpen = signal(false);
+
+/**
+ * The sidebar sections folded away, by their `data-shut`. Read back from the classes the inline
+ * script set before first paint, like `side` and `tocSide`; `redline:shut` remembers it.
+ */
+export const shut = signal(
+  ['files', 'toc', 'hist'].filter((k) => document.documentElement.classList.contains(`shut-${k}`)),
+);

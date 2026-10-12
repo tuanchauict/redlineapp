@@ -429,8 +429,9 @@ assert.deepStrictEqual(shellConf.app.security.dangerousDisableAssetCspModificati
   'Tauri leaves style-src as written');
 
 // Sanitized where it goes in. Every innerHTML in the page is named here: the
-// two that carry what a document said go through DOMPurify, and the rest are
-// the page's own constant markup. A new one has to be one or the other.
+// two that carry what a document said go through DOMPurify. The page's own
+// markup -- the count, the tick, a row's ✕ -- is JSX now, which writes text and
+// never markup, so there is no third kind. A new one has to be the first.
 // The page's source is every module under public/app/, read as one text: these greps are about
 // what the page does, and which file of it a line moved to is not their business.
 const pageSource = () => {
@@ -450,9 +451,10 @@ assert.match(appJs, /closest\('\.diagram'\)\.innerHTML = sanitizeSvg\(out\.svg\)
   'and so is a PlantUML drawing, which the jar made from the document');
 assert.deepStrictEqual(
   [...appJs.matchAll(/([\w$]+)(?:\([^)]*\))?\.innerHTML =/g)].map((m) => m[1]).sort(),
-  ['ack', 'closest', 'count', 'doc', 'x'],
+  ['closest', 'doc'],
   'no innerHTML the page does not know is safe',
 );
+assert.ok(!appJs.includes('dangerouslySetInnerHTML'), 'and no component reaches round JSX for it');
 // The capture above sees `x.innerHTML =` and `x(…).innerHTML =`, but not the forms TypeScript
 // brings in -- `$<T>('x').innerHTML =`, `(el as T).innerHTML =` -- which it would pass unseen.
 // So every assignment in the source has to be one it captured.
@@ -1302,7 +1304,8 @@ assert.match(
   'and Clear history previews the same act the same way',
 );
 
-assert.match(pageHtml, /id="ackCount"/, 'the checked changes are countable');
+assert.match(pageJs, /id="ackCount"/, 'the checked changes are countable');
+assert.match(pageJs, /unack: \(\) => clearAcks\(\),/, 'and the count is the way back to them');
 assert.match(pageJs, /function applyAcks/, 'and shown as checked');
 assert.match(pageJs, /function clearAcks/, 'and can all be brought back');
 assert.match(pageCss, /\.chg-ok \{/, 'and a checked change reads as plain text');
@@ -1409,15 +1412,17 @@ const pageRun = (await import('esbuild')).transformSync(
   // The count and the arrows reach it, and the count says which kind it was pressed on.
   assert.match(
     pageJs,
-    /\$\('count'\)\.addEventListener\('click', \(e\) => \{\s+goToChange\(\s*e\.shiftKey \? -1 : 1,\s*\(e\.target as Element\)\.closest<HTMLElement>\('\[data-kind\]'\)\?\.dataset\.kind,\s*\);/,
+    /id="count"[\s\S]*?onClick=\{\(e\) =>\s+actions\.go\(\s+e\.shiftKey \? -1 : 1,\s+\(e\.target as Element\)\.closest<HTMLElement>\('\[data-kind\]'\)\?\.dataset\.kind,\s+\)/,
     'pressing the count steps through the changes, ⇧ backwards, of the kind pressed on',
   );
-  assert.ok(!/\$\('count'\)\.addEventListener\('click', \(\) => setTocSide/.test(pageJs),
+  assert.match(pageJs, /mountChanges\(\$\('changesSlot'\), \{[^}]*go: goToChange,/,
+    'which is where the arrows go too');
+  assert.ok(!/id="count"[^>]*onClick=\{\(\) => \w*[Tt]ocSide/.test(pageJs),
     'and no longer opens the right column');
   for (const kind of ['add', 'mod', 'del']) {
     assert.match(pageJs, new RegExp(`class="c-${kind}" data-kind="${kind}"`), `${kind} knows its kind`);
   }
-  assert.match(pageHtml, /id="count"[^>]*title="Next change/, 'the count says what it does');
+  assert.match(pageJs, /id="count"[^>]*title="Next change/, 'the count says what it does');
 
   // `stepIndex` and `goToChange`, over nodes that are only a kind and a rectangle.
   let clock = 100000;
@@ -1828,7 +1833,7 @@ assert.match(pageHtml, /id="findBar"/, 'the find bar has somewhere to show');
 assert.match(pageHtml, /id="findInput"/, 'something to type the query into');
 assert.match(pageHtml, /id="findCount"/, 'and somewhere to say how many it found');
 assert.match(pageJs, /function markMatches/, 'matches are found fresh, not kept across a paint');
-assert.match(pageJs, /!\$\('findBar'\)\.hidden/, 'and paint redoes it after #doc is replaced');
+assert.match(pageJs, /!stay && findOpen\.value/, 'and paint redoes it after #doc is replaced');
 assert.ok(pageCss.includes('.find-bar[hidden]'), 'the bar itself goes away with `hidden`');
 assert.match(pageCss, /mark\.search-hit \{/, 'a match is styled');
 assert.match(pageCss, /mark\.search-hit\.current \{/, 'and the current one is told apart');
@@ -2145,10 +2150,10 @@ assert.match(
   'it renders a version plainly',
 );
 assert.match(pageJs, /if \(state\.solo\) \{/, 'and the marks switch redraws under it');
-assert.match(pageHtml, /id="soloTag"/, 'the bar names the version on the page');
-assert.match(
-  pageJs,
-  /\$\('soloTag'\)\.addEventListener\('click'/,
+assert.match(pageJs, /id="soloTag"/, 'the bar names the version on the page');
+assert.ok(
+  /id="soloTag"[^>]*onClick=\{actions\.unsolo\}/.test(pageJs) &&
+    /unsolo: \(\) => setSolo\(false\),/.test(pageJs),
   'and is the way back to the changes',
 );
 assert.match(pageCss, /\.side-tog\[hidden\]/, 'a switch that sets display still hides');
@@ -2307,7 +2312,7 @@ console.log('✓ word-level diff inside changed blocks');
     'otherwise the article is rebuilt, and what it was built from is remembered');
   assert.match(appJs.match(/function closeDocument\([\s\S]*?\n\}/)?.[0] ?? '', /painted = \{ id: '', source: null \};/,
     'and closing the document forgets it, so the same file opened again is not taken for what is gone');
-  assert.match(appJs, /if \(!stay && !\$\('findBar'\)\.hidden\)/,
+  assert.match(appJs, /if \(!stay && findOpen\.value\)/,
     'a find is redone only when the nodes it marked were replaced');
   console.log('✓ the page leaves an unchanged article alone on a reload of the same markup');
 
@@ -2896,16 +2901,18 @@ assert.match(pageCss, /\.name-dir \{[^}]*opacity: 0/, 'and starts out hidden beh
 assert.ok(pageCss.includes('.name:hover .name-file'), 'pointing at it fades the name');
 assert.ok(pageCss.includes('.name:hover .name-dir'), 'and brings the path forward in its place');
 // Not when there is no path to bring forward -- nothing open, or a file granted by itself in the
-// web app -- where the swap would empty the bar under the pointer. One function sets the path, so
-// nothing can set it and leave the mark as it was.
+// web app -- where the swap would empty the bar under the pointer. The mark is worked out from the
+// path in the render that draws it, so nothing can set the one and leave the other as it was.
 assert.match(pageCss, /\.name\.no-path:hover \.name-file \{\s*opacity: 1;/,
   'a box with no path keeps its name');
-assert.match(pageHtml, /<span id="nameBox" class="name no-path">/, 'which it has none of to start');
+assert.match(appJs, /barName = signal\(\{ name: '…', dir: '', path: '' \}\)/,
+  'which it has none of to start');
 assert.ok(
-  /\$\('nameBox'\)\.classList\.toggle\('no-path', !text\);/.test(appJs) &&
-    appJs.match(/\$\('nameDir'\)/g)?.length === 1,
-  'and is marked as it is set, by the one function that sets it',
+  /id="nameBox" class=\{dir \? 'name' : 'name no-path'\}/.test(appJs) &&
+    !/\$\('(nameBox|nameDir|name)'\)/.test(appJs),
+  'and is marked as it is drawn, by the one component that draws it',
 );
+assert.match(appJs, /mountName\(\$\('nameSlot'\)\);/, 'which is mounted on the bar');
 
 // `.name` grows to fill the bar's spare width, so a button placed after it in
 // the markup sits wherever that grown box happens to end, not next to the
@@ -2913,9 +2920,82 @@ assert.ok(
 // there. Before it, the chevron is at a fixed point by the dot and the gap
 // never opens.
 assert.ok(
-  pageHtml.indexOf('id="tabMenu"') < pageHtml.indexOf('id="nameBox"'),
+  pageHtml.indexOf('id="tabMenuSlot"') > 0 &&
+    pageHtml.indexOf('id="tabMenuSlot"') < pageHtml.indexOf('id="nameSlot"'),
   'the all-open-files chevron sits before the name, not adrift after it',
 );
+
+// The bar's moving parts, the open files and the chevron's menu are Preact components
+// (public/app/ui/), mounted into empty slots that lay out as if the slot were not there; the
+// bar's fixed buttons stay markup, so they are drawn on the first frame, and follow signals.
+assert.match(pageCss, /\.slot \{\s*display: contents;/, 'a slot is no box of its own');
+for (const [slot, mount] of [
+  ['tabMenuSlot', /mountTabMenu\(\$\('tabMenuSlot'\), \$\('tabListSlot'\), \{/],
+  ['nameSlot', /mountName\(\$\('nameSlot'\)\)/],
+  ['changesSlot', /mountChanges\(\$\('changesSlot'\), \{/],
+  ['tabListSlot', /mountTabMenu\(\$\('tabMenuSlot'\), \$\('tabListSlot'\)/],
+] as const) {
+  assert.match(pageHtml, new RegExp(`<(span|div) id="${slot}" class="slot"></\\1>`), `${slot} is empty`);
+  assert.match(appJs, mount, `and ${slot} is drawn into`);
+}
+for (const id of ['tabMenu', 'nameBox', 'soloTag', 'count', 'ackCount', 'prev', 'next', 'divide',
+  'tabList']) {
+  assert.ok(!pageHtml.includes(`id="${id}"`), `#${id} is drawn by its component, not the markup`);
+  assert.match(appJs, new RegExp(`id="${id}"`), `and is drawn by one`);
+}
+// `.bar` has a backdrop-filter, which makes it the containing block of a fixed child: the menu
+// drawn inside it would be placed against the bar, so its slot is after the header.
+assert.ok(
+  pageHtml.indexOf('id="tabListSlot"') > pageHtml.indexOf('</header>'),
+  'the chevron\'s menu is drawn outside the bar',
+);
+assert.match(pageCss, /\.bar \{[^}]*backdrop-filter/, 'which is the reason');
+assert.match(appJs, /mountFiles\(\$\('fileList'\), \{ select: selectTab, close: closeTab \}\);/,
+  'the sidebar\'s rows are drawn by Files, and pick and close through the host');
+assert.match(appJs, /class=\{on \? 'tab on' : 'tab'\}/, 'with the current file lit');
+assert.match(appJs, /const on = t\.id === state\.docId;/, 'which is the document on screen');
+assert.match(appJs, /onAuxClick=\{\(e\) => e\.button === 1 && actions\.close\(t\.id\)\}/,
+  'and the middle button closes a row');
+assert.match(appJs, /const shown = \(\) => !state\.side && state\.tabs\.length > 1;/,
+  'the chevron is there with the sidebar shut and more than one file open');
+assert.match(appJs, /effect\(\(\) => \{\s+if \(!shown\(\)\) tabMenuAt\.value = null;/,
+  'and its menu is shut with it, so the chevron coming back does not bring it back open');
+assert.match(appJs, /e\.key === 'Escape' && closeTabMenu\(\)/, 'Escape shuts it too');
+assert.ok(
+  !/function paintTabs|tabsFor|\$\('(fileList|tabList)'\)\.replaceChildren/.test(appJs),
+  'and nothing outside them redraws the rows Preact owns',
+);
+assert.ok(
+  /tabMenuAt\.value = left;/.test(appJs) &&
+    /function closeTabMenu\(\) \{\s+tabMenuAt\.value = null;\s+\}/.test(appJs) &&
+    /document\.addEventListener\('click', \(\) => closeTabMenu\(\)\);/.test(appJs),
+  'the menu opens at the chevron and shuts on any click elsewhere',
+);
+// The fixed chrome: one effect each, and nothing else writing the attribute it keeps.
+assert.match(appJs, /bindChrome\(\);/, 'the bar\'s buttons are bound to their signals');
+for (const [what, re] of [
+  ['the view', /press\(view, raw, raw \? 'Show rendered \(r\)' : 'Show raw source \(r\)'\)/],
+  ['the sidebar', /press\(\$\('side'\), state\.side,/],
+  ['the contents', /press\(\$\('tocBtn'\), state\.tocSide,/],
+  ['find', /\$\('findBar'\)\.hidden = !findOpen\.value;/],
+  ['the dot', /live\.classList\.toggle\('off', why !== null\);/],
+  ['the disclosures', /const folded = shut\.value\.includes\(twist\.dataset\.shut\);/],
+] as const) {
+  assert.match(appJs, re, `${what} follows its signal`);
+}
+{
+  const main = fs.readFileSync(rootUrl('public/app/main.ts'), 'utf8');
+  assert.ok(
+    !/\$\('(side|tocBtn|view|find|live)'\)\.(setAttribute|title|classList)/.test(main) &&
+      !/\$\('findBar'\)\.hidden =/.test(main) &&
+      /function setLive\(on, why\?\) \{\s+liveWhy\.value = on \? null : why;/.test(main),
+    'and nothing else sets them',
+  );
+}
+assert.match(appJs, /tally\.value = \{[\s\S]*?nav: changeNodes\(\)\.length,/,
+  'the count is worked out by paintCount, the reachable changes counted off the page');
+assert.match(appJs, /soloName\.value = v \? versionName\(v\) : null;/,
+  'and the version being read by paintSolo');
 
 // Wiring. The card is a `dl`, and github-markdown-css styles `dl dt` with two
 // type selectors — so every rule here has to carry `.markdown-body` or it is
@@ -5989,7 +6069,7 @@ const memoryKv = () => {
     assert.match(
       appJs,
       new RegExp(
-        String.raw`\} else \{[^}]*?paintTabs\(\);\s+` +
+        String.raw`\} else \{[^}]*?` +
           String.raw`if \(!state\.docId && openFiles\?\.closedAll\(\)\) \{` +
           String.raw`[^}]*?showWelcome\(\);\s+\} else if \(await load\(`,
       ),
