@@ -1692,7 +1692,7 @@ console.log('✓ both sidebars resize, and leave the document room');
 {
   const mainTs = fs.readFileSync(rootUrl('public/app/main.ts'), 'utf8');
   const layout = (f) => fs.readFileSync(rootUrl(`public/app/layout/${f}`), 'utf8');
-  assert.match(mainTs, /^import \{ applyWidths \} from '\.\/layout\/widths\.js';$/m,
+  assert.match(mainTs, /^import '\.\/layout\/widths\.js';$/m,
     'main.ts loads the widths');
   assert.match(mainTs, /^import '\.\/layout\/toc-height\.js';$/m, 'and the height');
   assert.match(mainTs, /^bindKeys\(\{$/m, 'binds the keys');
@@ -1724,11 +1724,11 @@ console.log('✓ the layout is its own modules, wired from main.ts');
     for (const spec of specs) {
       assert.ok(
         spec === '@preact/signals' ||
-          /^\.\.\/(state|dom|backend|layout\/native)\.js$/.test(spec) ||
+          /^\.\.\/(state|dom|backend|layout\/(native|widths))\.js$/.test(spec) ||
           /^\.\.\/\.\.\/vendor\//.test(spec) ||
           /^\.\/[\w-]+\.js$/.test(spec),
         `vm/${f} imports ${spec}: a viewmodel reaches only the state, the DOM, the backend, ` +
-          'the shell, the vendored renderer and its siblings',
+          'the shell, the column widths, the vendored renderer and its siblings',
       );
     }
     const siblings = specs.flatMap((s) => /^\.\/([\w-]+)\.js$/.exec(s)?.[1] ?? []);
@@ -1768,6 +1768,14 @@ console.log('✓ the layout is its own modules, wired from main.ts');
     'as Contents follows it, on a listener of its own');
   assert.match(vm('contents.ts'), /doc\.addEventListener\('click', \(e\) => \{\n  const a = \(e\.target as Element\)\.closest\('a\[href\^="#"\]'\);/,
     'and takes the document\'s links to its own headings');
+  assert.match(vm('sidebars.ts'), /\$\('side'\)\.addEventListener\('click', \(\) => setSide\(!state\.side\)\);/,
+    'the columns are opened from their buttons');
+  assert.match(vm('sidebars.ts'), /\$\('tocBtn'\)\.addEventListener\('click', \(\) => setTocSide\(/,
+    'both of them');
+  assert.match(vm('sidebars.ts'), /querySelectorAll<HTMLElement>\('\.side-twist'\)/,
+    'and the disclosures at their tops wired');
+  assert.match(mainTs, /^setSide\(state\.side, false\);\nsetTocSide\(state\.tocSide, false\);$/m,
+    'which main.ts lays out once from what the head script put on the root');
   assert.match(vm('diagrams.ts'), /doc\.addEventListener\('toggle', \(e\) => drawDiagrams\(/,
     'a diagram is drawn when its "before" opens');
   assert.match(vm('settings.ts'),

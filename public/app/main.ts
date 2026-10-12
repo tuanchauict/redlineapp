@@ -4,9 +4,7 @@ import {
   prefs,
   state,
   barName,
-  tabMenuAt,
   liveWhy,
-  shut,
   prefsOpen,
   update,
   welcomeView,
@@ -22,7 +20,7 @@ import { bindChrome } from './ui/chrome.js';
 import { mountWelcome } from './ui/Welcome.js';
 import { mountSettings } from './ui/Settings.js';
 import { $, doc, pane } from './dom.js';
-import { applyWidths } from './layout/widths.js';
+import './layout/widths.js';
 import './layout/toc-height.js';
 import { bindKeys } from './layout/keys.js';
 import { native, firstTabShown, bindNative } from './layout/native.js';
@@ -42,7 +40,15 @@ import {
   goToChange,
 } from './vm/changes.js';
 import { applyAcks, clearAcks, tapCheck } from './vm/acks.js';
-import { paintToc, spyToc, scrollToNode } from './vm/contents.js';
+import { paintToc, scrollToNode } from './vm/contents.js';
+import {
+  leftColumn,
+  setSide,
+  setTocSide,
+  clearSidebars,
+  toggleTabMenu,
+  closeTabMenu,
+} from './vm/sidebars.js';
 import { bindDocument } from './vm/document.js';
 import {
   settings,
@@ -460,14 +466,6 @@ function closeTab(id) {
 mountFiles($('fileList'), { select: selectTab, close: closeTab });
 
 /**
- * Whether there is a left column at all. Both apps fill it with the files
- * open; a CLI tab is handed one file and has no list, so there its button is
- * gone (styles.css) and ⌘B does nothing, rather than open an empty strip. The
- * head script asks the same question before first paint.
- */
-const leftColumn = document.documentElement.matches('.native, .web');
-
-/**
  * The web app's open files, brought up to date with the document just shown.
  * Every way one arrives comes through `load` -- a pick in the welcome, a drop,
  * a link, a reload, the document a bare visit resumes -- so this is the one
@@ -533,73 +531,9 @@ async function closeOpen(id) {
   closeDocument({ reopen: pendingLink ? welcomeAsks : null });
 }
 
-/** Remembered, because it is the kind of thing you set once and keep. */
-function setSide(on, remember = true) {
-  state.side = on;
-  if (remember) prefs.setItem('redline:side', on ? '1' : '0');
-  document.documentElement.classList.toggle('side-open', on);
-  // Opening a column changes what the window has left for the other one and
-  // for the document, so both widths are worked out again from scratch.
-  applyWidths();
-}
-
-/**
- * The contents, down the right, with a switch and a remembered state of its
- * own. Which is the whole point of its being a second column rather than a
- * second tab: where am I in this and what has changed since when are different
- * questions, and a reader following a long document through a review is asking
- * both of them at once.
- */
-function setTocSide(on, remember = true) {
-  state.tocSide = on;
-  if (remember) prefs.setItem('redline:toc', on ? '1' : '0');
-  document.documentElement.classList.toggle('toc-open', on);
-  applyWidths();
-  // Neither list is built while the column is shut — there is nothing to
-  // build it into — so opening it is what fills both.
-  if (state.data) {
-    paintToc(state.data);
-    paintHistory(state.data);
-  }
-}
-
-// The sidebar widths and the contents height are layout/widths.ts and layout/toc-height.ts,
-// which wire their grips as they load.
-
-// ---------- sidebar disclosures ----------
-
-// Open files and Contents each keep a disclosure: both sit at the top of
-// their column, where you start, but both are also the thing you stop
-// needing once a file is chosen or a document's shape is learned — and
-// putting either away hands the whole column to the panel below it.
-// Remembered, and applied before first paint (see the inline script in
-// index.html), so nothing unfolds and folds again on open.
-
-const SHUT_KEY = 'redline:shut';
-
-for (const twist of document.querySelectorAll<HTMLElement>('.side-twist')) {
-  twist.addEventListener('click', () => {
-    const key = twist.dataset.shut;
-    const opening = shut.value.includes(key);
-    shut.value = opening ? shut.value.filter((k) => k !== key) : [...shut.value, key];
-    prefs.setItem(SHUT_KEY, JSON.stringify(shut.value));
-    // A list coming back should open already pointing at where you are in the
-    // document, not at the top of it.
-    if (opening) spyToc();
-  });
-}
-
-/** The chevron's list — the sidebar's rows, for when the sidebar is closed. ui/TabMenu.tsx. */
-function toggleTabMenu(left) {
-  if (tabMenuAt.value !== null) return closeTabMenu();
-  closeVerMenu();
-  tabMenuAt.value = left;
-}
-
-function closeTabMenu() {
-  tabMenuAt.value = null;
-}
-
+// The columns, their disclosures and the chevron's list are vm/sidebars.ts; their widths and the
+// contents height are layout/widths.ts and layout/toc-height.ts, which wire their grips as they
+// load.
 mountTabMenu($('tabMenuSlot'), $('tabListSlot'), {
   toggle: toggleTabMenu,
   select(id) {
@@ -607,8 +541,6 @@ mountTabMenu($('tabMenuSlot'), $('tabListSlot'), {
     selectTab(id);
   },
 });
-document.addEventListener('click', () => closeTabMenu());
-document.addEventListener('keydown', (e) => e.key === 'Escape' && closeTabMenu());
 
 // ---------- contents ----------
 
@@ -676,18 +608,6 @@ async function followLink(abs) {
 // The list is ui/History.tsx, and what it does is vm/history.ts. It is mounted here, because a
 // viewmodel does not import the components that draw it.
 
-/**
- * The two sidebars for a page with no document. The welcome hides `#doc`, but Contents and
- * History are not inside it: left alone they go on listing the headings and versions of a file
- * the reader has let go of, and a row clicked would scroll to a node that is no longer there.
- * Painting them with null resets the counts and empties both lists, which draw nothing for
- * null: "No headings in this document" would be a claim about one.
- */
-function clearSidebars() {
-  paintToc(null);
-  paintHistory(null);
-}
-
 mountHistory($('histList'), {
   pick: pickVersion,
   menu: openVerMenu,
@@ -714,12 +634,6 @@ mountChanges($('changesSlot'), {
   go: goToChange,
   unack: () => clearAcks(),
 });
-
-// Both columns and their keys work in the web app as much as in the desktop
-// app, each filling the left one with a list of its own; a CLI tab has only
-// the right one (see `leftColumn`).
-$('side').addEventListener('click', () => setSide(!state.side));
-$('tocBtn').addEventListener('click', () => setTocSide(!state.tocSide));
 
 // The buttons keep to the signals from here on (ui/chrome.ts), already showing what the inline
 // script and the prefs say.
