@@ -1,8 +1,9 @@
 // GitHub-flavoured markdown rendering.
-import MarkdownIt from 'markdown-it';
+import MarkdownIt, { type StateBlock, type Token } from 'markdown-it';
 import taskLists from 'markdown-it-task-lists';
 import hljs from './hljs.js';
 import { headerTitle, parseFrontMatter, looksLikeFrontMatter } from './front-matter.js';
+import type { FrontRow, FrontValue } from './front-matter.js';
 
 const ALERTS = new Set(['note', 'tip', 'important', 'warning', 'caution']);
 
@@ -34,7 +35,7 @@ export interface Heading {
 }
 
 /** GitHub alert blockquotes: `> [!NOTE]` and friends. */
-function alertPlugin(md) {
+function alertPlugin(md: MarkdownIt) {
   md.core.ruler.after('block', 'gh_alerts', (state) => {
     const toks = state.tokens;
     for (let i = 0; i < toks.length; i++) {
@@ -61,7 +62,7 @@ function alertPlugin(md) {
 }
 
 /** One line of the source, without its indent or its newline. */
-function lineText(state, line) {
+function lineText(state: StateBlock, line: number) {
   return state.src.slice(state.bMarks[line] + state.tShift[line], state.eMarks[line]).trimEnd();
 }
 
@@ -78,7 +79,7 @@ function lineText(state, line) {
  * rule from the middle of a document arrives alone with no closing fence and
  * falls straight through to `hr`.
  */
-function frontMatterBlock(md) {
+function frontMatterBlock(md: MarkdownIt) {
   md.block.ruler.before(
     'hr',
     'front_matter',
@@ -131,14 +132,20 @@ function frontMatterBlock(md) {
   };
 }
 
+/**
+ * What a keyless row holds. `readMap` only makes one out of a line it could not read, as text,
+ * but `FrontRow` cannot say that without `strictNullChecks` to narrow on `key`.
+ */
+type FrontText = Extract<FrontValue, { kind: 'text' }>;
+
 /** The rows of a header block, or of a mapping nested inside one. */
-function fieldsHtml(rows) {
+function fieldsHtml(rows: FrontRow[]) {
   let out = '';
   for (const { key, value } of rows) {
     // A line that is not a field continues the one above it, which is what an
     // extra `<dd>` means in a `<dl>` — and `looksLikeFrontMatter` has already
     // promised that the first row is not one of these.
-    if (key == null) out += `<dd class="fm-raw">${escapeHtml(value.text)}</dd>`;
+    if (key == null) out += `<dd class="fm-raw">${escapeHtml((value as FrontText).text)}</dd>`;
     else out += `<dt>${escapeHtml(key)}</dt><dd>${valueHtml(value)}</dd>`;
   }
   return out;
@@ -149,7 +156,7 @@ function fieldsHtml(rows) {
  * for a tool, and the reader's question about it is "what does the file
  * actually say", which italics eating a pair of underscores does not answer.
  */
-function valueHtml(value) {
+function valueHtml(value: FrontValue) {
   if (value.kind === 'list') {
     return value.items.length
       ? `<ul>${value.items.map((t) => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`
@@ -180,7 +187,7 @@ const PLANTUML_LANGS = new Set(['plantuml', 'puml', 'uml', 'pu', 'iuml']);
  * filling a diagram needs nothing but the node — which matters for the diff,
  * where the same fence can appear twice (once as it was, once as it is).
  */
-function diagramFences(md) {
+function diagramFences(md: MarkdownIt) {
   const fence = md.renderer.rules.fence;
   md.renderer.rules.fence = (tokens, idx, options, env, self) => {
     const token = tokens[idx];
@@ -217,7 +224,7 @@ function diagramFences(md) {
  * baseline would take an id belonging to one in the file. `outline` walks the
  * whole source once instead, and the render draws from that in document order.
  */
-function headingAnchors(md) {
+function headingAnchors(md: MarkdownIt) {
   const open = md.renderer.rules.heading_open;
   md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
     const id = env?.slugs?.shift();
@@ -246,7 +253,7 @@ function headingAnchors(md) {
  * the baseline — and goes unmarked, which is also what stops it being somewhere
  * to scroll to.
  */
-function sourceLines(md) {
+function sourceLines(md: MarkdownIt) {
   md.core.ruler.push('source_lines', (state) => {
     const offset = state.env?.lineOffset;
     if (typeof offset !== 'number') return;
@@ -296,7 +303,7 @@ export function slugify(text: string): string {
 }
 
 /** A heading as plain words: what a contents row shows, and what its id is from. */
-function headingText(inline) {
+function headingText(inline: Token) {
   if (!inline?.children) return (inline?.content ?? '').trim();
   let out = '';
   for (const t of inline.children) {
@@ -315,7 +322,7 @@ function headingText(inline) {
  * renderer as a queue, so a heading passed over here would quietly take the
  * next heading's id; the list is filtered for display instead.
  */
-export function outline(md, src: string): Heading[] {
+export function outline(md: MarkdownIt, src: string): Heading[] {
   const tokens = md.parse(src, {});
   const taken = new Map();
   const heads: Heading[] = [];
@@ -367,7 +374,7 @@ export function outline(md, src: string): Heading[] {
  * ever fires on line 0, so a file that does not open with the fence cannot
  * have a header, and the parse is spared for every document that has none.
  */
-export function documentTitle(md, src: string, toc: Heading[]): string {
+export function documentTitle(md: MarkdownIt, src: string, toc: Heading[]): string {
   if (src.startsWith('---')) {
     const header = md.parse(src, {}).find((t) => t.type === 'front_matter');
     const declared = header ? headerTitle(header.meta.rows) : '';
@@ -384,7 +391,7 @@ export function documentTitle(md, src: string, toc: Heading[]): string {
  * Returns the source slices plus the parse `env`, which carries link reference
  * definitions so individual blocks still resolve `[x][ref]` when rendered alone.
  */
-export function splitBlocks(md, src: string): { blocks: Block[]; env: RenderEnv } {
+export function splitBlocks(md: MarkdownIt, src: string): { blocks: Block[]; env: RenderEnv } {
   const env: RenderEnv = {};
   const tokens = md.parse(src, env);
   const lines = src.split('\n');
@@ -398,7 +405,7 @@ export function splitBlocks(md, src: string): { blocks: Block[]; env: RenderEnv 
 }
 
 /** The whole document at once, so every block is where the parse says it is. */
-export function renderPlain(md, src: string, env: RenderEnv = {}): string {
+export function renderPlain(md: MarkdownIt, src: string, env: RenderEnv = {}): string {
   return md.render(src, { ...env, lineOffset: 0 });
 }
 
