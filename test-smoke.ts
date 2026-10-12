@@ -443,8 +443,10 @@ const pageSource = () => {
     .join('\n');
 };
 const appJs = pageSource();
-assert.match(appJs, /import \{ sanitizeDocument, sanitizeSvg \} from '\.\.\/vendor\/sanitize\.js';/,
+assert.match(appJs, /import \{ sanitizeDocument \} from '\.\.\/vendor\/sanitize\.js';/,
   'the page loads the sanitizer');
+assert.match(appJs, /import \{ sanitizeSvg \} from '\.\.\/\.\.\/vendor\/sanitize\.js';/,
+  'and vm/diagrams.ts its other half');
 assert.match(appJs, /const source = raw \? d\.rawHtml : d\.html;[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);/,
   'the document, rendered or raw, is sanitized on its way into the page');
 assert.match(appJs, /closest\('\.diagram'\)\.innerHTML = sanitizeSvg\(out\.svg\);/,
@@ -1702,6 +1704,78 @@ console.log('✓ both sidebars resize, and leave the document room');
 }
 console.log('✓ the layout is its own modules, wired from main.ts');
 
+// The viewmodels (vm/) are the page's features, each owning its signals and what it does, and
+// they hold together only while every import points down: main.ts wires them, a component in
+// ui/ may read them, and none of them reaches up into either. A vm importing main.ts compiles,
+// and runs until the first time a value is read before main.ts has defined it.
+{
+  const dir = rootUrl('public/app/vm/');
+  const vms = fs.readdirSync(dir).filter((f) => f.endsWith('.ts')).sort();
+  const imports = (src) => [...src.matchAll(/^import [^;]*?from '([^']+)';$/gms)].map((m) => m[1]);
+  const graph = new Map<string, string[]>();
+  for (const f of vms) {
+    const specs = imports(fs.readFileSync(new URL(f, dir), 'utf8'));
+    for (const spec of specs) {
+      assert.ok(
+        spec === '@preact/signals' ||
+          /^\.\.\/(state|dom|backend)\.js$/.test(spec) ||
+          /^\.\.\/\.\.\/vendor\//.test(spec) ||
+          /^\.\/[\w-]+\.js$/.test(spec),
+        `vm/${f} imports ${spec}: a viewmodel reaches only the state, the DOM, the backend, ` +
+          'the vendored renderer and its siblings',
+      );
+    }
+    const siblings = specs.flatMap((s) => /^\.\/([\w-]+)\.js$/.exec(s)?.[1] ?? []);
+    graph.set(f.replace(/\.ts$/, ''), siblings);
+  }
+  // And among themselves, one way: a cycle of viewmodels is main.ts's tangle over again.
+  const done = new Set<string>();
+  const visit = (name: string, path: string[]) => {
+    assert.ok(!path.includes(name),
+      `the viewmodels import in a circle: ${[...path, name].join(' → ')}`);
+    if (done.has(name)) return;
+    for (const next of graph.get(name) ?? []) visit(next, [...path, name]);
+    done.add(name);
+  };
+  for (const name of graph.keys()) visit(name, []);
+
+  for (const f of fs.readdirSync(rootUrl('public/app/ui/'))) {
+    assert.ok(!/from '\.\.\/main\.js'/.test(fs.readFileSync(rootUrl(`public/app/ui/${f}`), 'utf8')),
+      `ui/${f} does not import main.ts`);
+  }
+  // Each is reached. find.ts, peek.ts and diagrams.ts wire their own listeners as they load, so
+  // one dropped from main.ts would be a feature gone with nothing failing to compile.
+  const mainTs = fs.readFileSync(rootUrl('public/app/main.ts'), 'utf8');
+  for (const f of vms) {
+    const name = f.replace(/\.ts$/, '');
+    assert.match(mainTs, new RegExp(`^import [^;]*from '\\./vm/${name}\\.js';$`, 'ms'),
+      `main.ts imports vm/${f}`);
+  }
+  assert.match(mainTs, /^import \{ backend \} from '\.\/backend\.js';$/m,
+    'and the backend, which is a module under all of them');
+  const vm = (f) => fs.readFileSync(new URL(f, dir), 'utf8');
+  assert.match(vm('find.ts'), /\$\('findInput'\)\.addEventListener\('input'/, 'find hears its bar');
+  assert.match(vm('peek.ts'), /doc\.addEventListener\('pointerover'/, 'the peek hears the links');
+  assert.match(vm('peek.ts'), /pane\.addEventListener\('scroll', hidePeek\);/,
+    'and goes when the document scrolls');
+  assert.match(mainTs, /pane\.addEventListener\('scroll', queueSpy\);/,
+    'as Contents follows it, on a listener of its own');
+  assert.match(vm('diagrams.ts'), /doc\.addEventListener\('toggle', \(e\) => drawDiagrams\(/,
+    'a diagram is drawn when its "before" opens');
+  assert.match(mainTs,
+    /if \(\(sepia\(\) !== wasSepia \|\| schemeMoved\) && retheme\(\)\) paint\(\);/,
+    'and redrawn on a new tint or scheme, only once Mermaid has drawn anything');
+  assert.match(mainTs, /if \(!applyScheme\(\)\) return;\s*retheme\(\);\s*paint\(\);/,
+    'which System moving is too');
+  const chromeTs = fs.readFileSync(rootUrl('public/app/ui/chrome.ts'), 'utf8');
+  assert.match(chromeTs, /\$\('findCount'\)\.textContent = findCount\.value;/,
+    'the find count is drawn from its signal');
+  assert.match(chromeTs, /box\.hidden = text === null;/, 'and the notice from its');
+  assert.ok(!/\$\('findCount'\)|\$\('notice'\)|\$\('peek'\)/.test(mainTs),
+    'and main.ts writes none of them');
+}
+console.log('✓ the viewmodels are modules of their own, and import only downwards');
+
 // The line between Contents and History is a third thing to drag, the same
 // deal turned on its side: a handle in the markup, styling for it, a wired-up
 // drag, and the two numbers that keep History from being squeezed to nothing,
@@ -2120,8 +2194,10 @@ console.log('✓ sepia wired through page, head script, stylesheet and shell');
   const applySettingsSrc = pageJs.match(/\nfunction applySettings\(\) \{[\s\S]*?\n\}\n/)[0];
   assert.match(applySettingsSrc, /const schemeMoved = applyScheme\(\);/,
     'applySettings applies the scheme');
-  assert.match(applySettingsSrc, /if \(\(sepia\(\) !== wasSepia \|\| schemeMoved\) && mermaid\)/,
+  assert.match(applySettingsSrc, /if \(\(sepia\(\) !== wasSepia \|\| schemeMoved\) && retheme\(\)\)/,
     'and redraws diagrams when it or the tint moved');
+  assert.match(pageJs, /export function retheme\(\) \{\s*if \(!mermaid\) return false;/,
+    'once Mermaid has drawn something in the old colours');
   assert.match(
     pageJs,
     /darkMode\.addEventListener\('change', \(\) => \{\s*if \(!applyScheme\(\)\) return;/,
@@ -6515,7 +6591,10 @@ const memoryKv = () => {
     }
     assert.deepStrictEqual(Object.keys(found).sort(), ['app.js', 'backend.js'],
       'only the two that are not bundled import by a path of their own');
-    assert.strictEqual(found['app.js'].length, 4, 'app.js: renderer, DOMPurify, backend, Mermaid');
+    // Files, not statements: esbuild keeps one import per module that wrote it, so the renderer
+    // imported by main.ts and by vm/peek.ts is two lines of app.js for one file.
+    assert.strictEqual(new Set(found['app.js']).size, 4,
+      'app.js: renderer, DOMPurify, backend, Mermaid');
     assert.strictEqual(found['backend.js'].length, 2, 'backend.js: the two readers it may load');
 
     // ... Mermaid's own chunks are named for their content, so they need no query

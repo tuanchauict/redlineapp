@@ -86,10 +86,13 @@ public/app/             the whole client, as source: `main.ts` is the page, `sta
                         Contents, the change ruler, Open files, the chevron's menu, the
                         bar's name and change count, Settings and the web app's welcome) and
                         `ui/chrome.ts`, which keeps the
-                        bar's fixed buttons to their signals; `layout/` is the window's
+                        bar's fixed buttons to their signals; `vm/` is the page's features
+                        as viewmodels (find, the link peek, the notice, diagrams so far);
+                        `layout/` is the window's
                         furniture (the sidebar widths and Contents' height, the keys, the
-                        desktop shell's events, the typefaces), and `dom.ts` the page's
-                        handles on its markup. Checked by `tsconfig.app.json`
+                        desktop shell's events, the typefaces); `dom.ts` the page's
+                        handles on its markup, and `backend.ts` its one backend. Checked by
+                        `tsconfig.app.json`
                         (`noEmit`, JSX for Preact),
                         and bundled by `build:web` into `app.js` beside it, which is the file
                         a page loads and is gitignored
@@ -407,12 +410,14 @@ into lines, and diff the lines.
 
 ## The client
 
-The page's source is the directory `public/app/`: `main.ts`, ~2.5k lines in commented
-sections (painting, the sidebars, tabs, change navigation, checked changes, find, settings),
+The page's source is the directory `public/app/`: `main.ts`, ~2.0k lines in commented
+sections (painting, the sidebars, tabs, change navigation, checked changes, settings),
 and the modules that have left it so far: `state.ts`, `dom.ts` (`$`, `#doc` and the pane),
+`backend.ts` (the backend, built once, which every module that asks something of it imports),
 `ui/History.tsx`, `ui/Contents.tsx`, `ui/Ruler.tsx`, `ui/Files.tsx`, `ui/TabMenu.tsx`,
 `ui/Name.tsx`, `ui/Changes.tsx`, `ui/TabLabel.tsx` (the name-over-directory label, and
-`ltrPath`), `ui/Settings.tsx`, `ui/Welcome.tsx` and `ui/chrome.ts`, and under `layout/`:
+`ltrPath`), `ui/Settings.tsx`, `ui/Welcome.tsx` and `ui/chrome.ts`, the viewmodels under `vm/`
+([below](#viewmodels)), and under `layout/`:
 
 | Module | What it is |
 | --- | --- |
@@ -428,7 +433,33 @@ the code they hold used to run, so the order things start in is unchanged.
 `build:web` bundles the directory into the one `public/app.js` that a page loads, so a module
 can leave `main.ts` without a new file for any host to serve: the bundle still imports exactly
 the renderer, DOMPurify, the backend and Mermaid, which `stage-page.mts` versions and the
-suite counts.
+suite counts. Which import is one of those four is read off the path it resolves to, so
+`../vendor/` from `main.ts` and `../../vendor/` from `vm/` are the same file; esbuild keeps an
+import line for each module that wrote one, and the suite counts files, not lines.
+
+### Viewmodels
+
+`main.ts` is being taken apart a feature at a time into **viewmodels**, `vm/<feature>.ts`. A
+viewmodel owns its feature: the signals that say what it shows, and the functions that do it.
+A component in `ui/` reads its signals and calls its functions; `main.ts` imports it and wires
+it in; and it never imports either of them back. Where a feature works on the rendered
+document it stays imperative inside its viewmodel — `#doc` is not a component's — and only
+what the chrome shows of it is a signal.
+
+| Module | What it is |
+| --- | --- |
+| `vm/find.ts` | Find in the document: `findOpen` and `findCount`, which `ui/chrome.ts` keeps the bar to, the `<mark>`s spliced into `#doc`, `openFind`/`closeFind`, and `refind`, which `paint` calls when it has rebuilt the article under an open bar. Wires the bar's controls as it is imported. |
+| `vm/peek.ts` | The link peek: where the link under the pointer goes, filled and measured at once, so it stays imperative. `hidePeek` for `paint`; `linkTarget` and `HAS_SCHEME` for the link click in `main.ts`. Wires its own listeners. |
+| `vm/notice.ts` | `notice` and `notify`: one line, said for six seconds. `#notice` stays markup, because it is a live region, and `ui/chrome.ts` keeps it to the signal. |
+| `vm/diagrams.ts` | Mermaid, loaded on first use, and PlantUML, asked of the backend: `drawDiagrams` after `paint`, and `retheme`, which says whether there is a Mermaid to give a new scheme and so whether to repaint. Draws a "before"'s diagrams when it opens. |
+
+Imports point one way, and the suite checks it: a viewmodel reaches `state.ts`, `dom.ts`,
+`backend.ts`, the vendored renderer and its siblings, never `main.ts` or `ui/`, and the
+viewmodels import one another without a cycle. The feature modules still in `main.ts` call into
+each other in circles — `paint` into History, the ruler and find, and nearly all of those back
+into `load` or `paint` — so the ones that leave next are the ones that break a circle by
+becoming a signal the chrome reacts to, not a call `paint` makes; see the
+[design](superpowers/specs/2026-10-12-page-modules-preact-design.md#viewmodels).
 
 The document pane is an **imperative island**. It is `innerHTML` from the payload, through
 `sanitizeDocument` on the way in, written by markdown-it and the diff; a component never
@@ -471,7 +502,8 @@ what it shows on that first frame:
 - What is on screen from the start — the view and find buttons, the two column toggles, the
   dot, the sidebar disclosures — stays in `index.html` and is kept to its signal by an
   `effect` in `ui/chrome.ts`: `state.view`, `findOpen`, `state.side`, `state.tocSide`,
-  `liveWhy` and `shut`. Code elsewhere sets the signal and never the attribute.
+  `liveWhy` and `shut`. Code elsewhere sets the signal and never the attribute. The find bar's
+  count and the notice are kept the same way, from `findCount` and `notice`.
 
 `ui/Files.tsx` draws Open files from `state.tabs` and `state.docId`, so switching files
 relights a row without anything saying so, and the list is drawn whether the column is open

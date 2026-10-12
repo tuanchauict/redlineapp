@@ -153,9 +153,6 @@ export const tabMenuAt = signal<number | null>(null);
 /** Why the watch on the file dropped, or null while it is up. `setLive`. */
 export const liveWhy = signal<string | null>(null);
 
-/** Whether the find bar is up. The bar's button shows it pressed. */
-export const findOpen = signal(false);
-
 /**
  * The sidebar sections folded away, by their `data-shut`. Read back from the classes the inline
  * script set before first paint, like `side` and `tocSide`; `redline:shut` remembers it.

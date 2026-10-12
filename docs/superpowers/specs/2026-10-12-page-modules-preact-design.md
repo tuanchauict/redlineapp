@@ -1,10 +1,10 @@
 # Splitting the page into modules, with Preact — design
 
 Status: phase 1 (the build), the signal-backed `state` of phase 2, and the components of
-phase 4 for History, Contents, the change ruler, the bar, the tabs and the left column (merged),
-and Settings and the welcome (merged) are implemented, and phase 3's split has begun with
-`layout/` (`split-layout`); `doc/` is next. Find's count and the
-version menu are still imperative.
+phase 4 for History, Contents, the change ruler, the bar, the tabs and the left column, and
+Settings and the welcome are merged, as is phase 3's `layout/`. The rest of phase 3 is now the
+[viewmodels](#viewmodels) rather than `doc/`; the first of them — find, the link peek, the
+notice and diagrams — is `split-vm`. The version menu is still imperative.
 
 ## Goal and decisions
 
@@ -127,6 +127,43 @@ untouched.
 `widths.ts` keeps `fitWidths`, and `toc-height.ts` keeps `tocHMax`, verbatim: the head script
 duplicates their arithmetic, and the comments in `index.html` that say "this mirrors `fitWidths`
 in app.js" are updated to name the module.
+
+## Viewmodels
+
+Decided by the owner after `layout/` merged: what is left of `main.ts` splits into
+**viewmodels**, one per feature, rather than the `doc/` of §4. The `doc/` split was a move of
+functions by kind (everything over the document in one directory); a viewmodel is a feature
+with its state, which is the unit a reader looks for.
+
+- **`vm/<feature>.ts` owns its feature**: the signals that say what it shows (moved out of
+  `state.ts` as each leaves) and the functions that do it. A component in `ui/` reads the
+  signals and calls the functions. `main.ts` imports the viewmodels and wires them; at the end
+  it is boot and wiring only.
+- **Work over the rendered document stays imperative inside its viewmodel.** `#doc` is no
+  component's (§3), so marking a find, measuring a peek or drawing a diagram is DOM code, and
+  only what the chrome shows of it — a count, whether a bar is up — is a signal.
+- **Imports point down, and a test enforces it.** `state.ts`, `dom.ts` and `backend.ts` (the
+  backend, built once, out of `main.ts`) at the bottom; then the document's own modules; then
+  the features that sit on it; `main.ts` on top. A viewmodel never imports `main.ts` or `ui/`,
+  and the viewmodels import one another without a cycle.
+- **The circles in `main.ts` are broken by becoming signals, not by passing callbacks.**
+  `paint` calls History, the bar's count, the solo tag and the ruler by name, and those call
+  back into `load` and `paint`; `setMarks` writes Settings and repaints History, and Settings
+  calls `setDiff`. Where the call is "redraw the chrome", it becomes a component or effect that
+  reads `data`, `diff` and `solo`, as §3 already proposed for `paintHistory`, `paintSolo` and
+  `paintCount`. What stays an explicit call is the document pass, in its order: marks,
+  check-offs, Contents, the ruler, diagrams, the find redone.
+
+The order, one pull request each:
+
+1. **The leaves.** Find, the link peek, the notice and diagrams, which `paint` calls and which
+   call nothing back; and `backend.ts`, which every later one needs. Proves the layering test.
+2. **Changes.** The count, `n`/`p`, the ruler and check-offs, which call each other and so
+   leave together, with keeping the scroll anchored.
+3. **History, the view and Settings**, with the chrome's repaints made reactive — the step that
+   breaks the `setMarks` ↔ Settings ↔ History circle.
+4. **The document core, files, the welcome and the watch**: `adopt`, `load`, `paint` and
+   `closeDocument`, last because they call nearly everything; after it, `main.ts` is boot.
 
 ## 5. The suite
 

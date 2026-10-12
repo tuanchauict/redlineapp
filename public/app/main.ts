@@ -1,13 +1,5 @@
-import {
-  createMarkdown,
-  renderDocument,
-  titleOf,
-  walkPath,
-  shorten,
-  MD_LINK,
-} from '../vendor/render.js';
-import { sanitizeDocument, sanitizeSvg } from '../vendor/sanitize.js';
-import { createBackend } from '../backend.js';
+import { createMarkdown, renderDocument, titleOf } from '../vendor/render.js';
+import { sanitizeDocument } from '../vendor/sanitize.js';
 import {
   prefs,
   state,
@@ -21,7 +13,6 @@ import {
   soloName,
   tabMenuAt,
   liveWhy,
-  findOpen,
   shut,
   shownSettings,
   docMeasure,
@@ -46,63 +37,18 @@ import './layout/toc-height.js';
 import { bindKeys } from './layout/keys.js';
 import { native, firstTabShown, bindNative } from './layout/native.js';
 import { listFonts } from './layout/fonts.js';
+import { backend } from './backend.js';
+import { notify } from './vm/notice.js';
+import { hidePeek, linkTarget, HAS_SCHEME } from './vm/peek.js';
+import { sepia, retheme, drawDiagrams } from './vm/diagrams.js';
+import { findOpen, refind, openFind } from './vm/find.js';
 
 const darkMode = matchMedia('(prefers-color-scheme: dark)');
-
-// The scheme and the tint are both the page's to say, as `data-scheme` and
-// `data-tint` on <html>, set by the head script and then by `applySettings`.
-// No media query knows about either: sepia is not a scheme a window can
-// report, and a browser tab set to Dark on a light system is still told light.
-const sepia = () => document.documentElement.dataset.tint === 'sepia';
-const dark = () => document.documentElement.dataset.scheme === 'dark';
-
-const mermaidConfig = () => ({
-  startOnLoad: false,
-  securityLevel: 'strict',
-  suppressErrorRendering: true,
-  ...(sepia()
-    ? // `base` is the one theme that takes its colours as given; `default`
-      // would put lavender boxes on cream. The rest derive from these.
-      {
-        theme: 'base',
-        themeVariables: {
-          background: '#f5ecd9',
-          primaryColor: '#ece0c8',
-          primaryBorderColor: '#a8916f',
-          primaryTextColor: '#3d3024',
-          lineColor: '#76664f',
-        },
-      }
-    : { theme: dark() ? 'dark' : 'default' }),
-});
-
-// Loaded on first use only: it is a multi-megabyte bundle, and a document
-// without diagrams should not pay for it — nor should a failure to load it
-// take the reader down.
-let mermaid = null;
-let mermaidBroken = false;
-async function getMermaid() {
-  if (mermaid || mermaidBroken) return mermaid;
-  try {
-    mermaid = (await import('../vendor/mermaid/mermaid.esm.min.mjs')).default;
-    mermaid.initialize(mermaidConfig());
-  } catch (err) {
-    console.error('mermaid failed to load', err);
-    mermaidBroken = true;
-  }
-  return mermaid;
-}
 
 /** Where each document was left, so switching back does not lose the place. */
 const scrollMemory = new Map();
 
 // ---------- fetching & rendering ----------
-
-// Everything the page asks of what is behind it goes through here -- see
-// ./backend.js, which is also where the choice between a server and a reader
-// held in the page is made. The id is read per call rather than passed in,
-// because it is assigned by the other side and can change under the page.
-const backend = await createBackend({ docId: () => state.docId });
 
 // A browser tab has no shell to keep its open files, so the web app keeps them itself, and the
 // left column lists them as the desktop app lists its tabs. A CLI tab is handed one file and
@@ -471,13 +417,7 @@ function paint({ reuse = false } = {}) {
   // a find still open has to be redone against the document now on screen,
   // not scrolled to again -- the repaint is not something the reader asked for.
   // Not when the article stood: its marks are where they were.
-  if (!stay && findOpen.value) {
-    find.matches = markMatches(find.query);
-    const last = find.matches.length - 1;
-    find.index = last < 0 ? -1 : Math.max(0, Math.min(find.index, last));
-    paintFindCount();
-    highlightCurrent();
-  }
+  if (!stay && findOpen.value) refind();
 }
 
 /** What a row does. The desktop app's tabs are the shell's to switch and close. */
@@ -657,234 +597,18 @@ function applyMarks() {
   document.documentElement.classList.toggle('no-diff', !state.diff);
 }
 
-/** Blocks worth drawing: not already done, and not hidden inside a disclosure. */
-const pending = (root, selector) =>
-  [...root.querySelectorAll(selector)].filter(
-    (n) => !n.dataset.processed && !n.closest('details:not([open])'),
-  );
-
-/**
- * Render mermaid blocks. Blocks inside a collapsed "before" disclosure are
- * skipped — they cannot be measured while hidden, and are drawn on open.
- */
-async function drawMermaid(root) {
-  const nodes = pending(root, 'pre.mermaid');
-  if (!nodes.length) return;
-
-  const m = await getMermaid();
-  if (!m) {
-    for (const n of nodes) n.classList.add('mermaid-failed');
-    return;
-  }
-  try {
-    await m.run({ nodes, suppressErrors: true });
-  } catch {
-    /* a bad diagram must not take the page down */
-  }
-  for (const n of nodes) {
-    if (!n.dataset.processed) n.classList.add('mermaid-failed');
-  }
-}
-
-// Diagrams already drawn, by source. The diff shows the same fence twice when a
-// block around it changed, a redraw on theme change asks for every diagram in
-// the document again, and switching back to a file asks again for all of it --
-// so this saves far more round trips than it costs memory.
-const pumlCache = new Map();
-
-/**
- * Fill in PlantUML blocks.
- *
- * Unlike mermaid there is no renderer in the page: the jar runs outside, so
- * each block is a request. They go out together rather than one after another
- * because a document of diagrams would otherwise take as long as the sum of
- * them, and the jar is the slow part.
- *
- * A diagram that will not draw says so where it should have been, keeping its
- * source visible — a diagram is written to be read either way, and a blank space
- * where one belongs tells the reader nothing about why.
- */
-async function drawPlantuml(root) {
-  const nodes = pending(root, 'pre.plantuml');
-  if (!nodes.length) return;
-
-  await Promise.all(
-    nodes.map(async (n) => {
-      // Claimed before the request goes out: a second call arriving while this
-      // one is in flight must not ask for the same diagram again.
-      n.dataset.processed = '1';
-      const code = n.textContent;
-      try {
-        if (!pumlCache.has(code)) pumlCache.set(code, backend.plantumlSvg(code));
-        const out = await pumlCache.get(code);
-        // The document can have been repainted or closed while the jar ran.
-        if (!n.isConnected) return;
-        if (out.svg) {
-          n.closest('.diagram').innerHTML = sanitizeSvg(out.svg);
-        } else {
-          showDiagramError(n, out.error);
-        }
-      } catch (err) {
-        pumlCache.delete(code); // a transport failure is worth retrying
-        if (n.isConnected) showDiagramError(n, String(err.message || err));
-      }
-    }),
-  );
-}
-
-/** Say why a diagram is not there, above the source that was meant to draw it. */
-function showDiagramError(pre, message) {
-  const box = pre.closest('.diagram');
-  box.classList.add('diagram-unavailable');
-  const note = document.createElement('p');
-  note.className = 'diagram-note';
-  note.textContent = message || 'PlantUML rendering is unavailable.';
-  box.prepend(note);
-}
-
-const drawDiagrams = (root = doc) => Promise.all([drawMermaid(root), drawPlantuml(root)]);
-
-// `toggle` does not bubble, so listen in the capture phase.
-doc.addEventListener('toggle', (e) => drawDiagrams(e.target as HTMLElement), true);
-
 // Heard on System, which follows it, and also when the shell pins or unpins the
 // window, which moves what it reports: a scheme picked by name does not move
 // with it, so only a scheme that did gets the repaint.
 darkMode.addEventListener('change', () => {
   if (!applyScheme()) return;
-  mermaid?.initialize(mermaidConfig());
+  retheme();
   paint(); // re-paints from source, so diagrams redraw in the new theme
 });
 
-// ---------- link peek ----------
-
-// Where a link goes, while the pointer is on it. Link text is written to read
-// well \u2014 "the design doc", "see below" \u2014 and says nothing about where it
-// lands; a browser answers that in the bottom-left corner, and a window with
-// no address bar needs the answer more, not less.
-
-const peek = $('peek');
-
-/** Percent-escapes are for the wire, not for reading. Malformed ones stay. */
-const readable = (s) => {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-};
-
-// A scheme, or the `//host` form that borrows the page's own.
-const HAS_SCHEME = /^[a-z][a-z0-9+.\-]*:|^\/\//i;
-
-/**
- * A destination written the way the document's author would recognise it: a URL
- * in full, an in-page jump as the anchor it lands on, and a link to a file
- * beside this one as that file's path.
- *
- * The last two are where a browser's own answer would be no help. Both are
- * served over loopback, so Chrome would show `http://127.0.0.1:53219/?id=8f2\u2026`
- * \u2014 the port this reader happens to have started on, and never what was
- * written or where it goes.
- */
-function linkLabel(a) {
-  const href = (a.getAttribute('href') || '').trim();
-  if (!href) return '';
-  if (href.startsWith('#')) return readable(href);
-
-  if (HAS_SCHEME.test(href)) {
-    // Resolved, so a protocol-relative link reads as the address it fetches.
-    try {
-      return new URL(href, location.href).href;
-    } catch {
-      return href; // not a URL this browser can parse; say what the page says
-    }
-  }
-
-  // A path, then, with a place in it to land — that part is the file's own
-  // business, so it is kept but not resolved.
-  const cut = href.indexOf('#');
-  const hash = cut < 0 ? '' : href.slice(cut);
-  const bare = (cut < 0 ? href : href.slice(0, cut)).split('?')[0];
-  if (!bare) return readable(href);
-
-  const d = state.data;
-  // Rooted already, or nothing to resolve against yet: say what the page says.
-  if (!d?.dir || bare.startsWith('/')) return readable(bare) + readable(hash);
-  return readable(shorten(walkPath(d.dir, bare), d)) + readable(hash);
-}
-
-/**
- * The file a link points at, as an absolute path — or null if it does not
- * point at one this app opens.
- *
- * A markdown file's links to its neighbours are written the way its author
- * filed them: `./api.md`, `../adr/0004.md`, `notes/todo.md`. None of those
- * mean anything on their own, and the only thing that gives them a meaning is
- * the directory the document being read is sitting in — so that is what they
- * are resolved against, not the page's own address, which is a loopback port.
- *
- * Decoded first: markdown-it percent-escapes a destination on the way into the
- * html, so a file whose name has a space or a character outside ASCII arrives
- * here as `%E5%9B%B3.md`. The disk has never heard of that spelling, and a
- * path built from it silently opens nothing.
- */
-function linkTarget(href) {
-  if (!href || href.startsWith('#') || HAS_SCHEME.test(href)) return null;
-  const bare = readable(href.split('#')[0].split('?')[0]);
-  const dir = state.data?.dir;
-  if (!bare || !dir) return null;
-  const abs = bare.startsWith('/') ? bare : walkPath(dir, bare);
-  return MD_LINK.test(abs) ? abs : null;
-}
-
-/** The pointer lands on the text inside a link, not on the link. */
-const linkAt = (node) => (node instanceof Element ? node.closest('a[href]') : null);
-
-function showPeek(a) {
-  const text = a && linkLabel(a);
-  if (!text) return hidePeek();
-
-  peek.textContent = text;
-  peek.classList.remove('away');
-  peek.hidden = false;
-
-  // Measured rather than assumed: it moves aside only for a link it would
-  // actually be covering, which is a handful of lines at the foot of the page.
-  const box = peek.getBoundingClientRect();
-  const link = a.getBoundingClientRect();
-  const behind =
-    link.bottom > box.top && link.top < box.bottom && link.left < box.right && link.right > box.left;
-  peek.classList.toggle('away', behind);
-}
-
-function hidePeek() {
-  if (peek.hidden) return;
-  peek.hidden = true;
-  peek.textContent = '';
-}
-
-doc.addEventListener('pointerover', (e) => showPeek(linkAt(e.target)));
-doc.addEventListener('pointerout', (e) => {
-  // Crossing between the pieces of one link \u2014 a bold word inside it, a line
-  // break \u2014 fires out and then over again. Only leaving the link clears it.
-  if (!linkAt(e.relatedTarget)) hidePeek();
-});
-
-// Tab to a link and the same question wants the same answer.
-doc.addEventListener('focusin', (e) => showPeek(linkAt(e.target)));
-doc.addEventListener('focusout', () => hidePeek());
-
-// Scrolling moves both of these. The peek goes because the pointer has not
-// moved and nothing else will say the link left it — under the pointer after a
-// scroll is whatever scrolled into that spot; the contents list follows because
-// where you are in the document is what it is for.
-pane.addEventListener('scroll', () => {
-  hidePeek();
-  queueSpy();
-});
-// An external link that has just taken the focus to a browser is behind us.
-addEventListener('blur', hidePeek);
+// Scrolling moves where you are in the document, which is what the contents list is for. (The
+// link peek has its own listener, in vm/peek.ts.)
+pane.addEventListener('scroll', queueSpy);
 
 // ---------- contents ----------
 
@@ -1060,21 +784,6 @@ async function followLink(abs) {
   const why = await backend.linkNote?.(state.data?.path);
   if (why) notify(why);
   else openFile(abs);
-}
-
-// ---------- notice ----------
-
-const notice = $('notice');
-let noticeTimer = 0;
-
-/** Say something once, for long enough to read it, where the user is already looking. */
-function notify(text) {
-  notice.textContent = text;
-  notice.hidden = false;
-  clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => {
-    notice.hidden = true;
-  }, 6000);
 }
 
 // ---------- history ----------
@@ -1759,188 +1468,6 @@ function goToChange(step, kind = null) {
   goToNode(node);
 }
 
-// ---------- find ----------
-
-// Find in the current document only -- there is no filename filter and no
-// cross-document index here. `#doc` is replaced whole on every paint (see
-// `paint`), so matches are never kept across one: they are found fresh each
-// time the bar opens, the query changes, or the document repaints under it.
-const find = { query: '', matches: [], index: -1 };
-
-/** Every text node under `doc`, in document order -- what a match can touch. */
-function textNodesIn(root) {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  const nodes = [];
-  for (let n; (n = walker.nextNode()); ) nodes.push(n);
-  return nodes;
-}
-
-// What a match is allowed to run across: the whole of one paragraph, heading,
-// list item, table cell or code block -- however many inline tags are nested
-// inside it -- and no further. Without a boundary here, concatenating every
-// text node in the document with nothing between them would let a query match
-// across two blocks that just happen to be adjacent in the markup, with no
-// word break between them to say they were never one piece of text.
-const FIND_BLOCK = 'h1,h2,h3,h4,h5,h6,p,li,pre,blockquote,td,th,dt,dd,caption,.raw-line';
-const blockOf = (node) => node.parentElement?.closest(FIND_BLOCK) ?? doc;
-
-/**
- * Wrap every case-insensitive occurrence of `query` in `<mark class="search-hit">`
- * and return one array of marks per match, in document order.
- *
- * The search runs over the text nodes' content concatenated together, because
- * a match can cross the boundary between two of them -- a search for "release
- * notes" crosses the node boundary where `**release**` ends. A match found
- * that way is then rebuilt one touched node at a time rather than spliced
- * into a single element: nodes on either side of a tag boundary are not
- * siblings, so the match becomes more than one `<mark>` when it crosses one --
- * the same highlighted run to the eye, each piece kept in its own parent.
- */
-function markMatches(query) {
-  clearMatches();
-  if (!query) return [];
-  const nodes = textNodesIn(doc);
-  const starts = [];
-  let total = 0;
-  for (const node of nodes) {
-    starts.push(total);
-    total += node.nodeValue.length;
-  }
-  const hay = nodes.map((n) => n.nodeValue).join('').toLowerCase();
-  const needle = query.toLowerCase();
-
-  // Where a block ends and the next begins, as an offset into `hay` -- a
-  // match that straddles one of these is rejected rather than highlighted.
-  const cuts = [];
-  for (let i = 1; i < nodes.length; i++) {
-    if (blockOf(nodes[i]) !== blockOf(nodes[i - 1])) cuts.push(starts[i]);
-  }
-  const crossesBlock = (start, end) => cuts.some((c) => c > start && c < end);
-
-  const ranges = [];
-  let from = 0;
-  let at;
-  while ((at = hay.indexOf(needle, from)) !== -1) {
-    const end = at + needle.length;
-    if (crossesBlock(at, end)) {
-      from = at + 1;
-      continue;
-    }
-    ranges.push({ start: at, end, marks: [] });
-    from = end;
-  }
-  if (!ranges.length) return [];
-
-  // One pass, one replacement per node: splitting a node for every match that
-  // touches it (as `Node.splitText` would, called match by match) invalidates
-  // the offsets of whichever match comes next in the same node. Slicing the
-  // node's own text against every range that overlaps it, once, has no such
-  // ordering problem.
-  let r = 0;
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i];
-    const nodeStart = starts[i];
-    const nodeEnd = nodeStart + node.nodeValue.length;
-    while (r < ranges.length && ranges[r].end <= nodeStart) r++;
-    const text = node.nodeValue;
-    const parts = [];
-    let cursor = 0;
-    let touched = false;
-    for (let j = r; j < ranges.length && ranges[j].start < nodeEnd; j++) {
-      const range = ranges[j];
-      const from = Math.max(range.start - nodeStart, 0);
-      const to = Math.min(range.end - nodeStart, text.length);
-      if (from > cursor) parts.push(document.createTextNode(text.slice(cursor, from)));
-      const mark = document.createElement('mark');
-      mark.className = 'search-hit';
-      mark.appendChild(document.createTextNode(text.slice(from, to)));
-      parts.push(mark);
-      range.marks.push(mark);
-      cursor = to;
-      touched = true;
-    }
-    if (!touched) continue;
-    if (cursor < text.length) parts.push(document.createTextNode(text.slice(cursor)));
-    node.replaceWith(...parts);
-  }
-  return ranges.map((range) => range.marks);
-}
-
-/** Undo `markMatches`, leaving the text exactly as `paint` last set it. */
-function clearMatches() {
-  for (const mark of doc.querySelectorAll('mark.search-hit')) mark.replaceWith(mark.firstChild);
-  doc.normalize();
-}
-
-function paintFindCount() {
-  $('findCount').textContent = find.matches.length
-    ? `${find.index + 1} of ${find.matches.length}`
-    : find.query
-      ? 'No results'
-      : '';
-}
-
-/** Mark which match is current without moving the page -- what a repaint needs. */
-function highlightCurrent() {
-  for (const marks of find.matches) for (const m of marks) m.classList.remove('current');
-  const current = find.matches[find.index];
-  if (!current) return;
-  for (const m of current) m.classList.add('current');
-}
-
-/** And actually go there -- what opening the bar and stepping through it need. */
-function revealCurrent() {
-  highlightCurrent();
-  find.matches[find.index]?.[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-
-function runFind(query) {
-  find.query = query;
-  find.matches = markMatches(query);
-  find.index = find.matches.length ? 0 : -1;
-  paintFindCount();
-  revealCurrent();
-}
-
-function stepFind(step) {
-  if (!find.matches.length) return;
-  find.index = (find.index + step + find.matches.length) % find.matches.length;
-  paintFindCount();
-  revealCurrent();
-}
-
-function openFind() {
-  findOpen.value = true;
-  const input = $<HTMLInputElement>('findInput');
-  input.focus();
-  input.select();
-  if (input.value) runFind(input.value);
-}
-
-function closeFind() {
-  if (!findOpen.value) return;
-  findOpen.value = false;
-  clearMatches();
-  find.matches = [];
-  find.index = -1;
-  pane.focus({ preventScroll: true });
-}
-
-const toggleFind = () => (findOpen.value ? closeFind() : openFind());
-
-$('find').addEventListener('click', toggleFind);
-$('findClose').addEventListener('click', closeFind);
-$('findNext').addEventListener('click', () => stepFind(1));
-$('findPrev').addEventListener('click', () => stepFind(-1));
-$('findInput').addEventListener('input', (e) => runFind((e.target as HTMLInputElement).value));
-$('findInput').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    stepFind(e.shiftKey ? -1 : 1);
-  }
-});
-document.addEventListener('keydown', (e) => e.key === 'Escape' && closeFind());
-
 // ---------- events ----------
 
 mountChanges($('changesSlot'), {
@@ -2252,10 +1779,7 @@ function applySettings() {
   if (settings.appearance === 'sepia') root.dataset.tint = 'sepia';
   else delete root.dataset.tint;
   const schemeMoved = applyScheme();
-  if ((sepia() !== wasSepia || schemeMoved) && mermaid) {
-    mermaid.initialize(mermaidConfig());
-    paint();
-  }
+  if ((sepia() !== wasSepia || schemeMoved) && retheme()) paint();
   // Mirrored for the inline script in index.html, which runs before first
   // paint — and, in a browser tab, this is the store rather than a mirror.
   prefs.setItem('redline:settings', JSON.stringify(settings));
