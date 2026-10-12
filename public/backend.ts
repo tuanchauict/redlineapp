@@ -6,7 +6,7 @@
 // page already, holding the store and the file watch directly. In the web app the reader is in
 // a worker, reached over messages (src/hosts/web/backend.ts). This module is
 // the seam between those, so that everything above it -- the whole of
-// app.js -- is written once, and no host gets its own copy of what marking
+// app.ts -- is written once, and no host gets its own copy of what marking
 // a document read does to the screen.
 //
 // The shape follows the reader's own surface, because the reader is what sits
@@ -17,6 +17,19 @@
 // it answers, and it changes again when a shell opens a different file into
 // this same window. Reading it per call is what keeps a reconnect after such a
 // switch pointed at the document the reader still has open.
+
+import type { Backend } from '../src/contract/seam.js';
+import type { WebBackend } from './vendor/backend-web.js';
+
+/**
+ * What `createBackend` answers: the contract, plus what only a browser tab has, as optional.
+ *
+ * Built with `Omit<WebBackend, keyof Backend>` because the contract names what every host has,
+ * and the page learns of the rest by a presence check; it is optional here, and nothing in this
+ * file spells out a web-only member, so the grep that keeps the page ignorant of those names
+ * has nothing to find.
+ */
+export type PageBackend = Backend & Partial<Omit<WebBackend, keyof Backend>>;
 
 /** How long to wait before trying the event stream again. */
 const RETRY_MS = 1500;
@@ -33,7 +46,11 @@ const RETRY_MS = 1500;
  * @param {object} opts
  * @param {() => string|null} opts.docId  The document being shown, read per call.
  */
-export async function createBackend({ docId }) {
+export async function createBackend({
+  docId,
+}: {
+  docId: () => string | null;
+}): Promise<PageBackend> {
   if (globalThis.__REDLINE_HOST) {
     const { createTauriBackend } = await import('./vendor/backend-tauri.js');
     return createTauriBackend({ docId });
@@ -53,8 +70,8 @@ export async function createBackend({ docId }) {
  * @param {object} opts
  * @param {() => string|null} opts.docId  The document being shown, read per call.
  */
-function httpBackend({ docId }) {
-  const url = (path, params = {}) => {
+function httpBackend({ docId }: { docId: () => string | null }): Backend {
+  const url = (path: string, params: Record<string, string> = {}) => {
     const q = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) if (v != null) q.set(k, v);
     // Absent rather than empty when the page has not been told an id yet: the
@@ -73,14 +90,15 @@ function httpBackend({ docId }) {
    * document, and adopting it as one would fail later, somewhere further from
    * the cause than here.
    */
-  const json = async (res) => {
+  const json = async (res: Response) => {
     if (res.ok) return res.json();
     const said = await res.json().catch(() => null);
     throw new Error(said?.error || `request failed (${res.status})`);
   };
 
-  const get = (path, params) => fetch(url(path, params)).then(json);
-  const post = (path, params, body) =>
+  const get = (path: string, params?: Record<string, string>) =>
+    fetch(url(path, params)).then(json);
+  const post = (path: string, params?: Record<string, string>, body?: string) =>
     fetch(url(path, params), { method: 'POST', body }).then(json);
 
   return {

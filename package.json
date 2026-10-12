@@ -15,7 +15,7 @@
     "redline": "out/bin/redline.js"
   },
   "scripts": {
-    "build:ts": "tsc -b",
+    "build:ts": "node bootstrap/heal-page-build.mjs && tsc -b",
     "build:web": "npm run build:ts && node out/scripts/build-web.mjs",
     "build:dist": "npm run build:ts && node out/scripts/build-dist.mjs",
     "build:webapp": "npm run build:ts && node out/scripts/build-webapp.mjs",

@@ -239,7 +239,8 @@ export function stagePage(dest: string, { host }: { host: HostName }): StagedPag
   );
   fs.cpSync(path.join(ROOT, 'public'), out, {
     recursive: true,
-    filter: (src) => !others.has(path.basename(src)),
+    // The page's sources sit beside what they compile to; only the compiled file ships.
+    filter: (src) => !others.has(path.basename(src)) && !src.endsWith('.ts'),
   });
   for (const [to, from] of Object.entries(FILES)) {
     fs.mkdirSync(path.join(out, path.dirname(to)), { recursive: true });
@@ -266,7 +267,11 @@ export function stagePage(dest: string, { host }: { host: HostName }): StagedPag
   ];
   for (const file of needed) {
     if (!fs.existsSync(path.join(out, file))) {
-      throw new Error(`${dest} is missing ${file} — run npm run build:web first`);
+      // app.js is compiled, and build:ts is what writes it again after a branch switch deleted
+      // it, which `tsc -b` alone does not. Everything under vendor/ is bundled, and build:web
+      // runs the compile first anyway, so it is the answer for those and would be for both.
+      const fix = file === 'app.js' ? 'build:ts' : 'build:web';
+      throw new Error(`${dest} is missing ${file} — run npm run ${fix} first`);
     }
   }
 

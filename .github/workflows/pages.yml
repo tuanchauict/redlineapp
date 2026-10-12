@@ -59,11 +59,14 @@ jobs:
         run: npm run build:site
 
       # What is uploaded is what was built here, to the byte, and the deploy job
-      # is not given a checkout to build it again from.
+      # is not given a checkout to build it again from. The page's TypeScript sits
+      # beside what it compiled to, and only the compiled file is the page.
       - uses: actions/upload-artifact@v7
         with:
           name: redline-site
-          path: site
+          path: |
+            site
+            !site/*.ts
           if-no-files-found: error
 
   # The one job that holds the Cloudflare token. It runs nothing from this

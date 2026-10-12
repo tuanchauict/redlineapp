@@ -56,7 +56,18 @@ import { createRpcBackend } from './src/rpc/client.js';
   );
   const pkg = JSON.parse(fs.readFileSync(rootUrl('package.json'), 'utf8'));
   assert.strictEqual(pkg.bin.redline, 'out/bin/redline.js', 'the CLI is the compiled one');
-  assert.strictEqual(pkg.scripts['build:ts'], 'tsc -b', 'one command compiles every project');
+  // tsc -b trusts its build record and never looks for its outputs, so a branch switch that
+  // deletes the compiled page leaves it saying "up to date" over nothing. The step before it is
+  // what notices (see bootstrap/heal-page-build.mjs, and the fixture test of it below).
+  assert.strictEqual(
+    pkg.scripts['build:ts'],
+    'node bootstrap/heal-page-build.mjs && tsc -b',
+    'one command compiles every project, after making sure the page is still there',
+  );
+  assert.ok(
+    fs.existsSync(rootUrl('bootstrap/heal-page-build.mjs')),
+    'and the step that heals a deleted page exists',
+  );
   // A script with a pre hook gets its compile from the hook, which ends in build:web or
   // build:site, and both of those start with build:ts.
   const compiledBy = { start: 'prestart', webapp: 'prewebapp', site: 'presite', test: 'pretest' };
@@ -321,7 +332,7 @@ assert.deepStrictEqual(shellConf.app.security.dangerousDisableAssetCspModificati
 // Sanitized where it goes in. Every innerHTML in the page is named here: the
 // two that carry what a document said go through DOMPurify, and the rest are
 // the page's own constant markup. A new one has to be one or the other.
-const appJs = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
+const appJs = fs.readFileSync(rootUrl('public/app.ts'), 'utf8');
 assert.match(appJs, /import \{ sanitizeDocument, sanitizeSvg \} from '\.\/vendor\/sanitize\.js';/,
   'the page loads the sanitizer');
 assert.match(appJs, /const source = raw \? d\.rawHtml : d\.html;[\s\S]*?doc\.innerHTML = sanitizeDocument\(source\);/,
@@ -332,6 +343,14 @@ assert.deepStrictEqual(
   [...appJs.matchAll(/([\w$]+)(?:\([^)]*\))?\.innerHTML =/g)].map((m) => m[1]).sort(),
   ['ack', 'closest', 'count', 'doc', 'more', 'x'],
   'no innerHTML the page does not know is safe',
+);
+// The capture above sees `x.innerHTML =` and `x(…).innerHTML =`, but not the forms TypeScript
+// brings in -- `$<T>('x').innerHTML =`, `(el as T).innerHTML =` -- which it would pass unseen.
+// So every assignment in the source has to be one it captured.
+assert.strictEqual(
+  [...appJs.matchAll(/([\w$]+)(?:\([^)]*\))?\.innerHTML =/g)].length,
+  appJs.match(/\.innerHTML =/g)?.length ?? 0,
+  'every innerHTML assignment is one the list above can see',
 );
 const sanitizeJs = fs.readFileSync(rootUrl('src/page/sanitize.ts'), 'utf8');
 assert.match(sanitizeJs, /FORBID_TAGS: \['style', 'form'\]/,
@@ -561,6 +580,8 @@ for (const [file, sig] of [
   ['src/hosts/node/platform.ts', /: Platform = /],
   ['src/hosts/tauri/platform.ts', /: Platform = /],
   ['src/hosts/web/platform.ts', /\): Platform\b/],
+  ['public/backend.ts', /\): Promise<PageBackend>/],
+  ['public/backend.ts', /\): Backend\b/],
 ]) {
   const text = fs.readFileSync(fileURLToPath(rootUrl(file)), 'utf8');
   assert.match(text, sig, `${file} names the type it implements`);
@@ -607,6 +628,141 @@ try {
   fs.rmSync(fixtures, { recursive: true, force: true });
 }
 console.log('✓ the contract is wired into every host, and can fail');
+
+// The page imports its bundles from ./vendor/, which exists only once build:web has run, so tsc
+// cannot look there. types/vendor/ holds a shim for each, re-exporting the source the bundle is
+// built from, and rootDirs in tsconfig.page.json is what makes `./vendor/render.js` find it. An
+// entry in build-web's BUNDLES that changed while its shim did not would check the page against
+// a module it no longer loads, and nothing else would say so.
+{
+  const text = (f) => fs.readFileSync(rootUrl(f), 'utf8');
+  const bundles = [...text('scripts/build-web.mts').matchAll(/entry: '([^']+)', out: '([^']+)'/g)]
+    .map(([, entry, out]) => ({ entry, out }));
+  assert.ok(bundles.length >= 5, "the walk found build-web's bundles");
+  // The one bundle the page does not import: the web backend starts it as a worker.
+  const notImported = new Set(['reader-worker.js']);
+  for (const { entry, out } of bundles.filter((b) => !notImported.has(b.out))) {
+    const shim = text(`types/vendor/${out.replace(/\.js$/, '.d.ts')}`);
+    assert.ok(
+      shim.includes(`export * from '../../${entry.replace(/\.ts$/, '.js')}';`),
+      `types/vendor/${out.replace(/\.js$/, '.d.ts')} re-exports ${entry}`,
+    );
+  }
+  assert.ok(
+    /export \{ default \} from 'mermaid';/.test(text('types/vendor/mermaid/mermaid.esm.min.d.mts')),
+    'and mermaid, which is not built here, has its own',
+  );
+
+  // The config is JSON, so its reasons are in docs/typescript.md and these are the lines that
+  // would silently stop working: no exclude and `tsc` compiles nothing and exits 0.
+  const page = JSON.parse(text('tsconfig.page.json'));
+  assert.deepStrictEqual(page.exclude, ['node_modules', 'out'],
+    'the page project names its own exclude: outDir "." makes the default exclude the repository');
+  assert.strictEqual(page.compilerOptions.outDir, '.', 'it emits beside its sources');
+  assert.strictEqual(page.compilerOptions.declarationDir, 'out/page-types',
+    'and keeps the .d.ts that composite forces out of public/ and site/');
+  assert.deepStrictEqual(page.compilerOptions.rootDirs, ['public', 'types'],
+    'rootDirs is what resolves ./vendor/*.js to the shims');
+  // rootDirs tries the path as written first, and with allowJs the built bundle in public/vendor/
+  // answers it, so once build:web has run the shim is never reached and tsc compiles the bundle.
+  assert.strictEqual(page.compilerOptions.allowJs, false,
+    'and allowJs is off, or the built bundle in public/vendor/ shadows the shim');
+  assert.ok(
+    JSON.parse(text('tsconfig.json')).references.some((r) => r.path === './tsconfig.page.json'),
+    'tsc -b builds it',
+  );
+}
+console.log('✓ the page project has its shims, and each names the bundle it stands for');
+
+// A page source with no compiled sibling means the page project compiled nothing, which is a
+// thing tsc will do without a word (see docs/typescript.md). `pretest` runs the compile, so
+// the sibling is there whenever the project works.
+for (const dir of ['public', 'site']) {
+  const names = fs.readdirSync(fileURLToPath(rootUrl(`${dir}/`)));
+  for (const f of names.filter((n) => n.endsWith('.ts'))) {
+    assert.ok(
+      fs.existsSync(fileURLToPath(rootUrl(`${dir}/${f.replace(/\.ts$/, '.js')}`))),
+      `${dir}/${f} has been compiled in place: run npm run build:ts`,
+    );
+  }
+}
+// The three are compiled beside their sources and must never be committed: a tracked copy would
+// go stale against its .ts and look exactly like the change not working.
+const ignored = fs.readFileSync(rootUrl('.gitignore'), 'utf8').split('\n');
+for (const f of ['public/app.js', 'public/backend.js', 'site/landing.js']) {
+  assert.ok(ignored.includes(f), `${f} is generated, and gitignored`);
+}
+console.log('✓ every page source has been compiled in place');
+
+// The step in front of `tsc -b` that brings a deleted page back (bootstrap/heal-page-build.mjs),
+// run against a page-shaped directory in the temp dir: the real test of it deletes public/app.js,
+// and a suite does not delete the files it is about to serve. The tsconfig in the fixture is the
+// real one, so what counts as a page source and where the build record lives are read from where
+// the project says them, and a change there that the step did not follow turns this red.
+{
+  const heal = fileURLToPath(rootUrl('bootstrap/heal-page-build.mjs'));
+  const roots = [];
+  const put = (root, rel) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), '{}');
+  };
+  const makeRoot = ({ compiled, built }) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'redline-heal-'));
+    roots.push(root);
+    fs.copyFileSync(rootUrl('tsconfig.page.json'), path.join(root, 'tsconfig.page.json'));
+    for (const f of ['public/app', 'public/backend', 'site/landing']) {
+      put(root, `${f}.ts`);
+      if (compiled) put(root, `${f}.js`);
+    }
+    // Neither of these is output, so neither is ever missing: a hand-written .js with no .ts
+    // beside it, and a declaration file, which emits nothing.
+    put(root, 'public/host.js');
+    put(root, 'public/shim.d.ts');
+    if (built) {
+      put(root, 'out/tsconfig.page.tsbuildinfo');
+      put(root, 'out/tsconfig.src.tsbuildinfo');
+    }
+    return root;
+  };
+  const run = (root) => spawnSync(process.execPath, [heal, root], { encoding: 'utf8' });
+  const has = (root, rel) => fs.existsSync(path.join(root, rel));
+  const record = 'out/tsconfig.page.tsbuildinfo';
+
+  // Nothing wrong: the record stays, so that the compile after it is the no-op it should be.
+  let root = makeRoot({ compiled: true, built: true });
+  let r = run(root);
+  assert.strictEqual(r.status, 0, 'the step exits 0');
+  assert.strictEqual(r.stdout, '', 'and says nothing when the page is all there');
+  assert.ok(has(root, record), 'and leaves the build record, so tsc -b stays a no-op');
+
+  // One compiled file gone, as a branch switch leaves it: the record goes, and says why.
+  fs.rmSync(path.join(root, 'site/landing.js'));
+  r = run(root);
+  assert.strictEqual(r.status, 0, 'a missing page file is not an error');
+  assert.match(r.stdout, /site\/landing\.js missing/, 'it names the file that is gone');
+  assert.doesNotMatch(r.stdout, /app\.js|backend\.js/, 'and only that one');
+  assert.ok(!has(root, record), 'and removes the page project\'s build record, so tsc rebuilds it');
+  assert.ok(has(root, 'out/tsconfig.src.tsbuildinfo'), 'but not the other projects\'');
+
+  // All three gone, the branch-switch case itself.
+  root = makeRoot({ compiled: false, built: true });
+  r = run(root);
+  for (const f of ['public/app.js', 'public/backend.js', 'site/landing.js']) {
+    assert.ok(r.stdout.includes(f), `${f} is named when the whole page is gone`);
+  }
+  assert.ok(!has(root, record), 'and the record goes');
+
+  // A checkout that has never built has no record to remove, and nothing to say about it. The
+  // step must not create the out/ that the compile will.
+  root = makeRoot({ compiled: false, built: false });
+  r = run(root);
+  assert.strictEqual(r.status, 0, 'a fresh checkout is fine');
+  assert.strictEqual(r.stdout, '', 'and silent');
+  assert.ok(!has(root, 'out'), 'and creates nothing');
+
+  for (const dir of roots) fs.rmSync(dir, { recursive: true, force: true });
+  console.log('✓ a deleted page is rebuilt: the step before tsc -b forgets the record it trusts');
+}
 
 // core/paths.js agrees with node:path on the cases it claims. Not claimed: a trailing
 // separator on dirname, and the root of a drive (`C:\a` has dirname `C:`, node says `C:\`).
@@ -754,20 +910,24 @@ console.log('✓ core/links.js: the CLI cases are unchanged, the others work');
 // dropped it silently stops doing anything, which nothing else catches. It has
 // no button of its own — the newest row in the history is where it is thrown
 // from, so the bar carries no version list and it has to be in the sidebar.
-const [pageHtml, pageCss, pageJs] = await Promise.all(
-  ['/', '/styles.css', '/app.js'].map(async (p) => (await fetch(base + p)).text()),
+const [pageHtml, pageCss] = await Promise.all(
+  ['/', '/styles.css'].map(async (p) => (await fetch(base + p)).text()),
 );
+// The greps below are about how the page is written, so they read the source: tsc reprints what
+// it emits. What is served is the compiled file, and the checks on that read it instead.
+const pageJs = fs.readFileSync(rootUrl('public/app.ts'), 'utf8');
+const pageServed = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
 
 // The page has to load from any base URL: the web app may be served under a path, and a VS
 // Code webview's files live under a `vscode-cdn.net` URL, where `/app.js` is the wrong root.
 // The `/api/...` URLs in backend.js stay absolute, because only this server answers them.
 assert.ok(!/(?:href|src)="\//.test(pageHtml), 'the page names its files relative to itself');
-assert.ok(!pageJs.includes("import('/"), 'and so does the lazy mermaid import');
-assert.match(pageJs, /import\('\.\/vendor\/mermaid\//, 'which is still the vendored one');
+assert.ok(!pageServed.includes("import('/"), 'and so does the lazy mermaid import');
+assert.match(pageServed, /import\('\.\/vendor\/mermaid\//, 'which is still the vendored one');
 // Every preference goes through one name, so a host without localStorage can supply a store
 // of its own. The one line that names localStorage is the fallback, in each file.
 const bareStorage = (src) => src.match(/\blocalStorage\b/g)?.length ?? 0;
-for (const [name, src] of [['index.html', pageHtml], ['app.js', pageJs]]) {
+for (const [name, src] of [['index.html', pageHtml], ['app.js', pageServed]]) {
   assert.ok(!/\blocalStorage\./.test(src), `${name} reaches no preference through localStorage`);
   assert.match(
     src,
@@ -1067,16 +1227,21 @@ assert.match(
 );
 assert.match(pageCss, /\.ruler-current \{/, 'and the stylesheet gives that mark its own look');
 
+// What runs in a vm has to be JavaScript, and annotated TypeScript is not: `fn`, `konst` and
+// `applySchemeSrc` lift their text out of the compiled page, where the greps for how the source
+// is written read the .ts.
+const pageRun = fs.readFileSync(rootUrl('public/app.js'), 'utf8');
+
 // Stepping through the changes, run over fakes the way `applyScheme` is below: the arrows, `n`,
 // `p` and the count on the bar all go through `goToChange`, and what it has to get right is
 // *which* change, which needs only rectangles and a list.
 {
   const vm = await import('node:vm');
   const { renderRawDiff } = await import('./src/core/diff.js');
-  const fn = (name) => pageJs.match(new RegExp(`\\nfunction ${name}\\(.*?\\n\\}\\n`, 's'))?.[0];
+  const fn = (name) => pageRun.match(new RegExp(`\\nfunction ${name}\\(.*?\\n\\}\\n`, 's'))?.[0];
   // One line ending in `;`, or an arrow function that closes with `};` in the first column.
   const konst = (name) =>
-    pageJs.match(new RegExp(`\\nconst ${name} = (?:[^\\n]*;|[\\s\\S]*?\\n\\};)\\n`))?.[0];
+    pageRun.match(new RegExp(`\\nconst ${name} = (?:[^\\n]*;|[\\s\\S]*?\\n\\};)\\n`))?.[0];
   for (const name of ['stepIndex', 'goToChange', 'changeNodes']) {
     assert.ok(fn(name), `app.js has ${name}`);
   }
@@ -1087,7 +1252,7 @@ assert.match(pageCss, /\.ruler-current \{/, 'and the stylesheet gives that mark 
   // The count and the arrows reach it, and the count says which kind it was pressed on.
   assert.match(
     pageJs,
-    /\$\('count'\)\.addEventListener\('click', \(e\) => \{\s+goToChange\(e\.shiftKey \? -1 : 1, e\.target\.closest\('\[data-kind\]'\)\?\.dataset\.kind\);/,
+    /\$\('count'\)\.addEventListener\('click', \(e\) => \{\s+goToChange\(\s*e\.shiftKey \? -1 : 1,\s*\(e\.target as Element\)\.closest<HTMLElement>\('\[data-kind\]'\)\?\.dataset\.kind,\s*\);/,
     'pressing the count steps through the changes, ⇧ backwards, of the kind pressed on',
   );
   assert.ok(!/\$\('count'\)\.addEventListener\('click', \(\) => setTocSide/.test(pageJs),
@@ -1643,7 +1808,7 @@ console.log('✓ sepia wired through page, head script, stylesheet and shell');
   };
 
   // `applyScheme` out of app.js, over the same fakes.
-  const applySchemeSrc = pageJs.match(/\nfunction applyScheme\(\) \{[\s\S]*?\n\}\n/)?.[0];
+  const applySchemeSrc = pageRun.match(/\nfunction applyScheme\(\) \{[\s\S]*?\n\}\n/)?.[0];
   assert.ok(applySchemeSrc, 'app.js has applyScheme');
   assert.ok(pageJs.includes(`const darkMode = matchMedia('${DARK_QUERY}');`),
     'and reads System off the same query the head script does');
@@ -3255,7 +3420,7 @@ sixth.server.close();
   for (const [f, through] of [
     ['./src/rpc/client.ts', /markRead: \(at\) => call(?:<\w+>)?\('markRead', docId\(\), at\),/],
     ['./src/hosts/tauri/backend.ts', /markRead: \(at\) => reader\.markRead\(docId\(\), at\),/],
-    ['./public/backend.js', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
+    ['./public/backend.ts', /markRead: \(at\) => post\('\/api\/mark-read', \{ at \}\),/],
     ['./src/hosts/web/worker.ts', /markRead: async \(id, at\) => session\.markRead\(await owned\(conn, id\), at\),/],
   ]) {
     assert.match(fs.readFileSync(rootUrl(f), 'utf8'), through, `${f} passes the version on`);
@@ -5244,7 +5409,7 @@ const memoryKv = () => {
 
   // --- wired up ------------------------------------------------------------------------
   const read = (f) => fs.readFileSync(rootUrl(f), 'utf8');
-  const pageBackend = read('./public/backend.js');
+  const pageBackend = read('./public/backend.ts');
   assert.ok(
     pageBackend.indexOf('__REDLINE_HOST') < pageBackend.indexOf('__REDLINE_WEB') &&
       /__REDLINE_WEB\)[\s\S]*?import\('\.\/vendor\/backend-web\.js'\)/.test(pageBackend),
@@ -5388,18 +5553,18 @@ const memoryKv = () => {
     );
     assert.match(
       appJs,
-      /e\.key === 'Escape' && !\$\('prefs'\)\.open\) backToDocument\(\);/,
+      /e\.key === 'Escape' && !\$<HTMLDialogElement>\('prefs'\)\.open\) backToDocument\(\);/,
       'Escape goes back to the document, and does not when it is closing Settings',
     );
     assert.match(
       appJs,
-      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(!\$\('prefs'\)\.open\) welcome\.pickFile\(\);/,
+      /if \(welcome && e\.code === 'KeyO' && \(e\.metaKey \|\| e\.ctrlKey\)[^{]*\{\s*e\.preventDefault\(\);\s*if \(!\$<HTMLDialogElement>\('prefs'\)\.open\) welcome\.pickFile\(\);/,
       '⌘O is the same, in the web app alone: a window has File ▸ Open…',
     );
     assert.match(hooks, /back: \(\) => backToDocument\(\),/, "and the welcome's Back is the same");
     assert.ok(
       /welcome: \(el, hooks\)/.test(backendSrc) &&
-        ['./src/hosts/tauri/backend.ts', './public/backend.js', './src/rpc/client.ts'].every(
+        ['./src/hosts/tauri/backend.ts', './public/backend.ts', './src/rpc/client.ts'].every(
           (f) => !/welcome|linkNote/.test(read(f)),
         ),
       'only the web backend has a welcome, so the page never shows one in a shell or a server',
@@ -5720,6 +5885,11 @@ const memoryKv = () => {
     stageBody.indexOf('assertSafeDest(out);') > 0 &&
       stageBody.indexOf('assertSafeDest(out);') < stageBody.indexOf('fs.rmSync(out'),
     'and stagePage asks before it removes anything, not after',
+  );
+  assert.match(
+    stageSrc,
+    /file === 'app\.js' \? 'build:ts' : 'build:web'/,
+    'and a missing app.js points at the compile that heals it, a missing bundle at the bundler',
   );
   console.log('✓ stagePage will not empty the repository, or anything that holds it');
 
@@ -6520,12 +6690,27 @@ assert.match(
 // edit restages twice: once for the module, once for the bundle it produced.
 assert.match(devJs, /vendor\$\{path\.sep\}/, 'the watcher ignores what build:web just wrote');
 
+// The page is TypeScript, and the window loads what tsc emits beside it: an edit to a `.ts` is
+// worth a restage only once the compile has landed. Restaging on the edit stages the previous
+// compile and then again on the emit, which is the quiet kind of wrong -- the window is one
+// save behind and nothing says so.
+assert.ok(
+  /spawn\('npx', \['tsc', '-b', '--watch'/.test(devJs),
+  'npm run dev compiles the page as you edit it',
+);
+assert.ok(
+  /file\.endsWith\('\.ts'\)/.test(devJs),
+  'and restages on what tsc emitted, not on the edit that caused it',
+);
+
 // And it has to die when told. A watcher left behind has no window and is not
 // idle: two of them restaging one shell/dist race, because build:dist empties
 // the directory before it refills it, and the loser fails inside the mermaid
 // tree. Found by leaving one.
 assert.match(devJs, /tauri\.kill\(sig\)/, 'ctrl-c reaches the window');
 assert.match(devJs, /tauri\.kill\('SIGKILL'\)/, 'and a child that ignores it gets no third chance');
+assert.ok(/tsc\?\.kill\(sig\)/.test(devJs), 'and takes the compiler down with the window');
+assert.match(devJs, /tsc\?\.kill\(\)/, 'and when the window is closed instead of interrupted');
 console.log('✓ the dev loop serves the page instead of embedding it, and shuts down');
 
 // A run started on a `vN.N.N` tag, or with Deploy ticked, is a release: the
@@ -6740,7 +6925,7 @@ console.log('✓ the license, the notices, and the bundle identifier');
 // page working.
 const siteHtml = fs.readFileSync(rootUrl('site/index.html'), 'utf8');
 const siteCss = fs.readFileSync(rootUrl('site/landing.css'), 'utf8');
-const siteJs = fs.readFileSync(rootUrl('site/landing.js'), 'utf8');
+const siteJs = fs.readFileSync(rootUrl('site/landing.ts'), 'utf8');
 
 // Comments go first: `unbalanced` does not know about them, and the page's own
 // prose mentions <html> while explaining why the theme script is where it is.
@@ -6970,8 +7155,8 @@ assert.match(wrangler, /^name = "redline"$/m, 'into the project it names');
   // an error.
   assert.match(
     buildJob,
-    /name: redline-site\n\s+path: site\n\s+if-no-files-found: error/,
-    'site/ or nothing',
+    /name: redline-site\n\s+path: \|\n\s+site\n\s+!site\/\*\.ts\n\s+if-no-files-found: error/,
+    'site/ without the TypeScript beside its compiled script, or nothing',
   );
   assert.match(
     deployJob,
