@@ -386,8 +386,8 @@ Each step is its own PR, with `npm test` and `npm run bundle` green.
 4. The `page` project (done): `app.ts`, `backend.ts`, `landing.ts`, each a single rename, plus
    `tsc -b --watch` in `scripts/dev.mts` and the vendor shims in `types/vendor/`; see
    [The page project](#the-page-project).
-5. `test-smoke.ts` (done): the suite into the node project, with its fakes typed where they
-   are declared; see [The projects](#the-projects).
+5. `test-smoke.ts` (done): the suite renamed and checked as part of the node project, with
+   its fakes typed where they are declared; see [The projects](#the-projects).
 6. The ratchet, one flag per project: `noImplicitAny`, then `strictNullChecks`, then `strict`.
 
 What the design decided is in this file and in [architecture.md](architecture.md); the
@@ -397,9 +397,10 @@ design document itself is not in the repository.
 
 Measured with `tsc` 5.9.3 on an arm64 Mac at the end of each step: step 2 over the 37 `.ts`
 files in `src/`, step 3 over those and the 13 in `bin/` and `scripts/`, step 4 over those
-and the page's three files and the five shims in `types/`, step 5 over those and
-`test-smoke.ts`, 7.5k lines. The `.ts` files are checked leniently; the JavaScript that was
-compiled beside them (`test-smoke.js` until step 5, and `src/hosts/web/host.js`) is not:
+and the page's three files and the five shims in `types/`, and step 5 over the same with
+`test-smoke.js` renamed `test-smoke.ts`, 7.5k lines. The `.ts` files are checked leniently;
+the JavaScript compiled beside them is not (that was `test-smoke.js` until step 5, and is
+`src/hosts/web/host.js` still):
 
 | | Step 1 (50 files, none checked) | Step 2 | Step 3 | Step 4 | Step 5 |
 | --- | --- | --- | --- | --- | --- |
@@ -415,12 +416,12 @@ noise; step 4 adds the same (0.1 s and 0.02 s, and 0.01 s to `tsc -b` itself), a
 others it was measured on a busy machine (a load average of about 3.5; the other columns did
 not record theirs). So it is a number to watch and not yet a finding.
 
-Step 5 adds a 7.5k-line file and reads about 0.06 s slower on a rebuild (1.16, 1.16 and 1.15
-s, against about 1.1 s), no different on `tsc -b` itself (0.06, 0.07 and 0.07 s) and about
-0.04 s slower as `npm run build:ts` (0.25, 0.21 and 0.23 s). It was measured on a busy machine
-as well: the load average was 2.70 before the runs (4.07 over five minutes, 4.82 over
-fifteen) and 2.88 after. That is above about 2, so these numbers are not a finding either.
-`strict` will cost more; step 6 measures it.
+Step 5 checks a 7.5k-line file that was already being compiled, and reads about 0.06 s
+slower on a rebuild (1.16, 1.16 and 1.15 s, against about 1.1 s), no different on `tsc -b`
+itself (0.06, 0.07 and 0.07 s) and about 0.04 s slower as `npm run build:ts` (0.25, 0.21 and
+0.23 s). It was measured on a busy machine as well: the load average was 2.70 before the runs
+(4.07 over five minutes, 4.82 over fifteen) and 2.88 after. That is above about 2, so these
+numbers are not a finding either. `strict` will cost more; step 6 measures it.
 
 The last row has one more cost since the table was made: `npm run build:ts` starts
 `bootstrap/heal-page-build.mjs` before `tsc -b`, an extra `node` process (about 0.02 s on its
