@@ -280,13 +280,19 @@ test('the history is the whole list', async () => {
 // Mark read resets the baseline.
 let older;
 test('mark read resets the baseline, and an older snapshot is still comparable', async () => {
+  // The version the mark comes off, by the mark and not by being the first row that is not the
+  // newest: on Linux the edit above can be seen half-written (`writeFileSync` truncates first),
+  // which leaves a version between the two, and checking against that one fails on stats
+  // that are right.
+  const readOff = doc.history.find((h) => h.baseline && !h.current);
+  assert.ok(readOff, 'the edit is measured against an older version');
   const marked = await postDoc('/api/mark-read');
   assert.deepStrictEqual(marked.stats, { added: 0, removed: 0, modified: 0 }, 'mark-read clears changes');
   // The read mark moves to the newest row, which is how the list shows it: the
   // `read` chip is the only thing that says where the mark ended up.
   assert.ok(marked.history.find((h) => h.baseline)?.current, 'the read mark lands on the newest version');
   assert.ok(!('canUndoRead' in marked), 'and the payload no longer offers to take it back');
-  older = doc.history.find((h) => !h.current);
+  older = readOff;
   if (older) {
     const back = await get('/api/doc?baseline=snap:' + older.hash);
     assert.ok(back.stats.added + back.stats.modified + back.stats.removed > 0, 'older snapshot still diffable');
