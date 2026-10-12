@@ -82,14 +82,22 @@ The node project holds the suite along with the code it runs, and checks it the 
 way. The suite's fakes (a window with a message port, the DOM class `El`, a file handle, a
 `Storage`) are typed with a local `interface` where they are declared. A fake that is handed
 to the code under test is cast `as unknown as <the real type>` at that one call, or in the
-factory that hands it over, and nowhere else, so what the compiler is not told is in one
-place. A value that comes out of a `vm`, or out of a page the suite has evaluated, is
-`any`: no static type crosses that seam. `// @ts-nocheck`, `@ts-ignore` and `@ts-expect-error`
-are not allowed in it, and a test asserts that the file has none and that it is still in
-`tsconfig.node.json`'s `include`, because left out of the project, or switched off by a
-comment, a type error in the suite would be invisible. The conversion found one real
-mismatch: `renderDocument` was called without its `base`, which it types as required, and the
-suite passes `null`, which behaves the same.
+factory that hands it over. The other `as unknown as` casts are not fakes: a `Buffer` handed
+to `JSON.parse`, which takes a string and reads the text of a buffer at runtime; an input
+that is invalid on purpose, so that the code under test can be seen to refuse it; and the
+result of `handles.addRoot`, below. A value that comes out of a `vm`, or out of a page the
+suite has evaluated, is `any`: no static type crosses that seam. `// @ts-nocheck`,
+`@ts-ignore` and `@ts-expect-error` are not allowed in it, and a test asserts that the file
+has none and that it is still in `tsconfig.node.json`'s `include`, because left out of the
+project, or switched off by a comment, a type error in the suite would be invisible. The
+conversion found two real mismatches, both left for the step 6 ratchet. `renderDocument` was
+called without its `base`, which it types as required, and the suite passes `null`, which
+behaves the same (`base != null` in `core/document.ts`). `handles.addRoot` is typed as
+resolving to nothing, because `serial` in `web/handles.ts` has no type, though it resolves
+to the root's record, so the suite casts the result where it reads it. Two other casts are
+not defects: `AckedVersion` asks for a `hash` that `renderDiff` never reads, so the
+parameter type asks for more than the function uses, and `plantumlSvg` returns a union
+whose `error` branch the suite narrows.
 
 ## `src/contract/`
 

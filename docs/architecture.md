@@ -1,10 +1,10 @@
 # Architecture
 
-Node ESM and hand-written CSS, no framework. `src/`, `bin/`, `scripts/` and the page
-(`public/`, `site/`) are TypeScript, apart from the two classic scripts that have to stay
-JavaScript; the test is still JavaScript while the conversion is under way
-([typescript.md](typescript.md)). The code Node runs (`bin/`, `scripts/`, `src/hosts/node/`,
-the test) goes through `tsc` into `out/` first. The page's three files compile in place
+Node ESM and hand-written CSS, no framework. `src/`, `bin/`, `scripts/`, the page
+(`public/`, `site/`) and the test (`test-smoke.ts`) are TypeScript, apart from the two
+classic scripts that have to stay JavaScript ([typescript.md](typescript.md)). The code Node
+runs (`bin/`, `scripts/`, `src/hosts/node/`, the test) goes through `tsc` into `out/` first.
+The page's three files compile in place
 instead, to the `.js` that a URL names, so `public/app.ts` is what is edited and
 `public/app.js` is what is served. What esbuild bundles is `src/` as written. The only
 dependencies that reach the page are vendored as they ship (`highlight.js` themes,
