@@ -220,9 +220,13 @@ npm run dev -- --no-watch    # stage once and leave it alone
 It runs `tauri dev` rather than `cargo run`. With `frontendDist` and no `devUrl`,
 Tauri starts a static server of its own over `shell/dist` (port 1430) and points
 the window at that instead of embedding it — so the page is a file on disk again,
-and **⌘R picks up an edit with no compile**. `scripts/dev.mts` adds the restaging:
-a watch on `public/` and `src/` that re-runs the two build steps. Rust is still a
-recompile, but `tauri dev` watches for that itself and restarts the app.
+and **⌘R picks up an edit with no relink**. `scripts/dev.mts` adds the restaging:
+a watch on `public/` and `src/` that re-runs the two build steps. The page is
+TypeScript and the window loads what `tsc` emits beside it, so `tsc -b --watch` runs
+too, and the restage follows its emit rather than the edit to a `.ts` in `public/`
+(which would stage the previous compile, then stage again). `tsc` emits through a type
+error, so a mistake is a message in that terminal and the window still updates. Rust is
+still a recompile, but `tauri dev` watches for that itself and restarts the app.
 
 That this works at all rests on `shell/dist` being **gitignored**, because Tauri's
 watcher honours gitignore and would otherwise see every restage as a reason to

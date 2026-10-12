@@ -6604,12 +6604,26 @@ assert.match(
 // edit restages twice: once for the module, once for the bundle it produced.
 assert.match(devJs, /vendor\$\{path\.sep\}/, 'the watcher ignores what build:web just wrote');
 
+// The page is TypeScript, and the window loads what tsc emits beside it: an edit to a `.ts` is
+// worth a restage only once the compile has landed. Restaging on the edit stages the previous
+// compile and then again on the emit, which is the quiet kind of wrong -- the window is one
+// save behind and nothing says so.
+assert.ok(
+  /spawn\('npx', \['tsc', '-b', '--watch'/.test(devJs),
+  'npm run dev compiles the page as you edit it',
+);
+assert.ok(
+  /file\.endsWith\('\.ts'\)/.test(devJs),
+  'and restages on what tsc emitted, not on the edit that caused it',
+);
+
 // And it has to die when told. A watcher left behind has no window and is not
 // idle: two of them restaging one shell/dist race, because build:dist empties
 // the directory before it refills it, and the loser fails inside the mermaid
 // tree. Found by leaving one.
 assert.match(devJs, /tauri\.kill\(sig\)/, 'ctrl-c reaches the window');
 assert.match(devJs, /tauri\.kill\('SIGKILL'\)/, 'and a child that ignores it gets no third chance');
+assert.ok(/tsc\?\.kill\(sig\)/.test(devJs), 'and takes the compiler down with the window');
 console.log('✓ the dev loop serves the page instead of embedding it, and shuts down');
 
 // A run started on a `vN.N.N` tag, or with Deploy ticked, is a release: the

@@ -15,7 +15,8 @@
 // by default) and points the window at that, so restaging the page and hitting
 // ⌘R is the whole loop. What this script adds is the restaging: a watch on
 // public/ and src/ that re-runs the two build steps, which together are about
-// two tenths of a second.
+// two tenths of a second. The page is TypeScript, so `tsc -b --watch` runs
+// beside it and the restage follows what the compiler emits.
 //
 // Rust is still a recompile, but `tauri dev` watches for that itself and
 // restarts the app when it lands. shell/dist is **gitignored**, and Tauri's
@@ -46,6 +47,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { ROOT } from '../src/hosts/node/root.js';
 
 const SHELL = path.join(ROOT, 'shell');
@@ -88,6 +90,15 @@ const tauri = spawn('npx', ['tauri', 'dev', ...(appArgs.length ? ['--', '--', ..
   stdio: 'inherit',
 });
 
+// The page is TypeScript and what the window loads is what tsc emits beside it, so something
+// has to be compiling it. The watch below sees the emit land in public/, which is why it skips
+// a `.ts` there: restaging on the edit would stage the previous compile, and then again on the
+// emit. tsc emits through type errors, so a mistake is a message in this terminal and the
+// window still updates.
+const tsc: ChildProcess | null = watching
+  ? spawn('npx', ['tsc', '-b', '--watch', '--preserveWatchOutput'], { cwd: ROOT, stdio: 'inherit' })
+  : null;
+
 if (watching) {
   // src/ is bundled into public/vendor/ and then staged; public/ is only
   // staged. Knowing which of the two changed is what keeps a CSS edit from
@@ -98,8 +109,9 @@ if (watching) {
   const changed = (src: boolean) => (_event: string, file: string | null): void => {
     // public/vendor/ is what build:web just wrote, not something anyone edits.
     // Without this a src/ change restages twice: once for the source, once for
-    // the bundle the first pass produced.
-    if (!src && file && file.startsWith(`vendor${path.sep}`)) return;
+    // the bundle the first pass produced. A `.ts` is the source of what tsc is
+    // about to emit next to it, so the restage waits for that.
+    if (!src && file && (file.startsWith(`vendor${path.sep}`) || file.endsWith('.ts'))) return;
     touchedSrc ||= src;
     clearTimeout(pending);
     pending = setTimeout(() => {
@@ -123,9 +135,14 @@ if (watching) {
     fs.watch(path.join(ROOT, 'public'), { recursive: true }, changed(false)),
     fs.watch(path.join(ROOT, 'src'), { recursive: true }, changed(true)),
   ];
-  tauri.on('exit', () => watchers.forEach((w) => w.close()));
+  tauri.on('exit', () => {
+    watchers.forEach((w) => w.close());
+    tsc?.kill();
+  });
 
-  console.log('\n  watching public/ and src/ — ⌘R in the window picks up a restage\n');
+  console.log(
+    '\n  watching public/ and src/, compiling the page — ⌘R in the window picks up a restage\n',
+  );
 }
 
 // The child stays in this process group, the same way `npm run app` leaves
@@ -143,10 +160,12 @@ if (watching) {
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     tauri.kill(sig);
+    tsc?.kill(sig);
     // A child that has not taken the hint gets no third chance: there is
     // nothing here worth waiting on past the point the window should be gone.
     setTimeout(() => {
       tauri.kill('SIGKILL');
+      tsc?.kill('SIGKILL');
       process.exit(1);
     }, 2000);
   });
