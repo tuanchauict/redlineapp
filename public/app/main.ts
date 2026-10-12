@@ -10,6 +10,7 @@ import { sanitizeDocument, sanitizeSvg } from '../vendor/sanitize.js';
 import { createBackend } from '../backend.js';
 import { prefs, state, shownHistory, menuFor, cutFrom } from './state.js';
 import { mountHistory, askPrune, isBaseline, versionName } from './ui/History.js';
+import { mountContents } from './ui/Contents.js';
 // Nothing here names the type: the import is for native.ts's own `declare global`, which types
 // `window.mdNative` from what `installNative` leaves, so the page's calls on the shell are
 // checked against what the Tauri host provides. tsc drops it from the emitted file.
@@ -1249,11 +1250,15 @@ function scrollToNode(node, smooth = true) {
   pane.scrollTo({ top: Math.max(0, top), behavior: smooth ? 'smooth' : 'instant' });
 }
 
+/**
+ * Pair each heading with its node, for the list in ui/Contents.tsx to draw. `d` is null when no
+ * document is open, which leaves the list with nothing to say, not "No headings".
+ */
 function paintToc(d) {
-  const heads = d.toc ?? [];
+  const heads = d?.toc ?? [];
   // Dropped before anything else: the rows point at nodes in a document that
   // has just been replaced, and whatever follows must not be able to read them.
-  state.toc = [];
+  state.toc = null;
   state.tocAt = -1;
 
   // A document whose only heading is its title has no contents — a list of one
@@ -1263,42 +1268,23 @@ function paintToc(d) {
   // back on the next would be the window rearranging itself as you read.
   const has = heads.length > 1;
   $('tocCount').textContent = has ? String(heads.length) : '';
-  if (!state.tocSide) return;
-  if (!has) {
-    $('tocList').replaceChildren(el('p', 'side-empty', 'No headings in this document.'));
-    return;
-  }
-
-  // Indented against the shallowest heading in this document rather than
-  // against h1, because plenty of files start at `##` and would otherwise sit
-  // in from the edge for no reason.
-  const top = Math.min(...heads.map((h) => h.level));
-  state.toc = heads.map((h) => {
-    const row = el('button', h.level === top ? 'toc toc-top' : 'toc');
-    row.type = 'button';
-    row.style.paddingLeft = `${8 + Math.min(h.level - top, 4) * 10}px`;
-    // An empty heading is a real heading — it is somewhere the document goes —
-    // and still needs a row you can hit.
-    row.textContent = h.text || '—';
-    row.title = h.text;
-    // Resolved here and kept, not looked up per click or per scroll: the whole
-    // document is replaced on every paint and this runs with it, so the node is
-    // never staler than the list itself.
-    const node = headingNode(h);
-    row.addEventListener('click', () => scrollToNode(node));
-    return { h, row, node };
-  });
-  $('tocList').replaceChildren(...state.toc.map((t) => t.row));
+  // Neither a shut column nor no document has a list; a document with one heading has an
+  // empty one, which the list says out loud.
+  if (!d || !state.tocSide) return;
+  // Resolved here and kept, not looked up per click or per scroll: the whole
+  // document is replaced on every paint and this runs with it, so the node is
+  // never staler than the list itself.
+  state.toc = has ? heads.map((h) => ({ h, node: headingNode(h) })) : [];
   spyToc();
 }
 
 /**
  * Mark the heading you are reading under: the last one whose top has gone past
- * the top of the pane. Scrolled into view only when it changes, so a long
- * document does not fight the list's own scrollbar on every frame.
+ * the top of the pane. Only `state.tocAt` is set here; the list lights the row
+ * and scrolls it into view when that changes.
  */
 function spyToc() {
-  if (!state.toc.length) return;
+  if (!state.toc?.length) return;
   const limit = paneTop() + 8;
   let at = 0;
   for (let i = 0; i < state.toc.length; i++) {
@@ -1307,14 +1293,10 @@ function spyToc() {
     const { node } = state.toc[i];
     if (node && node.getBoundingClientRect().top <= limit) at = i;
   }
-  if (at === state.tocAt) return;
   state.tocAt = at;
-  state.toc.forEach(({ row }, i) => {
-    row.classList.toggle('on', i === at);
-    row.ariaCurrent = i === at ? 'true' : 'false';
-  });
-  state.toc[at].row.scrollIntoView({ block: 'nearest' });
 }
+
+mountContents($('tocList'), { go: (node) => scrollToNode(node) });
 
 // Coalesced to one a frame: scroll fires far more often than the list can
 // usefully change, and every call measures every heading.
@@ -1434,13 +1416,12 @@ const el = (tag, className?, text?) => {
  * The two sidebars for a page with no document. The welcome hides `#doc`, but Contents and
  * History are not inside it: left alone they go on listing the headings and versions of a file
  * the reader has let go of, and a row clicked would scroll to a node that is no longer there.
- * Painting them with nothing resets the counts and the rows' bookkeeping; the lists are then
- * emptied, because "No headings in this document" would be a claim about one.
+ * Painting them with null resets the counts and empties both lists, which draw nothing for
+ * null: "No headings in this document" would be a claim about one.
  */
 function clearSidebars() {
-  paintToc({});
+  paintToc(null);
   paintHistory(null);
-  $('tocList').replaceChildren();
 }
 
 function paintHistory(d) {
