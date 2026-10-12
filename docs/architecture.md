@@ -102,7 +102,7 @@ test-smoke.js           the whole test suite
 site/                   the landing page, `landing.ts` compiled in place to `landing.js`.
                         Nothing above it knows it exists
 types/vendor/           one-line shims for what `build:web` writes to `public/vendor/`: what the
-                        page is type-checked against when that directory is not there
+                        page is type-checked against, whether or not `build:web` has run
 ```
 
 Which of the `src/` directories a file may import is a test, not a habit. `contract/`

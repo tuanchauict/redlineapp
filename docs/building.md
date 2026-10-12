@@ -207,8 +207,8 @@ M-series laptop, with everything warm:
 
 | | |
 | --- | --- |
-| `npm start` | **~0.4 s** when nothing has changed: `prestart` runs `build:web`, which runs `tsc -b` and then bundles `src/`. The browser tab is the page as `tsc` left it |
-| `npm run app` | **~3 s** — `build:web` and `build:dist` are about 0.4 s each of it (about half of each is `npm run build:ts` finding nothing to do), a cargo dev build is the rest. Every page edit pays it, because the page is *in* the binary |
+| `npm start` | **~0.4 s** (timed on a busy machine, load average 2.8 to 3.6) when nothing has changed: `prestart` runs `build:web`, which runs `tsc -b` and then bundles `src/`. The browser tab is the page as `tsc` left it |
+| `npm run app` | **~3 s**, an earlier total that has not been re-timed since the page became TypeScript. `build:web` and `build:dist` are about 0.4 s each of it, timed on the same busy machine (about half of each is `npm run build:ts` finding nothing to do); a cargo dev build is the rest. Every page edit pays it, because the page is *in* the binary |
 | `npm run bundle` | **~40 s of compile** before it even starts bundling, and then a dmg. `opt-level = "z"` with LTO and one codegen unit means an edit anywhere re-optimizes everything |
 
 So the bundle is for shipping, and CI is where it belongs. Three seconds is not
@@ -256,7 +256,9 @@ watchers staging into it race and the loser dies somewhere inside the mermaid
 tree — and the app's single-instance lock makes a second window pointless anyway.
 
 For work that is only `public/`, `npm start` is still the better loop: no cargo in
-the picture, and devtools that are not WebKit's inspector bolted to a webview.
+the picture, and devtools that are not WebKit's inspector bolted to a webview. It does not
+watch, so an edit to a `public/*.ts` reaches the tab after `npm run build:ts` (or an
+`npx tsc -b --watch` in another terminal) and a reload.
 `npm run dev` earns its keep on the page code that only exists in the window — the
 drag-region toolbar, the tab strip, the menu wiring, the drop overlay.
 

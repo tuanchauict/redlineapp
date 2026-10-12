@@ -196,13 +196,13 @@ beside `tauri dev`, and the restage follows what `tsc` emits into `public/`: its
 skips a `.ts`, because restaging on the edit would stage the previous compile and then stage
 again on the emit. `tsc -b` emits through a type error, so a mistake is a message in that
 terminal and the window still updates. It is stopped the way `npx tauri dev` is, by signalling
-`npx`, which passes SIGINT and SIGTERM to what it started and cannot pass SIGKILL; a hard kill
-of `dev.mts` can leave a `tsc` watching. The one thing about it that is **unverified** from
-here is the live watch under `tauri dev`, which needs a native window. What has been seen is that
-the config compiles, that `tsc -b --watch` starts an incremental compile when a file in
-`scripts/` or in `public/` is touched, and that `tsc -b` writes `public/*.js` through an error.
-Nobody has watched an edit compile, restage and reload in the window, and nothing about the
-page's layout has been seen in a browser either: there is none here.
+`npx`, which passes SIGINT and SIGTERM to what it started and cannot pass SIGKILL (checked on
+npm 11.6.4; an older npm was not); a hard kill of `dev.mts` can leave a `tsc` watching. The
+one thing about it that is **unverified** from here is the live watch under `tauri dev`, which
+needs a native window. What has been seen is that the config compiles and that `tsc -b` writes
+`public/*.js` through an error. Nobody has watched `tsc -b --watch` start under `dev.mts`, or
+an edit compile, restage and reload in the window, and nothing about the page's layout has
+been seen in a browser either: there is none here.
 
 **The read rule.** `tsc` reprints what it emits: it re-indents, splits a one-line `if` over
 lines and drops every annotation, so the compiled `public/app.js` is not the file whose shape
@@ -313,6 +313,15 @@ are ignored by name, so a compile leaves the tree looking clean, and a hand edit
 emits an `x.js` that git lists as untracked: that is the prompt to add its name to
 `.gitignore` and to the list that the test reads, and not a file to commit.
 
+The same silence is why a stale compile looks exactly like the change not working. Pull a
+branch, or edit `public/app.ts`, and the `public/app.js` that the server serves and the window
+embeds is still the last compile until something runs `tsc -b`: `npm run build:ts` is the fix,
+and `npm start`, `npm run app` and `npm test` run it for you. One case where `tsc -b` itself
+can say nothing: `git mv` keeps a file's old mtime, so in a worktree that has already built, a
+renamed `.ts` is older than `tsbuildinfo` and `tsc -b` reports "up to date" and emits nothing
+until the file is touched. A fresh checkout has no `tsbuildinfo`, so this is only a rename in
+a worktree that has already built.
+
 ## The ladder
 
 Each step is its own PR, with `npm test` and `npm run bundle` green.
@@ -347,8 +356,9 @@ compiled beside them, checked leniently:
 
 The last row is what `npm test`, `npm start` and the other scripts pay on every run, most
 of it npm's own start-up. Checking the `.ts` files did not move a full rebuild by more than
-the noise of the measurement, at step 2 or at step 3, and does not touch a no-op. Step 4 is
-the first column that reads slower, by 0.1 s on a rebuild and 0.01 s on a no-op. It was
-taken with the machine busy (a load average of about 3.5; the other columns did not record
-theirs), so it is a number to watch and not yet a finding. `strict` will cost more; step 6
-measures it.
+the noise of the measurement, at step 2 or at step 3, and does not touch a no-op. Step 2
+did read 0.1 s slower on a rebuild and 0.02 s as `npm run build:ts`, and was put down to that
+noise; step 4 adds the same (0.1 s and 0.02 s, and 0.01 s to `tsc -b` itself), and unlike the
+others it was measured on a busy machine (a load average of about 3.5; the other columns did
+not record theirs). So it is a number to watch and not yet a finding. `strict` will cost
+more; step 6 measures it.
