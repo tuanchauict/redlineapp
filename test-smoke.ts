@@ -6033,7 +6033,9 @@ const memoryKv = () => {
 
     assert.ok(
       /const welcome = backend\.welcome\?\.\(\{/.test(appJs) &&
-        /open: \(path\) => openFile\(path\),\s*granted: \(\) => reopened\(\),/.test(appJs) &&
+        /open: \(path\) => doors\.open\(path\),\s*granted: \(\) => doors\.granted\(\),/.test(appJs) &&
+        /bindWelcome\(\{ open: \(path\) => openFile\(path\), granted: \(\) => reopened\(\) \}\);/
+          .test(appJs) &&
         /show: \(view\) => \(welcomeView\.value = view\),/.test(appJs),
       "the page gives the backend's welcome a way to open what it is handed, and to be drawn",
     );

@@ -5,8 +5,6 @@ import {
   state,
   barName,
   liveWhy,
-  prefsOpen,
-  welcomeView,
 } from './state.js';
 import { mountHistory } from './ui/History.js';
 import { mountContents } from './ui/Contents.js';
@@ -61,6 +59,17 @@ import {
 import { applyMarks, toggleDiff, toggleView } from './vm/view.js';
 import { checkUpdate, getUpdate } from './vm/about.js';
 import {
+  bindWelcome,
+  welcome,
+  welcomeEl,
+  pendingLink,
+  setPendingLink,
+  welcomeAsks,
+  showWelcome,
+  hideWelcome,
+  backToDocument,
+} from './vm/welcome.js';
+import {
   paintHistory,
   pickVersion,
   setSolo,
@@ -107,71 +116,12 @@ function clearDocId() {
 
 // ---------- the welcome ----------
 
-// What the page shows when it has nothing to read. Only a backend that has to be given
-// something has one -- the web app's -- so a window shown a document by a shell, or a server told
-// one on a command line, never reaches any of this and nothing here has to ask which it is.
-// The backend has the doors and ui/Welcome.tsx draws them, with this in between: what the
-// welcome says goes from one to the other by `welcomeView`.
-const welcomeEl = $('welcome');
-const welcome = backend.welcome?.({
-  open: (path) => openFile(path),
-  granted: () => reopened(),
-  show: (view) => (welcomeView.value = view),
-  showing: () => !welcomeEl.hidden,
-  // What it has to say while it is hidden (a folder, a file that is not markdown, one that would
-  // not open) goes where the user is looking instead of onto a screen they have not been taken to.
-  notify: (text) => notify(text),
-});
+// vm/welcome.ts, handed the two of its doors that open a file, which are this module's.
+bindWelcome({ open: (path) => openFile(path), granted: () => reopened() });
+
 // The browser's file picker, or the input that stands in for one: Open file…, and the page's own
 // ways to it with a document on screen.
 const pickFile = welcome ? mountWelcome(welcomeEl, welcome, () => backToDocument()) : null;
-
-// The file the user went to when it turned out to need asking for again: asked for, it is the
-// thing they wanted, and the document they were reading is not.
-let pendingLink = null;
-// What the welcome is showing now, as `showWelcome` was last told, so that being told the same
-// again -- a load, the watch and the backend's listener each report one lapsed grant -- does not
-// wipe a message the user is looking at.
-let welcomeSeen = null;
-// The file it is offering to ask for again, if it is. A load that is refused after the
-// backend's listener has already said which file says only *that* it was, and must not
-// replace the name with a guess.
-let welcomeAsks = null;
-
-function showWelcome({ reopen = null } = {}) {
-  if (!welcome) return;
-  // A document that is still held is one the user can go back to; one that is gone is not.
-  const back = Boolean(state.data);
-  const seen = `${reopen}|${back}`;
-  document.documentElement.classList.add('welcoming');
-  welcomeEl.hidden = false;
-  doc.hidden = true;
-  if (seen === welcomeSeen) return;
-  welcomeSeen = seen;
-  welcomeAsks = reopen;
-  welcome.sync({ reopen, back });
-  if (!back) {
-    document.title = 'Redline';
-    barName.value = { name: 'Redline', dir: '', path: '' };
-  }
-}
-
-function hideWelcome() {
-  if (!welcome) return;
-  welcomeSeen = null;
-  welcomeAsks = null;
-  document.documentElement.classList.remove('welcoming');
-  welcomeEl.hidden = true;
-  doc.hidden = false;
-}
-
-/** Back to the document the welcome was put up over. Whether there was one to go back to. */
-function backToDocument() {
-  if (welcomeEl.hidden || !state.data) return false;
-  pendingLink = null;
-  hideWelcome();
-  return true;
-}
 
 if (welcome) {
   // The way to another file with one on screen, as ⌘O is: straight to the browser's file picker,
@@ -179,15 +129,7 @@ if (welcome) {
   // read stays a click away in them.
   $('newTab').title = 'Open a file (⌘O)';
   $('newTab').addEventListener('click', () => pickFile());
-  // A step away from the document, and Escape is the step back. Not while Settings is up: the
-  // Escape is the dialog's, and closes it alone.
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && prefsOpen.value === null) backToDocument();
-  });
 }
-
-// The backend says which file; the load that hit the lapse says only that it did.
-backend.onNeedsPermission?.(({ name }) => showWelcome({ reopen: name }));
 
 /**
  * The user said yes to the file. What they were doing when it was refused is what to do now:
@@ -196,7 +138,7 @@ backend.onNeedsPermission?.(({ name }) => showWelcome({ reopen: name }));
  */
 async function reopened() {
   const link = pendingLink;
-  pendingLink = null;
+  setPendingLink(null);
   if (link && (await openFile(link))) return;
   if (await load({ keepScroll: false })) connect();
 }
@@ -746,7 +688,7 @@ function connect() {
  * date, but a file picked from the open files is one they asked for by name.
  */
 async function openFile(path, { unopened = null } = {}) {
-  pendingLink = null;
+  setPendingLink(null);
   unwatch?.();
   unwatch = null;
   try {
@@ -760,7 +702,7 @@ async function openFile(path, { unopened = null } = {}) {
     if (err?.name === 'NeedsPermission') {
       // The backend has told the welcome, which is asking for that file. Opening it once it is
       // granted is ours to remember.
-      pendingLink = path;
+      setPendingLink(path);
     } else {
       // A link to a file that is not there is the document being out of date,
       // not the reader breaking. Staying put is the answer, and the console is
