@@ -6801,7 +6801,7 @@ console.log('✓ the license, the notices, and the bundle identifier');
 // page working.
 const siteHtml = fs.readFileSync(rootUrl('site/index.html'), 'utf8');
 const siteCss = fs.readFileSync(rootUrl('site/landing.css'), 'utf8');
-const siteJs = fs.readFileSync(rootUrl('site/landing.js'), 'utf8');
+const siteJs = fs.readFileSync(rootUrl('site/landing.ts'), 'utf8');
 
 // Comments go first: `unbalanced` does not know about them, and the page's own
 // prose mentions <html> while explaining why the theme script is where it is.
@@ -7031,8 +7031,8 @@ assert.match(wrangler, /^name = "redline"$/m, 'into the project it names');
   // an error.
   assert.match(
     buildJob,
-    /name: redline-site\n\s+path: site\n\s+if-no-files-found: error/,
-    'site/ or nothing',
+    /name: redline-site\n\s+path: \|\n\s+site\n\s+!site\/\*\.ts\n\s+if-no-files-found: error/,
+    'site/ without the TypeScript beside its compiled script, or nothing',
   );
   assert.match(
     deployJob,

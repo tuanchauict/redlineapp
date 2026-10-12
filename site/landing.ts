@@ -45,7 +45,7 @@ label();
 
 /* ---------- copy buttons ---------- */
 
-for (const btn of document.querySelectorAll('.copy')) {
+for (const btn of document.querySelectorAll<HTMLElement>('.copy')) {
   let undo;
   btn.addEventListener('click', async () => {
     try {
@@ -97,7 +97,7 @@ onScroll();
    removed words come back into the flow — and `marked` is the diff.
  */
 const demo = document.getElementById('demo');
-const counters = [...demo.querySelectorAll('[data-count]')];
+const counters = [...demo.querySelectorAll<HTMLElement>('[data-count]')];
 const targets = counters.map((el) => Number(el.dataset.count));
 
 /* The removed paragraph and the removed words are out of the flow while the
@@ -109,8 +109,8 @@ const targets = counters.map((el) => Number(el.dataset.count));
    offsetHeight rather than a bounding rect: the demo is drawn under a rotateX
    and a rect would hand back the foreshortened height. With no JavaScript at
    all the markup is already in the marked state, so there is nothing to lock. */
-const docEl = demo.querySelector('.demo-doc');
-const bodyEl = demo.querySelector('.demo-body');
+const docEl = demo.querySelector<HTMLElement>('.demo-doc');
+const bodyEl = demo.querySelector<HTMLElement>('.demo-body');
 let locked = 0;
 
 function lock() {
@@ -121,7 +121,7 @@ function lock() {
   }
 }
 
-const STEPS = [
+const STEPS: [string, number][] = [
   ['clean', 1600],
   ['reload', 440],
   ['marked', 4400],
@@ -131,7 +131,7 @@ let timer = null;
 let step = 0;
 let frame = null;
 
-function setCounts(n) {
+function setCounts(n?: number) {
   counters.forEach((el, i) => {
     el.textContent = String(typeof n === 'number' ? n : targets[i]);
   });
@@ -308,8 +308,8 @@ function drive(el, advance, hold) {
    on the root, and the stylesheet doing all of the rest. `data-set` names the
    attribute and `data-to` the value, so the markup says which scene is which
    and this says nothing about either. */
-for (const sim of document.querySelectorAll('.sim-view, .sim-tone')) {
-  const btns = [...sim.querySelectorAll('.seg button')];
+for (const sim of document.querySelectorAll<HTMLElement>('.sim-view, .sim-tone')) {
+  const btns = [...sim.querySelectorAll<HTMLElement>('.seg button')];
   const attr = btns[0].dataset.set;
 
   const show = (to) => {
@@ -338,7 +338,7 @@ const hist = document.getElementById('sim-history');
 
 if (hist) {
   const rows = [...hist.querySelectorAll('.sim-side button')];
-  const blocks = [...hist.querySelectorAll('.chg')];
+  const blocks = [...hist.querySelectorAll<HTMLElement>('.chg')];
   const counts = [...hist.querySelectorAll('[data-c]')];
 
   const pick = (row) => {
@@ -370,9 +370,9 @@ if (hist) {
 const jump = document.getElementById('sim-jump');
 
 if (jump) {
-  const blocks = [...jump.querySelectorAll('.chg')];
+  const blocks = [...jump.querySelectorAll<HTMLElement>('.chg')];
   const ticks = [...jump.querySelectorAll('.sim-ruler i')];
-  const doc = jump.querySelector('.sim-doc');
+  const doc = jump.querySelector<HTMLElement>('.sim-doc');
   const port = jump.querySelector('.sim-scroll');
   const left = jump.querySelector('[data-left]');
   const counts = {
@@ -439,7 +439,7 @@ if (jump) {
 
   const act = { n: () => step(1), p: () => step(-1), c: check };
 
-  for (const btn of jump.querySelectorAll('[data-key]')) {
+  for (const btn of jump.querySelectorAll<HTMLElement>('[data-key]')) {
     btn.addEventListener('click', () => {
       if (!act[btn.dataset.key]()) reset();
     });
