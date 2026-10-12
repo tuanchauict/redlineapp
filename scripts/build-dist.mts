@@ -4,7 +4,7 @@
 //
 // The desktop app has no server, so everything the page asks for over a URL has
 // to be a file sitting next to it: the same files, in the same layout, that
-// the web app is served from. stage-page.mjs does the staging and says what
+// the web app is served from. stage-page.mts does the staging and says what
 // the layout is; this is the desktop's end of it, which tauri.conf.json names
 // as the front end and Tauri serves from inside the bundle.
 //

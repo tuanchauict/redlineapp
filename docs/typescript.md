@@ -17,14 +17,14 @@ until the `noImplicitAny` ratchet.
 | | Where it lives | Compiled to |
 | --- | --- | --- |
 | Run by Node: `bin/`, `src/`, `scripts/`, `test-smoke.js` | the repository | `out/`, mirroring the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`) |
-| Named by a URL: `public/app.js`, `public/backend.js`, `site/landing.js` | the repository | **not yet compiled.** Step 4 emits them in place, gitignored, because the server, `stage-page.mjs` and the tests already name those paths |
+| Named by a URL: `public/app.js`, `public/backend.js`, `site/landing.js` | the repository | **not yet compiled.** Step 4 emits them in place, gitignored, because the server, `stage-page.mts` and the tests already name those paths |
 
 `out/` is gitignored and is **not** `dist/`, which holds release artifacts. Every npm
 script that runs a script runs it from `out/` and compiles first (`npm run build:ts`,
 which is `tsc -b`); an up-to-date compile is a no-op. `node bin/redline.js` from a fresh
 checkout therefore does not work before `npm run build:ts`; `npm start` does it for you.
 
-esbuild is a separate thing. `build-web.mjs` bundles `src/` **as written**, from the source,
+esbuild is a separate thing. `build-web.mts` bundles `src/` **as written**, from the source,
 so a type error does not stop a bundle. `tsc` is what fails the build.
 
 ## The projects
@@ -75,7 +75,7 @@ arrives with step 4.
 ## What stays JavaScript
 
 `src/hosts/web/host.js` is a classic script: the first thing in the web app's page, loaded
-without `type="module"`, and copied by `scripts/stage-page.mjs`, which appends the one line
+without `type="module"`, and copied by `scripts/stage-page.mts`, which appends the one line
 that sets `__REDLINE_VERSION`. Under
 `"type": "module"` and `NodeNext`, `tsc` appends `export {};` to the output of a file that
 has no import or export, and a classic script that says `export` does not parse. So it stays
@@ -145,7 +145,7 @@ Each step is its own PR, with `npm test` and `npm run bundle` green.
    with `core/`, `page/` and `rpc/`; `reader/`; the hosts.
 3. `scripts/` and `bin/`.
 4. The `page` project: `app.ts`, `backend.ts`, `landing.ts`, each a single rename, plus
-   `tsc -b --watch` in `scripts/dev.mjs` and the vendor shims in `types/vendor/`.
+   `tsc -b --watch` in `scripts/dev.mts` and the vendor shims in `types/vendor/`.
 5. `test-smoke.ts`.
 6. The ratchet, one flag per project: `noImplicitAny`, then `strictNullChecks`, then `strict`.
 

@@ -32,13 +32,59 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ROOT } from '../src/hosts/node/root.js';
 
+/** The part of a package-lock.json entry this reads. */
+interface LockEntry {
+  name?: string;
+  version: string;
+  license?: string;
+  dev?: boolean;
+}
+
+interface NpmPackage {
+  dir: string;
+  name: string;
+  version: string;
+  license?: string;
+}
+
+/** One row of the file, and the texts under it: what an npm package and a crate both come to. */
+interface Notice {
+  name: string;
+  version: string;
+  license?: string;
+  source: string;
+  texts: string[];
+}
+
+/** What `cargo metadata` answers, as far as this walks it. */
+interface CargoPackage {
+  id: string;
+  name: string;
+  version: string;
+  license?: string;
+  repository?: string;
+  manifest_path: string;
+}
+
+interface CargoNode {
+  id: string;
+  deps: { pkg: string; dep_kinds: { kind: string | null }[] }[];
+}
+
+interface CargoMetadata {
+  packages: CargoPackage[];
+  resolve: { root: string; nodes: CargoNode[] };
+}
+
 const OUT = path.join(ROOT, 'THIRD-PARTY-NOTICES.md');
 const TARGETS = ['aarch64-apple-darwin', 'x86_64-apple-darwin'];
 const LICENSE_FILE = /^(licen[cs]e|copying|notice|unlicense)/i;
 
 /** Every non-dev package in package-lock.json, as `{ dir, name, version, license }`. */
-function npmPackages(root = ROOT) {
-  const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+function npmPackages(root = ROOT): NpmPackage[] {
+  const lock: { packages: Record<string, LockEntry> } = JSON.parse(
+    fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'),
+  );
   return Object.entries(lock.packages)
     .filter(([dir, e]) => dir && !e.dev)
     .map(([dir, e]) => ({
@@ -50,7 +96,7 @@ function npmPackages(root = ROOT) {
 }
 
 /** Every crate in shell/Cargo.lock but the shell itself, as `name@version`. */
-function cargoLocked(root = ROOT) {
+function cargoLocked(root = ROOT): string[] {
   const lock = fs.readFileSync(path.join(root, 'shell', 'Cargo.lock'), 'utf8');
   return [...lock.matchAll(/\[\[package\]\]\nname = "([^"]+)"\nversion = "([^"]+)"/g)]
     .filter(([, name]) => name !== 'redline')
@@ -63,15 +109,15 @@ function cargoLocked(root = ROOT) {
  * question and asking it needs cargo; a Windows-only crate changing makes this
  * stale for nothing, and regenerating is one command.
  */
-export function inputsDigest(root = ROOT) {
+export function inputsDigest(root = ROOT): string {
   const npm = npmPackages(root).map((p) => `${p.name}@${p.version}`);
   const list = [...npm.sort(), '--', ...cargoLocked(root).sort()].join('\n');
   return crypto.createHash('sha256').update(list).digest('hex');
 }
 
 /** The texts of the license files in a package's folder; none where it ships none. */
-function licenseTexts(dir) {
-  let names;
+function licenseTexts(dir: string): string[] {
+  let names: string[];
   try {
     names = fs.readdirSync(dir).filter((n) => LICENSE_FILE.test(n)).sort();
   } catch {
@@ -82,7 +128,7 @@ function licenseTexts(dir) {
     .map((n) => fs.readFileSync(path.join(dir, n), 'utf8').trim());
 }
 
-function npmEntries() {
+function npmEntries(): Notice[] {
   return npmPackages().map((p) => {
     let source = `https://www.npmjs.com/package/${p.name}/v/${p.version}`;
     try {
@@ -94,20 +140,20 @@ function npmEntries() {
   });
 }
 
-function cargoEntries() {
-  const found = new Map();
+function cargoEntries(): Notice[] {
+  const found = new Map<string, Notice>();
   for (const target of TARGETS) {
-    const meta = JSON.parse(
+    const meta: CargoMetadata = JSON.parse(
       execFileSync(
         'cargo',
         ['metadata', '--locked', '--format-version', '1', '--filter-platform', target],
-        { cwd: path.join(ROOT, 'shell'), maxBuffer: 64 << 20 },
+        { cwd: path.join(ROOT, 'shell'), maxBuffer: 64 << 20, encoding: 'utf8' },
       ),
     );
-    const byId = new Map(meta.packages.map((p) => [p.id, p]));
-    const nodes = new Map(meta.resolve.nodes.map((n) => [n.id, n]));
+    const byId = new Map(meta.packages.map((p): [string, CargoPackage] => [p.id, p]));
+    const nodes = new Map(meta.resolve.nodes.map((n): [string, CargoNode] => [n.id, n]));
     const todo = [meta.resolve.root];
-    const seen = new Set();
+    const seen = new Set<string>();
     while (todo.length) {
       const id = todo.pop();
       if (seen.has(id)) continue;
@@ -131,11 +177,12 @@ function cargoEntries() {
   return [...found.values()];
 }
 
-const byName = (a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version);
+const byName = (a: Notice, b: Notice): number =>
+  a.name.localeCompare(b.name) || a.version.localeCompare(b.version);
 
-function render(npm, cargo) {
-  const out = [];
-  const line = (s = '') => out.push(s);
+function render(npm: Notice[], cargo: Notice[]): string {
+  const out: string[] = [];
+  const line = (s = ''): number => out.push(s);
   line('# Third-party notices');
   line();
   line('Redline is Apache-2.0 (see `LICENSE` and `NOTICE`). The desktop app and the page');
@@ -152,10 +199,11 @@ function render(npm, cargo) {
   line('that a recipient be told where the source is. **DOMPurify** is offered as');
   line('MPL-2.0 OR Apache-2.0; Redline takes it under Apache-2.0.');
 
-  for (const [title, list] of [
+  const sections: [string, Notice[]][] = [
     ['The page (npm)', npm],
     ['The desktop shell (Rust crates)', cargo],
-  ]) {
+  ];
+  for (const [title, list] of sections) {
     line();
     line(`## ${title}`);
     line();
@@ -174,8 +222,8 @@ function render(npm, cargo) {
   // in indentation and line endings and in nothing a reader would call a
   // difference. Printing each once is the difference between a file a person
   // could read and one nobody would.
-  const texts = new Map();
-  const missing = [];
+  const texts = new Map<string, { text: string; who: string[] }>();
+  const missing: Notice[] = [];
   for (const p of [...npm, ...cargo]) {
     if (!p.texts.length) missing.push(p);
     for (const text of p.texts) {

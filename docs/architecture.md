@@ -8,7 +8,7 @@ the test) goes through `tsc` into `out/` first; what esbuild bundles is `src/` a
 and what the page runs is `public/` as written. The only dependencies that reach the page are
 vendored as they ship (`highlight.js` themes, `mermaid`), and `github-markdown-css` with
 its two palettes re-keyed from the system's scheme to the page's by `build:web`
-(`scripts/markdown-css.mjs`) and nothing else changed.
+(`scripts/markdown-css.mts`) and nothing else changed.
 
 **One reader, three shells.** Everything that decides what a document is — the
 renderer, the diff, the snapshot store, the git import — runs in whichever
@@ -21,7 +21,7 @@ What differs between them is one adapter apiece, and nothing above them knows wh
 one it has.
 
 ```
-bin/redline.js          CLI: parse flags, start the server, open a browser
+bin/redline.ts          CLI: parse flags, start the server, open a browser
 out/                    tsc's output: what every npm script runs. Gitignored
 
 src/contract/           types only: the payload, the events, the two surfaces; imports only itself
@@ -68,7 +68,7 @@ src/hosts/web/          the web app's shell: no server, no node, files in Indexe
   backend.ts            the page's end of it: finds the worker, names it for the build, pings it,
                         asks for permission
   welcome.ts            the empty state: a file, a drop, the limits, a grant to ask for again
-  host.js               the shim that makes a page the web app's; `stage-page.mjs` puts it over
+  host.js               the shim that makes a page the web app's; `stage-page.mts` puts it over
                         `public/host.js`, with the build's version after it
 
 public/host.js          a classic script, first in the head, empty here; a host's own shim
@@ -85,17 +85,17 @@ shell/src/cmds.rs       what the page may ask of the shell
 shell/src/host.rs       what the page may ask of the disk, and what it may not
 shell/src/prefs.rs      window.json: bounds, session, recent, settings
 
-scripts/build-web.mjs   src/ -> public/vendor/, for a page with no node
-scripts/markdown-css.mjs  github-markdown-css, its palette keyed to the page's scheme
-scripts/stage-page.mjs  the page for a host with no server: public/, the vendored CSS, Mermaid,
+scripts/build-web.mts   src/ -> public/vendor/, for a page with no node
+scripts/markdown-css.mts  github-markdown-css, its palette keyed to the page's scheme
+scripts/stage-page.mts  the page for a host with no server: public/, the vendored CSS, Mermaid,
                         the icon, and that host's own bundles and shim
-scripts/build-dist.mjs  stage shell/dist: `stagePage` for the desktop app
-scripts/build-webapp.mjs  stage dist/web, and write `_headers`: `stagePage` for the web
-scripts/serve-webapp.mjs  serve dist/web as a static host will, headers and all
-scripts/make-icons.mjs  icon.svg -> icon.png, icon.icns
-scripts/bundle.mjs      .app and .dmg
-scripts/build-site.mjs  stage site/: the icon, and the one image it names
-scripts/serve-site.mjs  serve site/ over node, so a module script loads at all
+scripts/build-dist.mts  stage shell/dist: `stagePage` for the desktop app
+scripts/build-webapp.mts  stage dist/web, and write `_headers`: `stagePage` for the web
+scripts/serve-webapp.mts  serve dist/web as a static host will, headers and all
+scripts/make-icons.mts  icon.svg -> icon.png, icon.icns
+scripts/bundle.mts      .app and .dmg
+scripts/build-site.mts  stage site/: the icon, and the one image it names
+scripts/serve-site.mts  serve site/ over node, so a module script loads at all
 test-smoke.js           the whole test suite
 
 site/                   the landing page. Nothing above it knows it exists
@@ -631,13 +631,13 @@ its connection on `versionchange`. The page learns the build from the shim the b
 
 ### Staging the page, and the web app's build
 
-`scripts/stage-page.mjs` is `stagePage(dest, { host })`: `public/`, the vendored CSS, Mermaid's
+`scripts/stage-page.mts` is `stagePage(dest, { host })`: `public/`, the vendored CSS, Mermaid's
 minified ESM tree and the icon, laid out the way the CLI's server routes them, so that the page's
 relative `vendor/...` links hold unchanged. Two things are the host's: the bundles it loads (the
 desktop app's `backend-tauri.js`, the web app's `backend-web.js` and `reader-worker.js`) and the
 shim over `public/host.js`. `build:web` writes every host's bundles into `public/vendor/` and
-`public/` is copied whole, so each host leaves out the others'. `build-dist.mjs` and
-`build-webapp.mjs` are one call each.
+`public/` is copied whole, so each host leaves out the others'. `build-dist.mts` and
+`build-webapp.mts` are one call each.
 
 - **The shim** is `src/hosts/web/host.js` with one line added, `__REDLINE_VERSION`: the version
   from `package.json` and a hash of the staged web bundles, `0.7.0+3fa9c2d1e0b4`. Only the staged
@@ -660,11 +660,11 @@ shim over `public/host.js`. `build:web` writes every host's bundles into `public
   staged file, the version and the shim, taken before anything is rewritten, so that one id covers
   the page and a cycle of imports has no order to be resolved in. `_headers` then says
   `Cache-Control: public, max-age=31536000, immutable` for every top-level path but `index.html`
-  (`heldPaths` in `build-webapp.mjs`), and `no-cache` for `/` and `/index.html`, which is what a
+  (`heldPaths` in `build-webapp.mts`), and `no-cache` for `/` and `/index.html`, which is what a
   release is found through. Mermaid's chunks are asked for with no query and held by name, which
   is safe because each name is a hash of its content (a test reads the staged tree and fails on
   one that is not). The desktop app, whose page is in the binary, and the CLI, whose server
-  sends no-cache, are not given a `?v=` (`versioned` in `stage-page.mjs`'s host table). The
+  sends no-cache, are not given a `?v=` (`versioned` in `stage-page.mts`'s host table). The
   cost of the scheme is a rule: a file in `public/` asked for under a name with no `?v=` would
   be held for a year under a name that never changes.
 - **`npm run webapp`** serves `dist/web/` on `127.0.0.1` and answers with `_headers`' `/*` rule
@@ -859,9 +859,9 @@ file.
   the compiler is what fails when they disagree. It compiles what node runs into `out/`
   and never into `src/`. The two page build steps exist because the app's page has no
   node to import from and no server to fetch from, and they are not a second compile of
-  anything: `build-web.mjs` bundles `src/` as it is, and `stage-page.mjs` only copies.
+  anything: `build-web.mts` bundles `src/` as it is, and `stage-page.mts` only copies.
   The one rewrite is github-markdown-css's palette, keyed to the page's scheme
-  (`markdown-css.mjs`). [typescript.md](typescript.md) has the layout.
+  (`markdown-css.mts`). [typescript.md](typescript.md) has the layout.
 - One stylesheet, custom properties at the top, sections in the same order as
   `index.html`.
 - An author `display` beats the browser's own `[hidden] { display: none }` whatever

@@ -64,10 +64,10 @@ const appArgs = argv.filter((a) => a !== '--no-watch');
  * Run a build step. Quiet once the window is up: the size report each of them
  * prints is worth reading on the first pass and is noise on the fiftieth.
  *
- * @returns {boolean} Whether it succeeded — a failed stage leaves the last good
+ * @returns Whether it succeeded — a failed stage leaves the last good
  *   one on disk, so the answer is whether ⌘R is worth pressing.
  */
-const build = (script, quiet) => {
+const build = (script: string, quiet: boolean): boolean => {
   const r = spawnSync('node', [path.join('out', 'scripts', script)], {
     cwd: ROOT,
     stdio: quiet ? ['ignore', 'ignore', 'inherit'] : 'inherit',
@@ -75,7 +75,7 @@ const build = (script, quiet) => {
   return r.status === 0;
 };
 
-const stage = (quiet, web = true) =>
+const stage = (quiet: boolean, web = true): boolean =>
   (web ? build('build-web.mjs', quiet) : true) && build('build-dist.mjs', quiet);
 
 // Staged before the window opens rather than from a `predev` hook, for the same
@@ -95,7 +95,7 @@ if (watching) {
   let pending = null;
   let touchedSrc = false;
 
-  const changed = (src) => (_event, file) => {
+  const changed = (src: boolean) => (_event: string, file: string | null): void => {
     // public/vendor/ is what build:web just wrote, not something anyone edits.
     // Without this a src/ change restages twice: once for the source, once for
     // the bundle the first pass produced.
@@ -140,7 +140,7 @@ if (watching) {
 // directory before it refills it, so the pair race, and the loser dies on
 // EEXIST or ENOENT somewhere inside the mermaid tree. That is a real five
 // minutes lost to a stray process, found by leaving one.
-for (const sig of ['SIGINT', 'SIGTERM']) {
+for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     tauri.kill(sig);
     // A child that has not taken the hint gets no third chance: there is

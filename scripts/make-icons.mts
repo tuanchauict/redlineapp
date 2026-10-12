@@ -17,7 +17,7 @@ const SVG = path.join(ROOT, 'assets', 'icon.svg');
 // Every size .icns carries, as the four-character type macOS files it under.
 // Sizes repeat because a 512px image is both "512" and "256 at 2x", and the
 // system picks by type, not by measuring.
-const ICNS_SIZES = [
+const ICNS_SIZES: [string, number][] = [
   ['icp4', 16],
   ['ic11', 32],
   ['ic12', 64],
@@ -29,7 +29,7 @@ const ICNS_SIZES = [
   ['ic10', 1024],
 ];
 
-function render(size) {
+function render(size: number): Buffer {
   try {
     return execFileSync('rsvg-convert', ['-w', String(size), '-h', String(size), SVG], {
       maxBuffer: 64 << 20,
@@ -48,7 +48,7 @@ function render(size) {
  * the artwork happens to be fully opaque, as this one is. The container itself
  * is trivial: a magic word, a length, then one length-prefixed chunk per size.
  */
-function icns(entries) {
+function icns(entries: [string, Buffer][]): Buffer {
   const chunks = entries.map(([type, png]) => {
     const head = Buffer.alloc(8);
     head.write(type, 0, 'ascii');
@@ -66,6 +66,9 @@ const png1024 = render(1024);
 fs.writeFileSync(path.join(ROOT, 'assets', 'icon.png'), png1024);
 console.log('assets/icon.png');
 
-const entries = ICNS_SIZES.map(([type, size]) => [type, size === 1024 ? png1024 : render(size)]);
+const entries = ICNS_SIZES.map(([type, size]): [string, Buffer] => [
+  type,
+  size === 1024 ? png1024 : render(size),
+]);
 fs.writeFileSync(path.join(ROOT, 'assets', 'icon.icns'), icns(entries));
 console.log('assets/icon.icns');

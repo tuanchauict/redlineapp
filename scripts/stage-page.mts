@@ -14,9 +14,9 @@
 //
 //   index.html, app.js, backend.js, styles.css,  public/
 //   host.js                                      the host's own shim (see below)
-//   vendor/render.js, vendor/sanitize.js         built by build-web.mjs, for every host
-//   vendor/github-markdown.css                   the same (its palette keyed by markdown-css.mjs)
-//   vendor/backend-*.js, vendor/reader-worker.js built by build-web.mjs, *this host's only*
+//   vendor/render.js, vendor/sanitize.js         built by build-web.mts, for every host
+//   vendor/github-markdown.css                   the same (its palette keyed by markdown-css.mts)
+//   vendor/backend-*.js, vendor/reader-worker.js built by build-web.mts, *this host's only*
 //   vendor/hljs-*                                node_modules
 //   vendor/mermaid/                              node_modules (the minified ESM tree)
 //   icon.svg                                     assets/
@@ -30,6 +30,14 @@ import { createRequire } from 'node:module';
 import { ROOT } from '../src/hosts/node/root.js';
 
 const require = createRequire(import.meta.url);
+
+export type HostName = 'tauri' | 'web';
+
+interface HostSpec {
+  bundles: string[];
+  shim: string | null;
+  versioned: boolean;
+}
 
 /**
  * What differs between hosts.
@@ -45,7 +53,7 @@ const require = createRequire(import.meta.url);
  * web app, which the tests (12e) look for -- `public/host.js` is there either way, so the check
  * below would not notice.
  */
-export const HOSTS = {
+export const HOSTS: Record<HostName, HostSpec> = {
   tauri: { bundles: ['backend-tauri.js'], shim: null, versioned: false },
   web: {
     bundles: ['backend-web.js', 'reader-worker.js'],
@@ -77,7 +85,7 @@ const MERMAID_ENTRY = require.resolve('mermaid/dist/mermaid.esm.min.mjs');
 const MERMAID_CHUNKS = path.join(path.dirname(MERMAID_ENTRY), 'chunks', 'mermaid.esm.min');
 
 /** The version a build carries, from the one place it is written. */
-export const buildVersion = () =>
+export const buildVersion = (): string =>
   JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 
 /**
@@ -90,10 +98,10 @@ export const buildVersion = () =>
  * Not a guard against `src/` or `public/`, which are inside the repository and are not it: those
  * are for whoever picks the destination, and what picks them today is a literal.
  *
- * @param {string} out  Absolute.
- * @param {string} [root]  Default: this repository.
+ * @param out  Absolute.
+ * @param root  Default: this repository.
  */
-export function assertSafeDest(out, root = ROOT) {
+export function assertSafeDest(out: string, root = ROOT): void {
   const rel = path.relative(out, root);
   // `rel` is where the repository is, seen from `out`. Going up (`..`, `../..`) means `out` is
   // inside it or beside it; an absolute `rel` (another drive) means they are unrelated. Anything
@@ -110,9 +118,9 @@ export function assertSafeDest(out, root = ROOT) {
  * prefixed with its length, so that a byte moved from the end of one bundle to the start of the
  * next is a different build and not the same concatenation.
  *
- * @param {Buffer[]} buffers  In a fixed order.
+ * @param buffers  In a fixed order.
  */
-export function bundleHash(buffers) {
+export function bundleHash(buffers: Buffer[]): string {
   const h = crypto.createHash('sha256');
   for (const b of buffers) h.update(`${b.length}:`).update(b);
   return h.digest('hex').slice(0, 12);
@@ -128,12 +136,11 @@ export function bundleHash(buffers) {
  * order of the imports, and a cycle between two files has no such order. One id for all of them
  * is one more download for the files that did not change, once per release, and that is all.
  *
- * @param {string} dir
- * @param {string} [extra]  What is part of the build and is not in `dir` yet.
+ * @param extra  What is part of the build and is not in `dir` yet.
  */
-export function pageHash(dir, extra = '') {
+export function pageHash(dir: string, extra = ''): string {
   const h = crypto.createHash('sha256').update(`${extra.length}:${extra}`);
-  const walk = (rel) =>
+  const walk = (rel: string): string[] =>
     fs.readdirSync(path.join(dir, rel), { withFileTypes: true }).flatMap((e) => {
       const next = rel ? `${rel}/${e.name}` : e.name;
       return e.isDirectory() ? walk(next) : [next];
@@ -168,10 +175,10 @@ const MODULES = ['app.js', 'backend.js'];
  * `index.html` is the one file that is not versioned, because it is the one that says what the
  * version is: it is the file a browser has to ask about every time (`_headers` says so).
  *
- * @param {string} out  The staged page.
- * @param {string} version  From `pageHash`.
+ * @param out  The staged page.
+ * @param version  From `pageHash`.
  */
-function versionPage(out, version) {
+function versionPage(out: string, version: string): void {
   const query = `?v=${version}`;
 
   // A file of the page: not another site (`https:`), not the root of this one, not an anchor.
@@ -196,9 +203,15 @@ function versionPage(out, version) {
         return `${lead}${q}${specifier}${query}${q}`;
       },
     );
-    if (!n) throw new Error(`${file} has no imports to version -- stage-page.mjs is out of date`);
+    if (!n) throw new Error(`${file} has no imports to version -- stage-page.mts is out of date`);
     fs.writeFileSync(f, text);
   }
+}
+
+export interface StagedPage {
+  dest: string;
+  bytes: number;
+  version: string | null;
 }
 
 /**
@@ -206,12 +219,11 @@ function versionPage(out, version) {
  * being part of the page stops being shipped. Only ever what this wrote: `dest` is build output
  * and is not in the repository.
  *
- * @param {string} dest  Relative to the repository root, or absolute. Not the repository.
- * @param {{ host: keyof typeof HOSTS }} opts
- * @returns {{ dest: string, bytes: number, version: string|null }}  The absolute path, what is
- *   in it, and the `?v=` its files are asked for by: null for a host that does not version them.
+ * @param dest  Relative to the repository root, or absolute. Not the repository.
+ * @returns  The absolute path, what is in it, and the `?v=` its files are asked for by: null for
+ *   a host that does not version them.
  */
-export function stagePage(dest, { host }) {
+export function stagePage(dest: string, { host }: { host: HostName }): StagedPage {
   const spec = HOSTS[host];
   if (!spec) throw new Error(`stagePage: no host called ${host}`);
   const out = path.resolve(ROOT, dest);
@@ -288,7 +300,7 @@ export function stagePage(dest, { host }) {
   return { dest: out, bytes: size(out), version };
 }
 
-const size = (dir) =>
+const size = (dir: string): number =>
   fs
     .readdirSync(dir, { withFileTypes: true })
     .reduce(
@@ -299,4 +311,4 @@ const size = (dir) =>
     );
 
 /** `5.9 MB`, for the line a build prints when it is done. */
-export const megabytes = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+export const megabytes = (bytes: number): string => `${(bytes / 1024 / 1024).toFixed(1)} MB`;

@@ -167,7 +167,7 @@ jobs:
       - run: npm ci
 
       # Two steps for one command, because which of them runs is the whole of
-      # the difference and an `if:` says it in a line. `scripts/bundle.mjs`
+      # the difference and an `if:` says it in a line. `scripts/bundle.mts`
       # takes the identity from the environment and patches it over the ad hoc
       # `-` in tauri.conf.json; Tauri notarizes on its own once it finds the
       # credentials, and the script says at the end which of the two it did.

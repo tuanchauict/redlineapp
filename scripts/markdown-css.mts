@@ -25,10 +25,9 @@ const PALETTE = new RegExp(
 );
 
 /**
- * @param {string} css  github-markdown-css's `github-markdown.css`.
- * @returns {string}
+ * @param css  github-markdown-css's `github-markdown.css`.
  */
-export function keyToScheme(css) {
+export function keyToScheme(css: string): string {
   const seen = [];
   const out = css.replace(PALETTE, (_, scheme, body) => {
     seen.push(scheme);
@@ -41,7 +40,7 @@ export function keyToScheme(css) {
   if (seen.sort().join() !== 'dark,light' || out.includes('prefers-color-scheme')) {
     throw new Error(
       'github-markdown-css: expected one light and one dark palette behind ' +
-        `prefers-color-scheme, found ${seen.join(', ') || 'none'} (scripts/markdown-css.mjs)`,
+        `prefers-color-scheme, found ${seen.join(', ') || 'none'} (scripts/markdown-css.mts)`,
     );
   }
   return out;
