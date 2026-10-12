@@ -138,6 +138,39 @@ interface Reply {
   console.log('✓ the suite and every npm script run the compiled copy, compiled first');
 }
 
+// The ratchet only goes up. A flag that is on must not be switched off to make an error go away:
+// `tsc -b` would pass, and nothing else would say a project had got looser. This is a floor and
+// not a target, so it fails a step backwards and does not ask for a step forward: a project that
+// is not listed is not held to anything. A later PR adds one entry (a project and the flags it now
+// has on) and leaves the logic alone. A flag a project does not set falls back to `strict`, the
+// way tsc resolves it. Every project extends the base and nothing deeper, so one merge is enough.
+{
+  const FLOOR: Record<string, string[]> = { 'tsconfig.src.json': ['noImplicitAny'] };
+  const read = (f: string) => JSON.parse(fs.readFileSync(rootUrl(f), 'utf8')).compilerOptions;
+  for (const [project, flags] of Object.entries(FLOOR)) {
+    const options = { ...read('tsconfig.base.json'), ...read(project) };
+    for (const flag of flags) {
+      assert.strictEqual(
+        options[flag] ?? options.strict,
+        true,
+        `${project} must have ${flag} on: the ratchet only goes up`,
+      );
+    }
+  }
+  // A flag that is on does not mean the errors were fixed: a comment above the line would keep it
+  // on and hide the error. It reads the sources and not out/, which tsc has reprinted. The shim
+  // (a .d.ts) is walked too, since it is code a reader would take on trust.
+  const sources = fs
+    .readdirSync(rootUrl('src/'), { encoding: 'utf8', recursive: true })
+    .filter((f) => /\.ts$/.test(f));
+  assert.ok(sources.length > 0, 'there are sources under src/ to look at');
+  const hidden = sources.filter((f) =>
+    /@ts-(nocheck|ignore|expect-error)/.test(fs.readFileSync(rootUrl(`src/${f}`), 'utf8')),
+  );
+  assert.deepStrictEqual(hidden, [], 'no file under src/ turns the check off with a comment');
+  console.log('✓ the ratchet\'s flags are on, and no comment under src/ turns a check off');
+}
+
 // bin/ and scripts/ are TypeScript. A .js or .mjs left in either is compiled and never checked
 // (checkJs is off), and nothing else would say it was forgotten. The other half is that every
 // compiled path package.json hands to Node exists: scripts/ is .mts so that what it emits is
