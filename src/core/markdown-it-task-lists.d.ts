@@ -1,5 +1,5 @@
-// Types for `markdown-it-task-lists`, which ships none. No `@types` package exists for it, and a
-// new dependency for one call site was ruled out, so what `src/core/render.ts` uses of it is
+// Types for `markdown-it-task-lists`, which ships none and has none installed beside it. A new
+// dependency for one call site was ruled out, so what `src/core/render.ts` uses of it is
 // declared here. It is a plugin, so `md.use(taskLists, { label: true })` has to type-check against
 // markdown-it's own `PluginWithOptions`. A script file on purpose: a top-level `import` or
 // `export` would make this a module, and the `declare module` below an augmentation of one.

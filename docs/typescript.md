@@ -304,8 +304,8 @@ omit. The rest:
   (`__REDLINE_HOST`, `__REDLINE_VERSION`, `window.mdNative`).
 - `declare const` for what `lib.dom` has no name for (`SharedWorkerGlobalScope`).
 - `src/core/markdown-it-task-lists.d.ts` is a `declare module` for the one dependency that
-  ships no types and has no `@types` package. It is a script file (no top-level `import` or
-  `export`), so it declares the module rather than augmenting one. It is in `src/core/`
+  ships no types and has none installed beside it. It is a script file (no top-level `import`
+  or `export`), so it declares the module rather than augmenting one. It is in `src/core/`
   because the `src` project includes only `src/`, and it emits nothing.
 - Other casts exist in `src/` (for example `csp.ts:66`, `idb.ts:71`, `rpc/client.ts:63`,
   and `serve.ts:51` and `:55`), and four of them are worth saying why. Two are a timer's
