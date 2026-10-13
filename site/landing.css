@@ -217,6 +217,33 @@ kbd {
   background: color-mix(in srgb, var(--fg) 6%, transparent);
 }
 
+/* The web app is offered everywhere the download is, and is the smaller of the
+   two -- one file at a time, no git, no folders -- so each of its doors says it
+   is not finished. A tag rather than a word in the label, so the label still
+   reads as what the link does. Brand red, the colour the page draws attention
+   in, but tinted and not filled: it qualifies the link and must not outshout it. */
+.beta {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  color: var(--red);
+  font: 600 10px/1.6 var(--font-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: 0.15em;
+}
+
+.nav-links .beta {
+  margin-left: 3px;
+}
+
+h3 .beta {
+  margin-left: 6px;
+  vertical-align: 0.25em;
+}
+
 .nav-right {
   display: flex;
   align-items: center;
