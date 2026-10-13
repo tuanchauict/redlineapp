@@ -13,8 +13,9 @@ browser too ([Where your data lives](#where-your-data-lives)). The exception is 
 document itself asks for: an image a README links is loaded from where it is, as it is in the
 Mac app.
 
-To run it yourself, `npm run webapp` serves it on `http://127.0.0.1:8081`; see
-[Building and testing](building.md#the-web-app).
+It is at [app.redline.iamtuna.org](https://app.redline.iamtuna.org/), which the landing
+page links from its nav, its hero and its *Get it* section. To run it yourself, `npm run webapp`
+serves it on `http://127.0.0.1:8081`; see [Building and testing](building.md#the-web-app).
 
 ## Opening something
 
