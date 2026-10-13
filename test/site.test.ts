@@ -346,6 +346,10 @@ test('the landing page parses, is wired up, and deploys what it builds', async (
   // a fifth would push its control into the subtitle's track.
   assert.match(siteCss, /\.install \{[^}]*grid-template-rows: subgrid[^}]*grid-row: span 4/,
     'the get cards share their rows, so their buttons start on one line');
+  // And a column that can be narrower than the brew command, or the command's
+  // min-content is the card's and the pill runs out past the card's edge.
+  assert.match(siteCss, /\.install \{[^}]*grid-template-columns: minmax\(0, 1fr\)/,
+    'a get card is as wide as its column, not as its longest line');
   const cards = siteHtml.match(/<article class="install reveal">[\s\S]*?<\/article>/g) ?? [];
   assert.strictEqual(cards.length, 3, 'there are three ways to get it');
   for (const card of cards) {

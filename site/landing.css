@@ -1729,9 +1729,13 @@ kbd {
    note -- so the controls start on one line whichever card's subtitle wraps.
    Without it the download card's two-line subtitle sat its button lower than
    the other two. `row-gap: 0` because a subgrid inherits the row's 22px gap
-   between its own tracks, and the margins below already space them. */
+   between its own tracks, and the margins below already space them. And a
+   column that may shrink: the implicit one is `auto`, which grows to its widest
+   child's min-content -- the brew command, which never wraps -- and pushed the
+   copy pill out past the card's right edge. */
 .install {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: subgrid;
   grid-row: span 4;
   row-gap: 0;
