@@ -384,9 +384,35 @@ export function documentTitle(md: MarkdownIt, src: string, toc: Heading[]): stri
   return tops.length === 1 ? tops[0].text.trim() : '';
 }
 
+const VOID_TAGS = new Set([
+  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source',
+  'track', 'wbr',
+]);
+
+/**
+ * How many elements a run of raw HTML leaves open, starting from `depth` open already.
+ * A stray closing tag cannot close more than is open, so the count never goes below 0.
+ */
+function openAfter(html: string, depth: number) {
+  const tags = html.replace(/<!--[\s\S]*?-->/g, '').matchAll(/<(\/?)([a-zA-Z][\w-]*)[^>]*>/g);
+  for (const [tag, closing, name] of tags) {
+    if (VOID_TAGS.has(name.toLowerCase()) || tag.endsWith('/>')) continue;
+    depth = closing ? Math.max(0, depth - 1) : depth + 1;
+  }
+  return depth;
+}
+
 /**
  * Split a document into top-level blocks (paragraphs, headings, lists, code
  * fences, tables, blockquotes...). These are the units the diff works on.
+ *
+ * An HTML block that leaves an element open is one block with everything up to
+ * the HTML block that closes it. markdown-it ends a `<details><summary>…` block
+ * at the blank line before the markdown inside it, so on its own the opening tag
+ * is one block, the table it holds another and `</details>` a third. Wrapped in
+ * a change's `<div>`, the opening tag's `<details>` is closed by that `</div>`
+ * and the table lands outside it. Kept together, the element is rendered whole,
+ * and the cost is that an edit anywhere inside it marks all of it.
  *
  * Returns the source slices plus the parse `env`, which carries link reference
  * definitions so individual blocks still resolve `[x][ref]` when rendered alone.
@@ -396,11 +422,26 @@ export function splitBlocks(md: MarkdownIt, src: string): { blocks: Block[]; env
   const tokens = md.parse(src, env);
   const lines = src.split('\n');
   const blocks: Block[] = [];
+  // The block still open, and how many elements its HTML has left open.
+  let start = -1;
+  let depth = 0;
+  const push = (from: number, to: number) => {
+    const text = lines.slice(from, to).join('\n').replace(/\s+$/, '');
+    if (text.trim()) blocks.push({ text, line: from });
+  };
   for (const t of tokens) {
     if (t.level !== 0 || t.nesting === -1 || !t.map) continue;
-    const text = lines.slice(t.map[0], t.map[1]).join('\n').replace(/\s+$/, '');
-    if (text.trim()) blocks.push({ text, line: t.map[0] });
+    if (t.type === 'html_block') {
+      const was = depth;
+      depth = openAfter(t.content, depth);
+      if (!was && depth) start = t.map[0];
+    }
+    if (depth) continue;
+    push(start < 0 ? t.map[0] : start, t.map[1]);
+    start = -1;
   }
+  // Never closed: the browser nests the rest of the document inside it too.
+  if (start >= 0) push(start, lines.length);
   return { blocks, env };
 }
 
