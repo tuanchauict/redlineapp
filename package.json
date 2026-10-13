@@ -1,6 +1,6 @@
 {
   "name": "redline",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Minimal GitHub-style markdown reader with review-mode change highlighting and live reload",
   "license": "Apache-2.0",
   "author": "Tuan Chau",
@@ -31,6 +31,7 @@
     "dev": "npm run build:ts && node out/scripts/dev.mjs",
     "icons": "npm run build:ts && node out/scripts/make-icons.mjs",
     "notices": "npm run build:ts && node out/scripts/notices.mjs",
+    "bump": "npm run build:ts && node out/scripts/bump.mjs",
     "bundle": "npm run build:ts && node out/scripts/bundle.mjs",
     "lint": "eslint .",
     "pretest": "npm run build:web",
