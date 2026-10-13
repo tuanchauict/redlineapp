@@ -332,6 +332,29 @@ test('the landing page parses, is wired up, and deploys what it builds', async (
     (siteHtml.match(/href="https:\/\/app\.redline\.iamtuna\.org\/"/g) ?? []).length >= 3,
     'the web app is linked from the nav, the hero and the get section',
   );
+  // A box under the get cards said the snapshots live under ~/.redline, which
+  // stopped being true of every way in once the web app kept its history in the
+  // browser. Where the store is belongs to docs/history.md and docs/web-app.md.
+  assert.ok(!siteHtml.includes('~/.redline'), 'the page names no one place the history lives');
+  assert.ok(!/get-foot/.test(siteHtml + siteCss), 'and the box that did is gone');
+
+  // The hero's link is a ghost .btn, whose own height is the nav's 34px; beside
+  // the 44px copy pill and Get it it sat visibly short.
+  assert.match(siteCss, /\.cta \.btn \{[^}]*height: 44px/, 'the hero row is one height');
+  // The get section's cards line their controls up through a subgrid of four
+  // tracks, so each card has to be exactly the four children those tracks name;
+  // a fifth would push its control into the subtitle's track.
+  assert.match(siteCss, /\.install \{[^}]*grid-template-rows: subgrid[^}]*grid-row: span 4/,
+    'the get cards share their rows, so their buttons start on one line');
+  const cards = siteHtml.match(/<article class="install reveal">[\s\S]*?<\/article>/g) ?? [];
+  assert.strictEqual(cards.length, 3, 'there are three ways to get it');
+  for (const card of cards) {
+    const body = card
+      .replace(/^<article[^>]*>|<\/article>$/g, '')
+      .replace(/<svg[\s\S]*?<\/svg>/g, '');
+    const kids = body.match(/^\s{12}<(?!\/)[a-z0-9]+/gm) ?? [];
+    assert.strictEqual(kids.length, 4, `a get card is title, subtitle, control, note: ${kids}`);
+  }
 
   // And it quotes no count of its own parts. A strip of big numbers stood under
   // the hero saying 0 files written, 0 requests, 50 commits read in, 6 vendored
