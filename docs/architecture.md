@@ -395,6 +395,12 @@ Three consequences worth knowing if you are editing this:
   both at the top of a whole document and when the diff hands it over by itself,
   while a `---` from the middle of a file arrives with no closing fence and falls
   through to `hr`. See [reading](reading.md#the-header-block).
+- **An HTML block that leaves an element open is one block** with everything up to
+  the HTML block that closes it. markdown-it ends `<details><summary>…` at the blank
+  line before the markdown it holds, so split by tokens alone the opening tag, a table
+  inside and `</details>` are three blocks, and a change mark's `</div>` around the
+  first closes the `<details>` and leaves the table outside it. The price is that an
+  edit anywhere inside the element marks all of it.
 
 **A checked-off block that has since been edited is diffed against what was
 checked**, not the baseline. The reader cannot find that text, because splitting is

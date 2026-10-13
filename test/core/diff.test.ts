@@ -51,6 +51,34 @@ test('word-level diff inside changed blocks', async () => {
   assert.strictEqual((bridged.match(/class="w-add"/g) ?? []).length, 1, 'nearby edits merged into one mark');
 });
 
+// markdown-it ends `<details><summary>…` at the blank line before the markdown inside it, so a split
+// by tokens alone makes the opening tag, the table and `</details>` three blocks -- and a change
+// mark's `</div>` around the first closes the `<details>`, leaving the table outside it.
+test('an HTML element left open is one block with what it holds', () => {
+  const doc = (summary, cell) =>
+    `# T\n\n<details>\n<summary>${summary}</summary>\n\n| a | b |\n|---|---|\n| ${cell} | 2 |\n\n` +
+    '</details>\n\nend\n';
+  const cases = [
+    { name: 'summary and cell edited', before: doc('Click', '1'), after: doc('Click me', '3') },
+    { name: 'summary edited', before: doc('Click', '1'), after: doc('Click me', '1') },
+    { name: 'cell edited', before: doc('Click', '1'), after: doc('Click', '3') },
+    { name: 'added', before: '# T\n\nend\n', after: doc('Click', '1') },
+    { name: 'removed', before: doc('Click', '1'), after: '# T\n\nend\n' },
+  ];
+  for (const c of cases) {
+    const html = diffOf(c.before, c.after);
+    assert.strictEqual(unbalanced(html), null, `${c.name}: ${unbalanced(html)}`);
+    assert.match(html, /<details>[\s\S]*<table[\s\S]*<\/table>\s*<\/details>/,
+      `${c.name}: the table is inside the disclosure`);
+    assert.strictEqual((html.match(/data-chg=/g) ?? []).length, 1, `${c.name}: one change, not three`);
+  }
+
+  // Balanced on its own, it is still only itself, and an unrelated edit after it marks only that.
+  const closed = '<details><summary>x</summary>body</details>\n\n';
+  const html = diffOf(closed + 'old words here', closed + 'new words here');
+  assert.ok(!/<div class="chg[^>]*>(?:<button[\s\S]*?<\/button>)?<details>/.test(html), 'a closed element stands alone');
+});
+
 // The page carries an opened "before" across a rebuild by the key of the block it is in (`paint`
 // in public/app.js), so the disclosure has to sit directly in a keyed block, and the key has to be
 // the same each time the same change is rendered -- from the same text, with unrelated text moving
