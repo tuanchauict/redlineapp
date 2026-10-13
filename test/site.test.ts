@@ -332,6 +332,14 @@ test('the landing page parses, is wired up, and deploys what it builds', async (
     (siteHtml.match(/href="https:\/\/app\.redline\.iamtuna\.org\/"/g) ?? []).length >= 3,
     'the web app is linked from the nav, the hero and the get section',
   );
+  // It is a beta while it lacks what the Mac app has (docs/web-app.md, What is
+  // off), and each of those doors says so -- the nav's and the hero's on the link
+  // itself, the card's on its heading.
+  const beta = '<span class="beta">Beta</span>';
+  assert.match(siteHtml, new RegExp(`iamtuna\\.org/">Web app ${beta}</a>`), 'the nav says beta');
+  assert.ok(siteHtml.includes(`Try it in the browser ${beta}</a`), 'and the hero');
+  assert.ok(siteHtml.includes(`in a browser ${beta}</h3>`), 'and the get card');
+  assert.match(siteCss, /\.beta \{/, 'and the mark is drawn');
   // A box under the get cards said the snapshots live under ~/.redline, which
   // stopped being true of every way in once the web app kept its history in the
   // browser. Where the store is belongs to docs/history.md and docs/web-app.md.

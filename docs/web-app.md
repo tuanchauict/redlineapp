@@ -14,7 +14,8 @@ document itself asks for: an image a README links is loaded from where it is, as
 Mac app.
 
 It is at [app.redline.iamtuna.org](https://app.redline.iamtuna.org/), which the landing
-page links from its nav, its hero and its *Get it* section. To run it yourself, `npm run webapp`
+page links from its nav, its hero and its *Get it* section, each marked **Beta** for as long
+as [What is off](#what-is-off) is not empty. To run it yourself, `npm run webapp`
 serves it on `http://127.0.0.1:8081`; see [Building and testing](building.md#the-web-app).
 
 ## Opening something
