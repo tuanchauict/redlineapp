@@ -1725,7 +1725,16 @@ kbd {
   gap: 22px;
 }
 
+/* Each card is a subgrid of four of the row's tracks -- title, subtitle, control,
+   note -- so the controls start on one line whichever card's subtitle wraps.
+   Without it the download card's two-line subtitle sat its button lower than
+   the other two. `row-gap: 0` because a subgrid inherits the row's 22px gap
+   between its own tracks, and the margins below already space them. */
 .install {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 4;
+  row-gap: 0;
   padding: 28px;
   border: 1px solid var(--line-soft);
   border-radius: var(--radius);
@@ -1750,12 +1759,15 @@ kbd {
 /* Full width so the cards balance: the Homebrew card is a copy button that
    stretches, and a download button hugging its text would read as the lesser of
    them when it is the one most people want. The web app's button is the same
-   shape, ghosted, because it is the smaller of the two apps. */
+   shape, ghosted, because it is the smaller of the two apps. A minimum and not a
+   height: a grid item stretches to its track, which the taller copy pill sets,
+   so all three controls are one height as well as on one line. */
 .btn-dl {
   display: flex;
   justify-content: center;
   width: 100%;
-  height: 48px;
+  height: auto;
+  min-height: 48px;
   font-size: 15px;
   border-radius: 10px;
 }
