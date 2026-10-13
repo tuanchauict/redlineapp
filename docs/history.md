@@ -140,6 +140,9 @@ Outside your project, in `~/.redline`:
   plantuml.jar          optional, picked up automatically if you drop one here
 ```
 
+The shape of one `docs/<hash>.json` is `Index` in `src/reader/store.ts`. What a newer build
+added to it is optional there, because an index an older one wrote has to read.
+
 History is capped at 100 versions per file, and unreferenced objects are pruned on
 startup and after a clean-up — except any younger than ten minutes, which may be a
 version another window has written and not yet filed. Set `REDLINE_HOME` to move the store elsewhere.

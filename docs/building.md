@@ -2,8 +2,9 @@
 
 ```
 npm install
-npm start -- sample.md       # a browser tab: node, no build step
+npm start -- sample.md       # a browser tab: compiled, bundled, served
 npm test
+npm run lint                 # ESLint, as CI runs it
 
 rustup toolchain install stable   # once, for the native window
 npm run app -- sample.md     # the native window
@@ -11,30 +12,39 @@ npm run dev -- sample.md     # the same window, page reloadable without a recomp
 npm run webapp               # the web app, built and served on 127.0.0.1:8081
 ```
 
-For the browser there is no build step worth the name: `src/` and `public/` run as
-they are, and `prestart` only writes the two generated files below. The native
-window is a Rust binary, so it needs a toolchain — [rustup](https://rustup.rs) — and
-the first compile takes a few minutes. After that it is seconds.
+For the browser the build is short: `tsc -b` compiles what node runs into `out/` and
+`public/backend.ts` beside its source, and type-checks the rest of the page (a no-op when
+nothing changed); `prestart` bundles `src/` for the page and then the page itself, `public/app/`
+into `public/app.js`; and `public/` runs as those left it. The native window is a Rust
+binary, so it needs a toolchain — [rustup](https://rustup.rs) — and the first compile takes a
+few minutes. After that it is seconds.
 
 ## What is generated
 
-Three commands, and the reason to know about the first two is that the app **embeds**
-its copy of the page at compile time. A change to `public/` that has not been through
-both is a change that is not in the window, which looks exactly like the change not
-working.
+Four commands, and the reason to know about `build:web` and `build:dist` is that the app
+**embeds** its copy of the page at compile time. A change to `public/` that has not been
+through both is a change that is not in the window, which looks exactly like the change
+not working. The copy is the *bundled* page, `public/app.js` and not the `public/app/` it is
+bundled from: `build:web` writes it and `build:dist` stages what it finds, and `tsc` comes
+before both, so each of them runs it.
 
 | | |
 | --- | --- |
-| `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mjs`, which stops the build if a release moves the palettes) |
-| `npm run build:dist` | Stages `shell/dist`: `public/`, the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
+| `npm run build:ts` | `tsc -b`, behind `bootstrap/heal-page-build.mjs`, which has the page rebuilt if a branch switch deleted `public/backend.js` or `site/landing.js` (`tsc -b` alone says "up to date" and writes nothing). It compiles `bin/`, `scripts/`, `src/` and the test into `out/`, which mirrors the repository (`out/src/core/diff.js`, `out/scripts/build-web.mjs`). Gitignored, and what every npm script runs; every other build command runs it first. It also compiles `public/backend.ts` and `site/landing.ts`, **in place**: the `.js` beside each is gitignored and is what the server serves and the commands below stage. The rest of the page, `public/app/`, it only **type-checks** (`tsconfig.app.json`, `noEmit`): a type error stops the build here, and `app.js` is written by `build:web`. See [TypeScript](typescript.md) |
+| `npm run build:web` | Bundles `src/` into `public/vendor/render.js`, `public/vendor/sanitize.js`, `public/vendor/backend-tauri.js`, `public/vendor/backend-web.js` and `public/vendor/reader-worker.js` — the renderer, DOMPurify, the reader, and the web app's page end and worker, for a page that has no node to import them from. Then it bundles the page itself, `public/app/main.ts`, into `public/app.js`, the one file `index.html` loads: what the page imports by package name (Preact, its signals, the JSX runtime) goes in, and the renderer, DOMPurify, the backend and Mermaid stay the separate files they were, so `app.js` imports the same four whatever its source is split into. It is **not minified**, so that a stack trace in the webview names the function it is in. And it writes `public/vendor/github-markdown.css`: github-markdown-css with its dark palette keyed to the page's `data-scheme` rather than the system's, so that the Appearance setting reaches the document in a browser tab (`scripts/markdown-css.mts`, which stops the build if a release moves the palettes) |
+| `npm run build:dist` | Stages `shell/dist`: `public/` (the bundled `app.js` and the compiled `backend.js`, not the `.ts`), the vendored CSS, the mermaid ESM tree, the icon. This is what `tauri.conf.json` names as the front end. The two web bundles are left out: the app has no use for them, and they would be bytes it only carries |
 | `npm run build:webapp` | Stages `dist/web`, the web app: the same page, with the web bundles in and the Tauri backend left out, the web app's `host.js` over the empty one, every file asked for as `?v=<build>`, and a `_headers` file that says what to keep for a year. See [The web app](#the-web-app) |
 
 `npm run app`, `npm run dev`, `npm run bundle`, `npm run webapp` and `npm test` each run
-the ones they need, so the only time to reach for them by hand is after editing `src/` with a
-window already open — and `npm run dev` re-runs them for you on every edit, which is
-[the point of it](#the-dev-loop).
+the ones they need, so the only time to reach for them by hand is after editing `src/` or
+`public/` with a window already open — and `npm run dev` re-runs them for you on every edit,
+which is [the point of it](#the-dev-loop). One exception: `npm run dev` compiles `out/` once,
+when it starts, and then `tsc -b --watch` keeps it current, so the scripts it re-runs are the
+ones just saved. `dev.mts` itself is not one of them: it is already running. With `--no-watch`
+there is no `tsc` and no restage, and a change to `scripts/` or `src/hosts/node/` waits for
+the next `npm run build:ts`.
 
-`build:dist` and `build:webapp` are both `stagePage` in `scripts/stage-page.mjs`, called
+`build:dist` and `build:webapp` are both `stagePage` in `scripts/stage-page.mts`, called
 for a different host: it is the one place that knows what goes into a page and what only
 one host's page gets. A new host is a row in its `HOSTS` table and one more call.
 
@@ -77,7 +87,7 @@ count as one without a certificate.
   is an error rather than a step to the next, unlike `npm run site`: a server that moved
   quietly would open an app with no history in it, which looks like data lost. Pick another
   with `-p` and it is a choice.
-- **`_headers`** is generated from `src/core/csp.js`, the same list the CLI's server and the
+- **`_headers`** is generated from `src/core/csp.ts`, the same list the CLI's server and the
   Tauri config are compared with: the CLI's policy with the head script's hash, plus
   `worker-src 'self'`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`,
   as one rule for every path. The hash is of the head script in the *staged* `index.html`, so
@@ -90,27 +100,27 @@ count as one without a certificate.
   the browser asks about it every time and is told *not modified* until there is a release. A
   release is then seen on the next load, in one request, and a file the browser has is not
   fetched again. The id is a hash of every staged file and of the version (`pageHash` in
-  `stage-page.mjs`, 12 hex): a rebuild that changed nothing is the same id, and a change to
+  `stage-page.mts`, 12 hex): a rebuild that changed nothing is the same id, and a change to
   anything is a new one, for every file. One id for the page and not one per file, because a
   file that imports another has the other's id in its own text, and two that import each other
   have no order to work it out in.
   - **A query is not inherited.** `app.js?v=…` imports `./backend.js`, and a browser asks for
     exactly that, with no query. So the staged `app.js` and `backend.js` have it written into
-    their imports (`MODULES` in `stage-page.mjs`; a build that finds none to write fails, since
+    their imports (`MODULES` in `stage-page.mts`; a build that finds none to write fails, since
     the file has changed shape), and the worker's URL takes its query from its own bundle's
-    (`sibling` in `hosts/web/backend.js`). The bundles import nothing by a path of their own,
+    (`sibling` in `hosts/web/backend.ts`). The bundles import nothing by a path of their own,
     and a test (12e) reads every staged module and fails on one that does.
   - **Mermaid's chunks have no query**, and are held all the same: each is named for a hash of
     what is in it (`chunk-S4TE5DX6.mjs`), so its name is already its version.
   - **What is held is every path at the top but `index.html`** (`heldPaths` in
-    `build-webapp.mjs`). A file added to `public/` and fetched by a name of its own, with no
+    `build-webapp.mts`). A file added to `public/` and fetched by a name of its own, with no
     `?v=`, would be held for a year under a name that never changes; ask for it as the page
     asks for the rest.
   - **Only the web app.** The desktop app has its page inside the binary, and the CLI's server
     holds nothing. `npm run webapp` serves the same URLs and still says `no-store` on each, so
     a round of edits is never a stale one.
 - **The worker is named for the build**, `redline@<version>+<hash>`: the shim that
-  `stage-page.mjs` stages puts `package.json`'s version and a hash of the two staged bundles
+  `stage-page.mts` stages puts `package.json`'s version and a hash of the two staged bundles
   (`vendor/backend-web.js` and `vendor/reader-worker.js`, sha256, 12 hex) on the window, and the
   page reads it. A SharedWorker is found by URL and name, so without that a deploy leaves new
   pages joining the old reader that an old tab keeps alive. The hash is there because the
@@ -200,8 +210,8 @@ M-series laptop, with everything warm:
 
 | | |
 | --- | --- |
-| `npm start` | no compile at all. The browser tab is `src/` and `public/` as they are |
-| `npm run app` | **~3 s** — `build:web` and `build:dist` are two tenths of it, a cargo dev build is the rest. Every page edit pays it, because the page is *in* the binary |
+| `npm start` | **~0.4 s** (timed on a busy machine, load average 2.8 to 3.6) when nothing has changed: `prestart` runs `build:web`, which runs `tsc -b` and then bundles `src/` and the page. The browser tab is `public/` as those left it |
+| `npm run app` | **~3 s**, an earlier total that has not been re-timed since the page became TypeScript, or since it began to be bundled. `build:web` and `build:dist` are about 0.4 s each of it, timed on the same busy machine (about half of each is `npm run build:ts` finding nothing to do); a cargo dev build is the rest. Every page edit pays it, because the page is *in* the binary |
 | `npm run bundle` | **~40 s of compile** before it even starts bundling, and then a dmg. `opt-level = "z"` with LTO and one codegen unit means an edit anywhere re-optimizes everything |
 
 So the bundle is for shipping, and CI is where it belongs. Three seconds is not
@@ -217,14 +227,23 @@ npm run dev -- --no-watch    # stage once and leave it alone
 It runs `tauri dev` rather than `cargo run`. With `frontendDist` and no `devUrl`,
 Tauri starts a static server of its own over `shell/dist` (port 1430) and points
 the window at that instead of embedding it — so the page is a file on disk again,
-and **⌘R picks up an edit with no compile**. `scripts/dev.mjs` adds the restaging:
-a watch on `public/` and `src/` that re-runs the two build steps. Rust is still a
-recompile, but `tauri dev` watches for that itself and restarts the app.
+and **⌘R picks up an edit with no relink**. `scripts/dev.mts` adds the restaging:
+a watch on `public/` and `src/` that re-runs the two build steps. `public/backend.ts` is
+TypeScript and the window loads a staged copy of what `tsc` emits beside it, so
+`tsc -b --watch` runs too, and the restage follows its emit rather than the edit to a `.ts`
+in `public/` (which would stage the previous compile, then stage again). `tsc` emits through a
+type error, so a mistake is a message in that terminal and the window still updates. Rust is
+still a recompile, but `tauri dev` watches for that itself and restarts the app.
+
+`tsc` writes nothing for `public/app/`, though: `app.js` comes from `build:web`. So the watch
+treats **an edit under `public/app/` as an edit to `src/`**: it reruns `build:web`, which
+bundles the page, and then stages. The `app.js` that writes (and its map) is skipped, as
+`public/vendor/` is, or one edit would restage twice.
 
 That this works at all rests on `shell/dist` being **gitignored**, because Tauri's
 watcher honours gitignore and would otherwise see every restage as a reason to
 rebuild the Rust — which is the cost the whole exercise exists to avoid. If a page
-edit ever starts recompiling, that is the rule that broke; `test-smoke.js` asserts
+edit ever starts recompiling, that is the rule that broke; `test/ci.test.ts` asserts
 it.
 
 Two things differ from the app you ship, and the first one catches everybody:
@@ -245,8 +264,10 @@ watchers staging into it race and the loser dies somewhere inside the mermaid
 tree — and the app's single-instance lock makes a second window pointless anyway.
 
 For work that is only `public/`, `npm start` is still the better loop: no cargo in
-the picture, and devtools that are not WebKit's inspector bolted to a webview.
-`npm run dev` earns its keep on the page code that only exists in the window — the
+the picture, and devtools that are not WebKit's inspector bolted to a webview. It does not
+watch, so an edit to `public/app/` reaches the tab after `npm run build:web` and a reload, and
+one to `public/backend.ts` after `npm run build:ts` (or an `npx tsc -b --watch` in another
+terminal). `npm run dev` earns its keep on the page code that only exists in the window — the
 drag-region toolbar, the tab strip, the menu wiring, the drop overlay.
 
 ## Tests
@@ -255,10 +276,32 @@ drag-region toolbar, the tab strip, the menu wiring, the drop overlay.
 npm test
 ```
 
-One file, `test-smoke.js`, run by `node` with no test framework. It boots the real
-server on a temp file under a temp `REDLINE_HOME`, edits the file, and asserts on
-what comes back over HTTP — so a passing run means the thing actually works end to
-end, not that its units agree with their mocks.
+A file per topic under `test/`, on Node's own `node:test` and nothing else. `pretest` compiles
+them into `out/test/` with the rest of the node project, and `npm test` is
+`node --test --test-force-exit "out/test/**/*.test.js"`, which runs each file in a process of
+its own and the files side by side. They are type-checked like the code they test, so a type
+error in one stops `pretest`'s `tsc -b` and `npm test` fails before it has run anything.
+
+| Where | What |
+| --- | --- |
+| `test/core/` | the diff, front matter, paths, links: the pure layer, called directly |
+| `test/reader/` | the store, check-offs, and a reader that never spawns a process |
+| `test/server/` | a real server on a temp file: reading, versions, git, documents, assets |
+| `test/page/` | the page's wiring and its helpers run in a `vm`, panel by panel |
+| `test/web/` | the web app: its platform, its reader, its build, and the docs it ships with |
+| `test/*.test.ts` | the CLI as a process, layers, security, CI, release, the shell, the landing page, the repository |
+| `test/support.ts` | what more than one file needs; the one file here that is not a test |
+
+A file is its own process, so nothing in `support.ts` is state: `scratch()` gives a file its own
+temporary directory and `REDLINE_HOME`, and `serve()` a server on a port of its own, both torn
+down by `after` when the file is done. `--test-force-exit` is there because a reader keeps a
+watch open, and a file whose tests have all passed should not wait for one to be let go of.
+File lookups go through `rootUrl`, from the repository root, so the compiled copy greps the
+same source the original does. The files that boot the real server edit a file under a temp
+`REDLINE_HOME` and assert on what comes back over HTTP — so a passing run means the thing
+actually works end to end, not that its units agree with their mocks. `test/repo.test.ts`
+holds the suite to that shape: every file under `test/` is `support.ts` or a `*.test.ts`, and
+nothing hands node a `.ts` to run.
 
 What it covers: the first clean render; static assets including the mermaid bundle;
 the block diff and the word diff inside a changed block (including that the HTML it
@@ -274,11 +317,41 @@ name is migrated; and that the server refuses a rebound `Host` or another site's
 request, and serves the page with its CSP; that `LICENSE` is the Apache text to the
 byte, the bundle carries it with `NOTICE` and the third-party notices, and those
 notices are current with both lockfiles; and that the bundle identifier is still
-`com.redline.reader`, which everything the app remembers is filed under.
+`com.redline.reader`, which everything the app remembers is filed under. Run whole: History's
+rows, menu and Forget; find through its bar; the link peek; which file a row or a link opens;
+the document's load, its failures, a reload that keeps what was opened, and the watch; the RPC
+client over a fake transport; the reader's watcher over a save that replaces the file; and the
+CLI's options, refusals and port fallback, as a process.
 
-It also greps `public/` to check that each of those features is actually **wired
-up** — the id exists, the handler exists, the CSS rule exists. A diff that is
-correct and unreachable would otherwise pass.
+The files under `test/page/` also grep `public/` to check that each of those features is
+actually **wired up** — the id exists, the handler exists, the CSS rule exists. A diff that is
+correct and unreachable would otherwise pass. The page's source is read through `pageSource()`
+in `support.ts`, every `.ts` and `.tsx` under `public/app/` as one text, so which module a line
+lives in is not the assertion's business. What is executed, the helpers lifted out of the page
+and run in a `vm`, is `pageRun()`: `public/app/main.ts` and the viewmodels they have moved to
+(`vm/changes.ts`, `vm/acks.ts`, `vm/settings.ts`) with their types stripped by esbuild, file by
+file, and `export` taken off by the test that lifts them. Not the bundle: in `app.js` Preact
+sits in beside the page, and esbuild renames a page name wherever it meets one of Preact's
+own. The checks on what is *served* (the four imports, the preference fallback) do read
+`app.js`.
+
+The viewmodels are also run whole, over the real `index.html`. `fakeWindow()` in `support.ts`
+is a hand-written DOM -- elements, text nodes, events that bubble, `classList`, `dataset`,
+`style`, a selector matcher for compound selectors and comma lists, `innerHTML` both ways --
+with the page's globals around it: `location`, `history.replaceState`, `matchMedia`, the prefs
+store, timers, and a size. What it does not know it throws on rather than guess. `loadPage(
+['state', 'vm/history'], { win, stubs })` bundles those modules with esbuild and runs them in
+that window: each key in `stubs` (`backend`, `vm/document`, `../vendor/sanitize`) replaces the
+module at that path, so a test keeps the module under test and its real neighbours, and stands
+in for what draws around it or talks to a reader. A function stub forwards to the window's copy,
+so a test can swap one after the load; a value is read once. The bundle is cached by module
+list and stub shape, so a test that loads one page over three hundred windows builds it once.
+What comes back is the module namespaces -- destructure the export, `{ state: { state } }`,
+not the namespace, or a write goes nowhere -- and anything out of the window's realm wants
+`plain()` before `deepStrictEqual`. `spy()` is a function that keeps its calls. `runHeadScript(
+win)` runs the inline `<script>` in the head, which is how `layout.test.ts` holds the head
+script and `layout/` to the same widths over a grid of windows. No layout is computed: a rect
+is whatever the test sets on `el.rect`.
 
 It cannot watch a hostile document fail to run, because there is no DOM here. What
 it checks instead is that each layer from
@@ -301,15 +374,15 @@ remembered to ask about.
 
 | | |
 | --- | --- |
-| `.github/workflows/ci.yml` | Three jobs, each behind the one before it. **`test`**: `npm ci` and `npm test` on `ubuntu-latest` and `macos-latest`, and on the Mac `cargo test` in `shell/` too. **`bundle`**: `npm run bundle` on `macos-latest`, uploaded as an artifact — **`Redline-universal-dmg`** or **`Redline-arm64-dmg`**. **`release`**: only for a `vN.N.N` tag or a ticked **Deploy**, and [published](#publishing-a-release) |
-| `.github/workflows/pages.yml` | the landing page, [deployed](#deploying-it) to Cloudflare Pages |
+| `.github/workflows/ci.yml` | Four jobs. **`lint`**: `npm run lint` on `ubuntu-latest`, beside the suite rather than in front of it. **`test`**: `npm ci` and `npm test` on `ubuntu-latest` and `macos-latest`, and on the Mac `cargo test` in `shell/` too. **`bundle`**, once both have passed: `npm run bundle` on `macos-latest`, uploaded as an artifact — **`Redline-universal-dmg`** or **`Redline-arm64-dmg`**. **`release`**: only for a `vN.N.N` tag or a ticked **Deploy**, and [published](#publishing-a-release) |
+| `.github/workflows/pages.yml` | the landing page, built in one job and [deployed](#deploying-it) to Cloudflare Pages from another |
 | `.github/workflows/webapp.yml` | the web app, [published](#publishing-the-web-app) to a Cloudflare Pages project of its own |
 
 What starts `ci.yml`, and what it does:
 
 | | |
 | --- | --- |
-| a pull request | the suite on both, then a universal dmg signed **ad hoc**, as an artifact |
+| a pull request | the lint, the suite on both, then a universal dmg signed **ad hoc**, as an artifact |
 | a push to `main` | the same, the dmg **signed and notarized** |
 | a push of a `v*` tag | the same, then the release |
 | Run workflow | the same from any branch, one arch unless **Universal** is ticked; with **Deploy** ticked, the release |
@@ -321,12 +394,22 @@ cancels the other, since knowing it is one platform and not both is most of the
 diagnosis. Still run `npm test` before you push: a red check is a slower way to hear
 the same thing.
 
+The lint is ESLint with the recommended sets of ESLint and typescript-eslint, configured in
+`eslint.config.mjs`, over everything written here and nothing built or vendored. It is not
+type-aware: `tsc` is the type checker, and the type-aware rules would be a second one, stricter
+than the `strict: false` the project chose. Three rules are off, each with its reason in the
+config: `no-explicit-any`, for that same choice; `no-regex-spaces`, because the tests match
+source text and its indentation; and `no-this-alias` in `test/support.ts`, whose fake DOM walks
+its tree from `this`. A binding left unread on purpose is named `_`, or dropped by a rest
+sibling. It is its own job so that a lint failure does not hide whether the suite passed, and
+the dmg waits for both. `npm run lint` is the same command by hand, and it needs no build.
+
 **A pull request never touches a secret.** The trigger is `pull_request`, which runs
 a fork's code with a read-only token and nothing else, and never
 `pull_request_target`, which runs it with both. The bundle job's signed step is
 skipped on a pull request, even one from this repository — notarizing is a round trip
 to Apple, and a check that goes red because that service is slow teaches people to
-ignore it — and an ad hoc step runs in its place. `test-smoke.js` asserts all three:
+ignore it — and an ad hoc step runs in its place. `test/ci.test.ts` asserts all three:
 the trigger, that no step a pull request reaches names an Apple secret, and that the
 test job names no secret at all.
 
@@ -417,7 +500,7 @@ rather than left for Gatekeeper to ask Apple about at launch.
 There are two bundle steps for one command, because which of them runs is the whole
 difference. Off a pull request the step has the secrets, and the dmg is **signed and
 notarized**; on one it has none and is signed ad hoc. With none of them set either way
-— a fork building its own `main` — `scripts/bundle.mjs` signs ad hoc and still
+— a fork building its own `main` — `scripts/bundle.mts` signs ad hoc and still
 produces a dmg, so that is not a red tick either.
 
 Rust is cached — the registry, and `shell/target` — on a key that is the hash of
@@ -432,8 +515,9 @@ of compile to save and seconds to restore.
 ## The landing page
 
 `site/` is the project's page on the web — one hand-written `index.html`, one
-stylesheet, one module, no framework and no bundler, the same way the reader itself
-is written. It is not part of the app and the app knows nothing about it.
+stylesheet, one module (`landing.ts`, which `tsc` compiles in place to the `landing.js` the
+page loads), no framework and no bundler — which the reader's page, bundled from
+`public/app/`, no longer is. It is not part of the app and the app knows nothing about it.
 
 ```
 npm run site                       # builds, serves, opens http://127.0.0.1:8080/
@@ -442,15 +526,17 @@ npm run build:site                 # just stage the icon and the og:image
 ```
 
 `presite` runs `build:site`, so `npm run site` is one command and there is no staging
-step to forget. `scripts/serve-site.mjs` is ~60 lines of `node:http` over `site/`,
+step to forget. `scripts/serve-site.mts` is ~60 lines of `node:http` over `site/`,
 loopback only, nothing cached — a stylesheet held for a minute during a round of
 edits is a change that looks like it did not land. It takes the same `-p` / `--port`
 and `--no-open` as the reader's own CLI and walks to the next free port the same way.
 
-Nothing is watched and nothing is rebuilt while it runs, and it does not need to be:
-the page is served exactly as it is written, so edit `index.html`, the stylesheet or
-the module and reload. Only the icon and the og:image are staged, and those change
-about once a year.
+Nothing is watched and nothing is rebuilt while it runs. `index.html` and the stylesheet
+are served exactly as they are written, so edit them and reload. The module is the one
+exception, because it is TypeScript: `presite` compiled it once, when the server started,
+and after an edit to `landing.ts` it is `npm run build:ts` (or `npx tsc -b --watch` in
+another terminal) that writes the new `landing.js`, and then you reload. Only the icon and
+the og:image are staged, and those change about once a year.
 
 **Not `open site/index.html`.** `landing.js` is a module, and every browser refuses a
 module script from a `file://` origin. The page still renders — it ships in its
@@ -519,7 +605,7 @@ pointer or a key reaches it.
 Three more consequences worth knowing before editing any of it:
 
 - **The three change colours are the reader's**, copied from `public/styles.css`, and
-  `test-smoke.js` asserts they are still equal. The page is a picture of the product,
+  `test/site.test.ts` asserts they are still equal. The page is a picture of the product,
   and a green that is nearly the product's green is worse than no picture. The raw
   scene's `--syn` is deliberately *not* one of them: a colour that means "changed"
   somewhere on this page cannot also mean "this is a heading".
@@ -530,14 +616,14 @@ Three more consequences worth knowing before editing any of it:
   resolved `var(--fg)` once, and what the heading and the filename inherited is the
   colour it produced, not the reference; redefining the property above them changes
   nothing. So `.sim-tone` sets `color: var(--fg)` itself, and the scene's palette
-  reaches what inherits. `test-smoke.js` asserts the declaration is still there,
+  reaches what inherits. `test/site.test.ts` asserts the declaration is still there,
   because the failure is dark text on a dark mock and the page it is on looks fine.
 - **No mock may change height.** Both `.split` rows are `align-items: center`, so a
   scene that grows does not only grow — it moves the copy beside it and everything
   below it, twice a lap, with nobody touching the page. Each of the five handles it
   without a pixel value for anyone to maintain: the hero's marked state is taller than
   its clean one (the removed block and the removed words leave the flow), so
-  `landing.js` measures it once and pins it; `#sim-view` gives both panes the same
+  `landing.ts` measures it once and pins it; `#sim-view` gives both panes the same
   grid cell, which makes the box the taller of prose and source at every width;
   `#sim-jump` scrolls inside a fixed window; `#sim-tone` only ever changes colour; and
   `#sim-history` hides its removed paragraph with `visibility` rather than taking it
@@ -545,7 +631,7 @@ Three more consequences worth knowing before editing any of it:
   document, so the space it keeps reads as bottom padding. For the same reason, a
   block in that scene that comes and goes with the baseline carries no `w-del`: a
   `w-del` is `display: none` when its block is not in the baseline, and one word
-  leaving the flow can cost the paragraph a line. `test-smoke.js` asserts all of it,
+  leaving the flow can cost the paragraph a line. `test/site.test.ts` asserts all of it,
   because the failure is a pulse and there is no browser here to see one in.
 
 The theme is applied by an inline script in the `<head>`, not by the module — the same
@@ -574,7 +660,7 @@ child's reach, which is the whole reason to prefer it.
 
 The same rule also kept the two kinds of band 34px out of line with each other, since
 `max-width` on a child is a content box and `max-width` on `.band` is a border box
-with the padding inside it. `test-smoke.js` asserts the padding form is still there
+with the padding inside it. `test/site.test.ts` asserts the padding form is still there
 and that no per-child margin has come back.
 
 ### A row of cards has to look like a row
@@ -623,7 +709,7 @@ puts within reach of a stranger: the Homebrew cask, and the dmg on the GitHub
 release beside it. The repository and that dmg are the only `github.com` links the
 page is allowed. There is no install from a checkout either: no `npm install` and no
 `git clone`. Building it is the README's business, not the page's. Both rules are
-asserted in `test-smoke.js`.
+asserted in `test/site.test.ts`.
 
 **The product the page sells is the app.** `npm start` and the browser tab it opens
 stay exactly where they are — they are how this repository is developed and tested —
@@ -647,7 +733,7 @@ and deserves the sentence it already has at the foot of *Get it*, not a scoreboa
 cell. The other two were `50` commits read in and `6` dependencies, which is the
 repository talking about itself. Counted as a figure, `0` invites the reader to work
 out what large would have meant, and the two numbers beside it answered in a unit
-that has nothing to do with them. `test-smoke.js` now asserts the page quotes no
+that has nothing to do with them. `test/site.test.ts` now asserts the page quotes no
 count of its own parts, so the next one has to be argued for.
 
 **And it does not print a keyboard map.** Keys are named in the prose of the feature
@@ -699,7 +785,7 @@ button. `package.json` is ahead of every release from the moment a bump merges
 until the release job is done, so a deploy started by a push in that window would
 link a dmg that is not up yet. That covers a push to `site/`, and one landing
 alongside the tag. So a change merged under `site/`, `assets/icon.svg`, `assets/icon.png`,
-`scripts/build-site.mjs` or `wrangler.toml` is not live until somebody runs the
+`scripts/build-site.mts` or `wrangler.toml` is not live until somebody runs the
 workflow, or the next release does. Run it by hand only while `package.json` names
 a version that is already released.
 
@@ -711,8 +797,9 @@ nothing in the repository chose it: the deploy log is where it is written, on
 wrangler's last line (`✨ Deployment complete! Take a peek over at …`), and the Pages
 dashboard shows it too.
 
-`wrangler.toml` names the project and the directory, so the workflow and a local run
-cannot disagree about what is being deployed:
+`wrangler.toml` names the project and the directory for a local run. The workflow has no
+checkout to read it from, so it writes the same two on its command line, and
+`test/site.test.ts` fails if they ever differ:
 
 ```toml
 name = "redline"
@@ -734,10 +821,18 @@ CLOUDFLARE_API_TOKEN     a token with the "Cloudflare Pages: Edit" permission
 CLOUDFLARE_ACCOUNT_ID    Workers & Pages, in the sidebar on the right
 ```
 
-The deploy runs `npm run build:site` first and **no `npm ci`**: the page has no
-dependencies, and the ones in this repository belong to the reader. An unbuilt `site/`
-is the page with no icon and no link preview, and it would upload perfectly happily —
-which is why the staging step is asserted in `test-smoke.js` alongside the page itself.
+It is **two jobs**, the way [the web app's](#publishing-the-web-app) is. `build` runs
+`npm ci` and `npm run build:site` — which compiles `scripts/build-site.mts` and `landing.ts`
+first, so the job needs the repository's dependencies, and `npm ci` runs every dependency's
+install scripts — and uploads `site/` without its `.ts`, since `landing.ts` sits beside the
+`landing.js` it compiled to and the page needs only the second (`!site/*.ts` in the step's
+`path`; asserted in `test/site.test.ts`, and **not yet run on GitHub**: see [The page
+project](typescript.md#the-page-project)). `deploy` holds the Cloudflare token and runs
+nothing from the repository: it downloads that artifact and hands it to wrangler, with
+the project and the directory named on the command line, because it has no checkout and
+so no `wrangler.toml`. An unbuilt `site/` is the page with no icon and no link preview,
+and it would upload perfectly happily — which is why the staging step is asserted in
+`test/site.test.ts` alongside the page itself.
 
 `site/_headers` is Cloudflare's own format and is committed rather than copied in;
 nothing in it is cached as immutable, because none of these filenames carries a
@@ -753,7 +848,7 @@ like anything, is unstyled buttons, scenes with no frame, and the diagrams drawi
 SVG's default black. `no-cache` is not `no-store`: both files stay in the browser
 cache, they are just revalidated, and the usual answer is a 304 with no body. Two
 files on a one-page site is not a bandwidth question. Images keep their day, because a
-slightly old icon is still the icon. `test-smoke.js` asserts the pair — the
+slightly old icon is still the icon. `test/site.test.ts` asserts the pair — the
 `no-cache` and the unversioned filenames — so adding a version string is a line that
 tells you to revisit this.
 
@@ -808,7 +903,7 @@ other people's code and most of their licenses ask for their notice to go wherev
 the code goes. For the same reason `build:web` keeps each bundle's license comments,
 at the end of the file, rather than minifying them away.
 
-`scripts/notices.mjs` decides what counts as shipped: every non-dev package in
+`scripts/notices.mts` decides what counts as shipped: every non-dev package in
 `package-lock.json`, and every crate the shell links on macOS, followed through
 normal dependencies only. Two of them ask for more than their notice — **elkjs**
 (EPL-2.0, in mermaid's layout engine) and the MPL-2.0 crates under Tauri's HTML
@@ -818,7 +913,7 @@ of the reasons [it is not bundled](diagrams.md#plantuml).
 
 ## Signing
 
-Whoever runs the bundle decides how it is signed, and `scripts/bundle.mjs` says
+Whoever runs the bundle decides how it is signed, and `scripts/bundle.mts` says
 which of the three it did on the line after the file sizes.
 
 | | |

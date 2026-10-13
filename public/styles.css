@@ -160,6 +160,13 @@ body {
   flex: 1;
 }
 
+/* Where a component is mounted (index.html). The slot is only somewhere for Preact to draw
+   into, so it is not a box: what is drawn in it lays out as the bar's own children would,
+   flex gap and all, and the bar's selectors find them where they always were. */
+.slot {
+  display: contents;
+}
+
 /* The artwork keeps Apple's icon grid -- an 824px square in a 1024px canvas -- so it carries
    its own margin, and 20px draws a mark about the size of the bar's other icons. */
 .app-icon {
@@ -1663,7 +1670,7 @@ html:not(.native) [data-shell] {
 }
 
 /* Every shell that can be dropped on: the desktop app's drag is a message from the shell, and
-   the web app's is the page's own `dragenter` (src/hosts/web/welcome.js). */
+   the web app's is the page's own `dragenter` (src/hosts/web/welcome.ts). */
 .dropping main::after {
   content: "Drop markdown files to open them";
   position: fixed;
@@ -2732,7 +2739,7 @@ pre .w-del + .w-add {
    Printing is also the one time this app overrides your own appearance choice
    rather than following it: a dark window should not cost dark paper. The dark
    palette and the sepia one are both `screen` only, and so are
-   github-markdown-css's dark palette (scripts/markdown-css.mjs) and
+   github-markdown-css's dark palette (scripts/markdown-css.mts) and
    highlight.js's dark sheet (`applyScheme` in app.js), so none of them reaches
    paper; the variables a printed page reads are reset to their light values
    here as well, rather than left to that alone. */

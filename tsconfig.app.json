@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "allowJs": false,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "rootDirs": ["public", "types"],
+    "tsBuildInfoFile": "out/tsconfig.app.tsbuildinfo"
+  },
+  "include": ["public/app", "types"],
+  "exclude": ["node_modules", "out"],
+  "references": [{ "path": "./tsconfig.src.json" }, { "path": "./tsconfig.page.json" }]
+}

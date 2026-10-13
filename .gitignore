@@ -2,12 +2,20 @@ node_modules/
 dist/
 out/
 
-# Built by scripts/build-web.mjs, from src/. Generated rather than committed:
+# Built by scripts/build-web.mts, from src/. Generated rather than committed:
 # it is a third of a megabyte of somebody else's minified code, and every npm
 # script that needs it builds it first.
 public/vendor/
 
-# Copied into the landing page by scripts/build-site.mjs, from assets/.
+# Built beside their sources, because the URLs the page is loaded by (backend.js, app.js,
+# landing.js) are those names. backend.js and landing.js are compiled in place by
+# tsconfig.page.json; app.js is bundled from public/app/ by scripts/build-web.mts, and `tsc`
+# only checks that source. public/host.js is hand-written and tracked.
+public/app.js
+public/backend.js
+site/landing.js
+
+# Copied into the landing page by scripts/build-site.mts, from assets/.
 # Generated rather than committed for the same reason: they are bytes this
 # repository already has, and a second copy is a second thing to remember to
 # update. site/images/ held the og:image when that was a screenshot, and stays

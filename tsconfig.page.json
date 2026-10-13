@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "allowJs": false,
+    "outDir": ".",
+    "declarationDir": "out/page-types",
+    "rootDirs": ["public", "types"],
+    "tsBuildInfoFile": "out/tsconfig.page.tsbuildinfo"
+  },
+  "include": ["public/*.ts", "site/*.ts", "types"],
+  "exclude": ["node_modules", "out"],
+  "references": [{ "path": "./tsconfig.src.json" }]
+}

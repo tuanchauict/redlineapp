@@ -1,0 +1,116 @@
+// The key-value store `kv-files.ts` asks for, over IndexedDB.
+//
+// Kept small on purpose, because nothing here can be run without a browser: the tests import
+// this file and never call it. It is meant to be checked by reading.
+//
+// One database, `redline`, with every object store the web app will use, made now so that the
+// handle registry added later needs no schema upgrade:
+//
+//   files    path     -> { text, mtime }      the snapshot store, through kv-files.ts
+//   roots    rootId   -> { handle, name, kind }
+//   opened   doc id   -> { rootId, rel }
+//
+// `indexedDB` is reached only when a call is made, never when this file is imported, so node
+// can import it (the layering walk and the tests do) and a page with no IndexedDB fails at the
+// first call, with a message, rather than at load.
+import type { Kv } from './kv-files.js';
+
+const DB_NAME = 'redline';
+const DB_VERSION = 1;
+export const STORES = ['files', 'roots', 'opened'] as const;
+
+let opening: Promise<IDBDatabase> | null = null;
+
+function openDb(): Promise<IDBDatabase> {
+  if (opening) return opening;
+  opening = new Promise<IDBDatabase>((resolve, reject) => {
+    if (!globalThis.indexedDB) throw new Error('IndexedDB is not available here');
+    const req = globalThis.indexedDB.open(DB_NAME, DB_VERSION);
+    // Out-of-line keys: the path or the id is the key, and the value is stored as it is.
+    req.onupgradeneeded = () => {
+      for (const name of STORES) {
+        if (!req.result.objectStoreNames.contains(name)) req.result.createObjectStore(name);
+      }
+    };
+    req.onsuccess = () => {
+      const db = req.result;
+      // Let go when asked, or a later schema change in another tab waits on this one for good.
+      // The next call opens it again.
+      const release = () => {
+        db.close();
+        opening = null;
+      };
+      db.onversionchange = release;
+      db.onclose = release;
+      resolve(db);
+    };
+    req.onerror = () => reject(req.error);
+  });
+  // A failed open is not kept, so that a later call tries again.
+  opening.catch((): null => (opening = null));
+  return opening;
+}
+
+// A request as a promise. Settled in the request's own callback, where the transaction is
+// still active, so whatever waits on it can issue the next request on the same transaction.
+const reply = <T>(req: IDBRequest<T>): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
+// The four calls on one object store, inside one transaction.
+const bind = (store: IDBObjectStore): Omit<Kv, 'tx'> => ({
+  get: (key) => reply(store.get(key)),
+  put: async (key, value) => void (await reply(store.put(value, key))),
+  del: async (key) => void (await reply(store.delete(key))),
+  // Every key that starts with `prefix`: the range from it to the same string with the highest
+  // code unit after it. Keys are compared by code unit, as `startsWith` does. Every key in these
+  // stores is a string, which is what `IDBValidKey` cannot say.
+  keys: async (prefix) =>
+    (await reply(store.getAllKeys(IDBKeyRange.bound(prefix, prefix + '\uffff')))) as string[],
+});
+
+/**
+ * Run `fn` on one object store in one transaction, and answer once it has been *committed*.
+ *
+ * Not once the last request has succeeded: a write that the browser cannot keep (the quota, a
+ * disk) fails at commit, after every request has said yes, and the store must not be told it was
+ * written. `fn` is handed the store's calls and may wait only on them -- see kv-files.ts.
+ */
+function transact<T>(
+  storeName: string,
+  mode: IDBTransactionMode,
+  fn: (store: Omit<Kv, 'tx'>) => T | Promise<T>,
+): Promise<T> {
+  return openDb().then((db) => {
+    const t = db.transaction(storeName, mode);
+    const committed = new Promise<void>((resolve, reject) => {
+      t.oncomplete = () => resolve();
+      t.onabort = () => reject(t.error ?? new Error('transaction aborted'));
+    });
+    // Called now, in this turn, while the transaction is new. An async wrapper so that a throw
+    // is a rejection like any other.
+    const result = (async () => fn(bind(t.objectStore(storeName))))();
+    // What `fn` had asked for is dropped if it fails. Throws if the transaction is already over.
+    result.catch(() => {
+      try {
+        t.abort();
+      } catch {
+        /* finished already */
+      }
+    });
+    return Promise.all([result, committed]).then(([value]) => value);
+  });
+}
+
+/** A key-value store over one of the object stores above. */
+export function createIdbKv(storeName: (typeof STORES)[number]): Kv {
+  return {
+    get: (key) => transact(storeName, 'readonly', (s) => s.get(key)),
+    put: (key, value) => transact(storeName, 'readwrite', (s) => s.put(key, value)),
+    del: (key) => transact(storeName, 'readwrite', (s) => s.del(key)),
+    keys: (prefix) => transact(storeName, 'readonly', (s) => s.keys(prefix)),
+    tx: (fn) => transact(storeName, 'readwrite', fn),
+  };
+}

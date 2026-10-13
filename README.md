@@ -86,7 +86,7 @@ In a browser, with Node 18+ and no build toolchain:
 
 ```sh
 npm install
-npm start -- path/to/doc.md        # or: npm link && redline doc.md
+npm start -- path/to/doc.md        # or: npm run build:ts && npm link && redline doc.md
 ```
 
 As the Mac app, with a [Rust toolchain](https://rustup.rs) as well:
@@ -227,15 +227,18 @@ that ships with macOS instead of bundling a browser, so the whole app is one bin
 of about 8 MB per architecture. Most of that is the page compiled into it, and most
 of the page is the Mermaid renderer.
 
-**No framework, no transpiler, six dependencies.** What you read in `src/` and
-`public/` is what runs: one client module and one hand-written stylesheet. The diff
-works at two levels, blocks and then words, on top of markdown-it's own parser. The
-word diff compares *rendered HTML* rather than markdown source, which is why a mark
-never splits a link or a run of bold text.
+**Preact for the chrome, nothing for the document, nine dependencies.** `tsc` type-checks
+the code and compiles what Node runs; the page is `public/app/`, which esbuild bundles into
+the one `app.js` it loads, because Preact is imported by package name and a browser cannot
+resolve one. The sidebars and settings move onto Preact and signals a panel at a time. The
+rendered document does not: it is HTML from markdown-it and the diff, written to the page and
+left alone. One hand-written stylesheet. The diff works at two levels, blocks and then
+words, on top of markdown-it's own parser. The word diff compares *rendered HTML* rather
+than markdown source, which is why a mark never splits a link or a run of bold text.
 
-**One test file, and it boots the real thing.** `test-smoke.js` has about 600
-assertions, no test framework and no mocks. It starts the actual server on a temp
-file, edits the file, and checks what comes back. Then it searches the client code
+**Tests that boot the real thing.** `test/` holds a file per topic, about 1,600
+assertions on Node's own `node:test`, and no mocks. They start the actual server on a temp
+file, edit the file, and check what comes back. Then they search the client code
 to make sure each feature is actually *wired up*, because a diff that is correct but
 unreachable would otherwise pass.
 → [Architecture](docs/architecture.md) · [Building and testing](docs/building.md)
