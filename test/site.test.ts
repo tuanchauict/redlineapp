@@ -332,6 +332,12 @@ test('the landing page parses, is wired up, and deploys what it builds', async (
     (siteHtml.match(/href="https:\/\/app\.redline\.iamtuna\.org\/"/g) ?? []).length >= 3,
     'the web app is linked from the nav, the hero and the get section',
   );
+  // A box under the get cards said the snapshots live under ~/.redline, which
+  // stopped being true of every way in once the web app kept its history in the
+  // browser. Where the store is belongs to docs/history.md and docs/web-app.md.
+  assert.ok(!siteHtml.includes('~/.redline'), 'the page names no one place the history lives');
+  assert.ok(!/get-foot/.test(siteHtml + siteCss), 'and the box that did is gone');
+
   // The hero's link is a ghost .btn, whose own height is the nav's 34px; beside
   // the 44px copy pill and Get it it sat visibly short.
   assert.match(siteCss, /\.cta \.btn \{[^}]*height: 44px/, 'the hero row is one height');

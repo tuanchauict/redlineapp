@@ -1777,17 +1777,6 @@ kbd {
   opacity: 0.65;
 }
 
-.get-foot {
-  margin-top: 34px;
-  padding: 20px 24px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--add) 7%, transparent);
-  font-size: 14px;
-  color: var(--muted);
-  text-align: center;
-}
-
 /* ---------- footer ---------- */
 
 .foot {
