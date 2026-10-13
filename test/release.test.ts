@@ -4,14 +4,14 @@ import assert from 'node:assert';
 import crypto from 'node:crypto';
 import { rootUrl } from '../src/hosts/node/root.js';
 
-// The version is written in three places, and nothing but this keeps them in
+// The version is written in five places, and nothing but this keeps them in
 // step: package.json is what the tag and the landing page's download link are
 // built from, tauri.conf.json is what the dmg is named and what the About row
 // shows, and Cargo.toml is the crate. A mismatch is otherwise only noticed by
 // whoever downloads the result — or now, by a copy told it is out of date
 // against a version it already is.
 // (JSON.parse is handed a Buffer and reads its text; only its `string` parameter type objects.)
-test('the version agrees in all three places', async () => {
+test('the version agrees in every file it is written in', async () => {
   const pkgVersion = JSON.parse(
     fs.readFileSync(rootUrl('package.json')) as unknown as string,
   ).version;
@@ -23,7 +23,21 @@ test('the version agrees in all three places', async () => {
     .match(/^version = "([^"]+)"/m)?.[1];
   assert.strictEqual(confVersion, pkgVersion, 'tauri.conf.json has the version package.json has');
   assert.strictEqual(cargoVersion, pkgVersion, 'and so does shell/Cargo.toml');
-  console.log(`✓ the version agrees in all three places (${pkgVersion})`);
+
+  // The lockfiles keep copies too, which a later `npm install` or `cargo build` would quietly
+  // rewrite in some unrelated commit if the bump left them behind.
+  const lock = JSON.parse(fs.readFileSync(rootUrl('package-lock.json'), 'utf8'));
+  assert.strictEqual(lock.version, pkgVersion, 'package-lock.json has it');
+  assert.strictEqual(lock.packages[''].version, pkgVersion, 'and its root package entry');
+  const cargoLock = fs
+    .readFileSync(rootUrl('shell/Cargo.lock'), 'utf8')
+    .match(/\[\[package\]\]\nname = "redline"\nversion = "([^"]+)"/)?.[1];
+  assert.strictEqual(cargoLock, pkgVersion, 'and so does shell/Cargo.lock');
+
+  // All of which is one command's job, so none of it is done by hand.
+  const pkg = JSON.parse(fs.readFileSync(rootUrl('package.json'), 'utf8'));
+  assert.match(pkg.scripts.bump, /node out\/scripts\/bump\.mjs$/, 'npm run bump sets them all');
+  console.log(`✓ the version agrees in every file it is written in (${pkgVersion})`);
 });
 
 // The license, and everyone else's.

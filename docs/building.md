@@ -418,6 +418,15 @@ ref that wrote it, and every ref can read the default branch's but no other
 branch's, so the run on each push to `main` is what every pull request and tag
 starts from.
 
+### Bumping the version
+
+The version is written in five files — `package.json`, `shell/tauri.conf.json`,
+`shell/Cargo.toml` and the two lockfiles' copies — and `npm run bump -- 0.8.0` (or
+`major`, `minor`, `patch`) sets all of them, editing one line of each so the
+formatting is left alone. It writes nothing if any file's version line is missing
+or already disagrees with `package.json`. `test/release.test.ts` fails until the
+five agree.
+
 ### Publishing a release
 
 The artifact above needs a GitHub login to download, so it can't be what a Homebrew
@@ -753,8 +762,8 @@ either.
 The release job builds the dmg's filename out of the version, so the download button
 has to name a version, and that is the one thing on the page that goes stale by
 itself. `build:site` writes `package.json`'s version into the `href` and the version
-printed on the button, so bumping a release is one edit — `package.json` — and a
-build, not two strings kept in step by eye across two files. It still fails loudly
+printed on the button, so the page needs nothing from a bump beyond `npm run bump`
+and a build, not two strings kept in step by eye across two files. It still fails loudly
 if the button or its version span is missing outright, rather than guessing at a
 page that no longer has one.
 
