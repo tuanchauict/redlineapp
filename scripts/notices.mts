@@ -135,7 +135,9 @@ function npmEntries(): Notice[] {
       const pkg = JSON.parse(fs.readFileSync(path.join(p.dir, 'package.json'), 'utf8'));
       const repo = typeof pkg.repository === 'string' ? pkg.repository : pkg.repository?.url;
       if (repo) source = repo.replace(/^git\+/, '').replace(/\.git$/, '');
-    } catch {}
+    } catch {
+      // No readable package.json: the registry page stands in for the source.
+    }
     return { ...p, source, texts: licenseTexts(p.dir) };
   });
 }

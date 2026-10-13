@@ -4,6 +4,7 @@
 npm install
 npm start -- sample.md       # a browser tab: compiled, bundled, served
 npm test
+npm run lint                 # ESLint, as CI runs it
 
 rustup toolchain install stable   # once, for the native window
 npm run app -- sample.md     # the native window
@@ -373,7 +374,7 @@ remembered to ask about.
 
 | | |
 | --- | --- |
-| `.github/workflows/ci.yml` | Three jobs, each behind the one before it. **`test`**: `npm ci` and `npm test` on `ubuntu-latest` and `macos-latest`, and on the Mac `cargo test` in `shell/` too. **`bundle`**: `npm run bundle` on `macos-latest`, uploaded as an artifact — **`Redline-universal-dmg`** or **`Redline-arm64-dmg`**. **`release`**: only for a `vN.N.N` tag or a ticked **Deploy**, and [published](#publishing-a-release) |
+| `.github/workflows/ci.yml` | Four jobs. **`lint`**: `npm run lint` on `ubuntu-latest`, beside the suite rather than in front of it. **`test`**: `npm ci` and `npm test` on `ubuntu-latest` and `macos-latest`, and on the Mac `cargo test` in `shell/` too. **`bundle`**, once both have passed: `npm run bundle` on `macos-latest`, uploaded as an artifact — **`Redline-universal-dmg`** or **`Redline-arm64-dmg`**. **`release`**: only for a `vN.N.N` tag or a ticked **Deploy**, and [published](#publishing-a-release) |
 | `.github/workflows/pages.yml` | the landing page, built in one job and [deployed](#deploying-it) to Cloudflare Pages from another |
 | `.github/workflows/webapp.yml` | the web app, [published](#publishing-the-web-app) to a Cloudflare Pages project of its own |
 
@@ -381,7 +382,7 @@ What starts `ci.yml`, and what it does:
 
 | | |
 | --- | --- |
-| a pull request | the suite on both, then a universal dmg signed **ad hoc**, as an artifact |
+| a pull request | the lint, the suite on both, then a universal dmg signed **ad hoc**, as an artifact |
 | a push to `main` | the same, the dmg **signed and notarized** |
 | a push of a `v*` tag | the same, then the release |
 | Run workflow | the same from any branch, one arch unless **Universal** is ticked; with **Deploy** ticked, the release |
@@ -392,6 +393,16 @@ catches a macOS assumption getting into code meant to be portable. Neither leg
 cancels the other, since knowing it is one platform and not both is most of the
 diagnosis. Still run `npm test` before you push: a red check is a slower way to hear
 the same thing.
+
+The lint is ESLint with the recommended sets of ESLint and typescript-eslint, configured in
+`eslint.config.mjs`, over everything written here and nothing built or vendored. It is not
+type-aware: `tsc` is the type checker, and the type-aware rules would be a second one, stricter
+than the `strict: false` the project chose. Three rules are off, each with its reason in the
+config: `no-explicit-any`, for that same choice; `no-regex-spaces`, because the tests match
+source text and its indentation; and `no-this-alias` in `test/support.ts`, whose fake DOM walks
+its tree from `this`. A binding left unread on purpose is named `_`, or dropped by a rest
+sibling. It is its own job so that a lint failure does not hide whether the suite passed, and
+the dmg waits for both. `npm run lint` is the same command by hand, and it needs no build.
 
 **A pull request never touches a secret.** The trigger is `pull_request`, which runs
 a fork's code with a read-only token and nothing else, and never

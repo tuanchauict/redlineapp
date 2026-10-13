@@ -323,7 +323,7 @@ test('the arrows and the count step from where the reader is, one stop per chang
     assert.match(pageJs, /id="count"[^>]*title="Next change/, 'the count says what it does');
 
     // `stepIndex` and `goToChange`, over nodes that are only a kind and a rectangle.
-    let clock = 100000;
+    const clock = 100000;
     const view = { top: 50, bottom: 650 };
     const build = (kinds, tops, current = -1) => {
       const nodes = kinds.map((k, i) => ({

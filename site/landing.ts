@@ -36,7 +36,7 @@ themeBtn.addEventListener('click', () => {
   document.documentElement.dataset.theme = next;
   try {
     localStorage.setItem('redline:site-theme', next);
-  } catch (e) {
+  } catch {
     /* Private mode. The choice holds for this page view and is not remembered. */
   }
   label();
@@ -51,7 +51,7 @@ for (const btn of document.querySelectorAll<HTMLElement>('.copy')) {
   btn.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(btn.dataset.copy);
-    } catch (e) {
+    } catch {
       /* Denied permission, or an insecure origin. Nothing to say about it that
          is more use than the command already on screen. */
       return;

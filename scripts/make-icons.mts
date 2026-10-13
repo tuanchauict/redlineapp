@@ -35,7 +35,9 @@ function render(size: number): Buffer {
       maxBuffer: 64 << 20,
     });
   } catch (err) {
-    if (err.code === 'ENOENT') throw new Error('rsvg-convert not found — brew install librsvg');
+    if (err.code === 'ENOENT') {
+      throw new Error('rsvg-convert not found — brew install librsvg', { cause: err });
+    }
     throw err;
   }
 }

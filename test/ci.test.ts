@@ -57,9 +57,14 @@ test('CI tests every change on two OSes, and signs only what a fork cannot reach
 
   assert.deepStrictEqual(
     ci.slice(ci.indexOf('\njobs:')).match(/^ {2}[a-z]+:$/gm),
-    ['  test:', '  bundle:', '  release:'],
-    'the suite, the dmg, and the release',
+    ['  lint:', '  test:', '  bundle:', '  release:'],
+    'the lint, the suite, the dmg, and the release',
   );
+  const lintJob = ciCode.slice(ciCode.indexOf('\n  lint:'), ciCode.indexOf('\n  test:'));
+  assert.match(lintJob, /run: npm run lint/, 'the lint is the npm script, as it is run by hand');
+  assert.match(lintJob, /runs-on: ubuntu-latest/, 'on Linux, the text being the same on either');
+  assert.doesNotMatch(lintJob, /secrets\./, 'with no secret in reach of it');
+  assert.doesNotMatch(lintJob, /needs:/, 'and beside the suite, not in front of it');
   const testJob = ciCode.slice(ciCode.indexOf('\n  test:'), ciCode.indexOf('\n  bundle:'));
   // Both platforms: the font checks only really run on the Mac, and the Linux leg
   // is what notices a macOS assumption in code meant to be portable.
@@ -78,8 +83,8 @@ test('CI tests every change on two OSes, and signs only what a fork cannot reach
   assert.doesNotMatch(testJob, /secrets\./, 'with no secret in reach of the code under test');
   assert.deepStrictEqual(
     ciCode.match(/needs: .*/g),
-    ['needs: test', 'needs: bundle'],
-    'a dmg only from a reader that passed, a release only from that dmg',
+    ['needs: [lint, test]', 'needs: bundle'],
+    'a dmg only from a reader that lints and passes, a release only from that dmg',
   );
 
   // A pull request from a fork runs a stranger's code. GitHub withholds secrets

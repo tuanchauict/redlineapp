@@ -7,8 +7,8 @@
 # line. The landing page is the exception and deploys from pages.yml -- from
 # the end of a release, or by hand, and never on a push.
 #
-#   pull request          the suite on Linux and macOS, then a universal dmg,
-#                         signed ad hoc, as an artifact
+#   pull request          the lint and the suite on Linux and macOS, then a
+#                         universal dmg, signed ad hoc, as an artifact
 #   push to main          the same, signed and notarized
 #   push of a `v*` tag    the same, then a GitHub release with the dmg, the
 #                         Homebrew cask pointed at it, latest.json, and the
@@ -60,6 +60,23 @@ permissions:
   contents: read
 
 jobs:
+  # ESLint over what is written here (eslint.config.mjs says what, and which rules are off and
+  # why). A job of its own and beside the suite rather than in front of it, so that a stray
+  # binding does not hide whether the tests pass; the dmg waits for both. Linux alone, because
+  # what it reads is the same text on either.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -118,7 +135,7 @@ jobs:
 
   bundle:
     name: bundle (macOS)
-    needs: test
+    needs: [lint, test]
     runs-on: macos-latest
     env:
       # 'true' or 'false', as a string -- which is what the steps compare to.
