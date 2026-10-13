@@ -325,6 +325,16 @@ kbd {
   background: color-mix(in srgb, var(--fg) 88%, var(--red));
 }
 
+/* Every control in the hero's row is the copy pill's 44px, the ghost one too:
+   a ghost .btn is the nav's 34px, and beside the other two it reads as an
+   afterthought sat lower on the line. */
+.cta .btn {
+  height: 44px;
+  padding: 0 22px;
+  font-size: 15px;
+  border-radius: 10px;
+}
+
 /* ---------- hero ---------- */
 
 .hero {
@@ -1746,6 +1756,8 @@ kbd {
   justify-content: center;
   width: 100%;
   height: 48px;
+  font-size: 15px;
+  border-radius: 10px;
 }
 
 .dl-ver {
@@ -1896,7 +1908,7 @@ kbd {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .cta .btn-solid {
+  .cta .btn {
     width: 100%;
     justify-content: center;
   }

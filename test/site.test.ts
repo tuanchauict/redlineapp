@@ -332,6 +332,9 @@ test('the landing page parses, is wired up, and deploys what it builds', async (
     (siteHtml.match(/href="https:\/\/app\.redline\.iamtuna\.org\/"/g) ?? []).length >= 3,
     'the web app is linked from the nav, the hero and the get section',
   );
+  // The hero's link is a ghost .btn, whose own height is the nav's 34px; beside
+  // the 44px copy pill and Get it it sat visibly short.
+  assert.match(siteCss, /\.cta \.btn \{[^}]*height: 44px/, 'the hero row is one height');
 
   // And it quotes no count of its own parts. A strip of big numbers stood under
   // the hero saying 0 files written, 0 requests, 50 commits read in, 6 vendored
