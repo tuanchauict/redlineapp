@@ -151,6 +151,16 @@
            beside the page. -->
       <img class="app-icon" src="icon.svg" alt="" width="20" height="20" draggable="false" />
 
+      <!-- The web app is the smaller of the two -- one file at a time, no git -- and says
+           so for as long as it is: drawn only under `html.web`, which the head script sets
+           before first paint off host.js's flag, so neither the native window nor a CLI tab
+           ever shows it. -->
+      <span
+        class="beta"
+        title="The web app is a beta: some of the Mac app's features are not here yet"
+        >Beta</span
+      >
+
       <!-- Nothing at all while the file is being watched, which is all of the
            time: a light that is always on says nothing. It appears, red, only
            when that connection has dropped and the page has stopped following

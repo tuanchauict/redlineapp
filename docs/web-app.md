@@ -5,7 +5,8 @@ same reader the Mac app and the command line use: the same renderer, the same di
 [change marks](changes.md) and [history](history.md), running in your browser rather than
 behind a server. **It reads your files and never writes to them**, as the others do: a file is
 granted read-only. It is the smaller of the two: one file at a time, with no git
-([What is off](#what-is-off)).
+([What is off](#what-is-off)), and it is a **beta** for as long as that list is not empty —
+which a small grey *Beta* beside the icon on its bar, and on the welcome's title, says.
 
 Nothing you open leaves the browser. The page may make requests only to the address it came
 from, so a document cannot be posted anywhere, and what Redline remembers is kept in the
