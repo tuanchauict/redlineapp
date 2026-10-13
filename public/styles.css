@@ -175,6 +175,32 @@ body {
   flex: none;
 }
 
+/* The web app's beta mark, beside the icon on the bar and after the welcome's title.
+   Grey and outlined, not a colour: on this page red, green and blue each mean a kind of
+   change, and a red tag on the bar would read as one. `display` is the class's to give,
+   so the bare rule hides it -- an author `display` would beat `[hidden]` anyway. */
+.beta {
+  display: none;
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font: 600 10px/1.6 var(--font-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.web .beta {
+  display: inline-block;
+}
+
+.welcome-title .beta {
+  margin-left: 8px;
+  vertical-align: 0.4em;
+}
+
 /* Between what this document is and what the app is doing with it. Hidden
    when the left of the pair is empty, so it is never a line on its own. */
 .divide {

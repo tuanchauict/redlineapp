@@ -82,6 +82,31 @@ test('a browser tab starts its bar with the app icon', async () => {
   );
 });
 
+// The web app is a beta while it lacks what the Mac app has, and says so on the bar, where
+// it is on screen with a document open, and on the welcome's title, where it is without one.
+// Only there: the CLI's tab is the same page, and the class that shows the mark is the one
+// the head script sets before first paint off host.js's flag, so it never flashes on.
+test('the web app, and only the web app, is marked beta', async () => {
+  assert.match(
+    pageHtml,
+    /<img class="app-icon"[^>]*\/>\s*(<!--[\s\S]*?-->\s*)?<span\s+class="beta"[^>]*>Beta<\/span/,
+    'the mark sits beside the icon on the bar',
+  );
+  assert.match(pageCss, /\n\.beta \{[^}]*display: none;/,
+    'hidden wherever the page is not the web app');
+  assert.match(pageCss, /\n\.web \.beta \{\s*display: inline-block;\s*\}/, 'and drawn where it is');
+  assert.match(pageHead, /__REDLINE_WEB\) document\.documentElement\.classList\.add\("web"\)/,
+    'by the class the head script puts on <html> for the web app');
+  const hostJs = fs.readFileSync(rootUrl('src/hosts/web/host.js'), 'utf8');
+  assert.match(hostJs, /globalThis\.__REDLINE_WEB = true;/, 'from the flag its host.js raises');
+  const welcomeTsx = fs.readFileSync(rootUrl('public/app/ui/Welcome.tsx'), 'utf8');
+  assert.match(
+    welcomeTsx,
+    /<h1 class="welcome-title">\s*Redline <span class="beta">Beta<\/span>\s*<\/h1>/,
+    'and the welcome\'s title carries it, for the page with no document on it',
+  );
+});
+
 // A path in a table cell. github-markdown-css gives a table `width:
 // max-content; max-width: 100%; overflow: auto`, so one `code` span holding
 // something with no spaces in it — `/Users/me/src/a-long-project-name` — pins its

@@ -30,7 +30,9 @@ function Welcome({ doors, pickFile, back, input }: Props) {
   if (!v) return null;
   return (
     <>
-      <h1 class="welcome-title">Redline</h1>
+      <h1 class="welcome-title">
+        Redline <span class="beta">Beta</span>
+      </h1>
       <p class="welcome-lede">
         Read a markdown file, and see what changed in it since you last did.
       </p>
