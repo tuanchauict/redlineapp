@@ -325,6 +325,14 @@ test('the landing page parses, is wired up, and deploys what it builds', async (
   assert.match(siteCss, /\.icon-btn \.i-gh \{\s*fill: currentColor/, 'the GitHub mark is filled');
   assert.ok(!/npm (install|start|run)/.test(siteHtml), 'and offers no install from a checkout');
 
+  // The web app is the way in with nothing to install, so it is offered where the
+  // download is -- the nav, the hero and the get section -- and at its own origin,
+  // the one webapp.yml deploys to, not a path of this page's.
+  assert.ok(
+    (siteHtml.match(/href="https:\/\/app\.redline\.iamtuna\.org\/"/g) ?? []).length >= 3,
+    'the web app is linked from the nav, the hero and the get section',
+  );
+
   // And it quotes no count of its own parts. A strip of big numbers stood under
   // the hero saying 0 files written, 0 requests, 50 commits read in, 6 vendored
   // dependencies; the two zeros are the promise this product makes and already

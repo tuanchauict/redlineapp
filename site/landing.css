@@ -1432,7 +1432,7 @@ h1 {
 
 .sim-side button.is-on {
   background: var(--bg-3);
-  box-shadow: inset 2px 0 0 var(--red), var(--shadow-sm);
+  box-shadow: var(--shadow-sm);
 }
 
 .row-name {
@@ -1737,9 +1737,10 @@ kbd {
   color: var(--muted);
 }
 
-/* Full width so the two cards balance: the card beside it is a copy button that
+/* Full width so the cards balance: the Homebrew card is a copy button that
    stretches, and a download button hugging its text would read as the lesser of
-   the two when it is the one most people want. */
+   them when it is the one most people want. The web app's button is the same
+   shape, ghosted, because it is the smaller of the two apps. */
 .btn-dl {
   display: flex;
   justify-content: center;
