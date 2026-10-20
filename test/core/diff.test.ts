@@ -79,6 +79,45 @@ test('an HTML element left open is one block with what it holds', () => {
   assert.ok(!/<div class="chg[^>]*>(?:<button[\s\S]*?<\/button>)?<details>/.test(html), 'a closed element stands alone');
 });
 
+// The page draws a diagram from the text of its source node, so a word diff inside one would hand
+// the renderer the old words and the new together. An edited diagram is the whole diagram, new
+// beside the old behind "before" -- whatever kind it is, and wherever in the document it sits.
+test('an edited diagram is shown whole, never word-diffed', () => {
+  const fence = (lang, body, indent = '') =>
+    ['```' + lang, ...body.split('\n'), '```'].map((l) => indent + l).join('\n');
+  const mermaid = { a: 'graph TD\n  A-->B\n  B-->C', b: 'graph TD\n  A-->B\n  B-->D' };
+  const puml = (word) => `@startuml\nA -> B : hello\nB -> C : ${word}\n@enduml`;
+  const plantuml = { a: puml('go'), b: puml('stop') };
+  const kinds = [
+    { lang: 'mermaid', node: 'pre class="mermaid"', ...mermaid },
+    { lang: 'plantuml', node: 'pre class="plantuml"', ...plantuml },
+    { lang: 'puml', node: 'pre class="plantuml"', ...plantuml },
+  ];
+  for (const k of kinds) {
+    // Top level, and inside a list item, where the block that changed is the list.
+    const shapes = [
+      { where: 'top level', wrap: (code) => `${fence(k.lang, code)}\n` },
+      { where: 'in a list item', wrap: (code) => `- item\n\n${fence(k.lang, code, '  ')}\n` },
+    ];
+    for (const s of shapes) {
+      const name = `${k.lang} ${s.where}`;
+      const html = diffOf(s.wrap(k.a), s.wrap(k.b));
+      assert.ok(!html.includes('chg-inline'), `${name}: not word-diffed`);
+      assert.ok(!/<(?:ins|del) class="w-/.test(html), `${name}: no mark inside the source`);
+      assert.strictEqual(unbalanced(html), null, `${name}: ${unbalanced(html)}`);
+      const [now, before] = html.split('<details class="chg-before">');
+      assert.ok(before, `${name}: the old diagram is behind "before"`);
+      // Each side holds one source, whole: the new one shows, the old one is behind the disclosure.
+      const source = (part) =>
+        [...part.matchAll(new RegExp(`<${k.node}>([\\s\\S]*?)</pre>`, 'g'))].map((m) =>
+          m[1].replace(/&gt;/g, '>').replace(/&amp;/g, '&'),
+        );
+      assert.deepStrictEqual(source(now), [k.b + '\n'], `${name}: the new source, whole`);
+      assert.deepStrictEqual(source(before), [k.a + '\n'], `${name}: the old source, whole`);
+    }
+  }
+});
+
 // The page carries an opened "before" across a rebuild by the key of the block it is in (`paint`
 // in public/app.js), so the disclosure has to sit directly in a keyed block, and the key has to be
 // the same each time the same change is rendered -- from the same text, with unrelated text moving

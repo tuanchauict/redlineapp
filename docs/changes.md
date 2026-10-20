@@ -101,7 +101,8 @@ falls back to showing the new version with the old behind a **before** disclosur
 - the change is scattered across more than a dozen separate spots
 - what was removed is structure — a whole list item, a table row — which has no
   valid place to sit inline
-- the block is a diagram
+- the block is, or holds, a [diagram](diagrams.md#in-the-diff) — Mermaid or PlantUML —
+  which is drawn from its source and so is shown whole or not at all
 
 An opened **before** stays open when the page reloads, because it is remembered by the
 change's key (the same content-addressed name a [check-off](#checking-a-change-off) uses).
