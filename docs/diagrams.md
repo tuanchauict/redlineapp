@@ -39,4 +39,9 @@ not re-run the renderer for diagrams that did not change.
 
 Diagrams take part in the diff like any other block: edit one and it is marked
 changed, with the previous diagram behind the **before** disclosure. A diagram is
-never word-diffed — see [Change marks](changes.md#how-the-diff-works).
+never word-diffed, Mermaid or PlantUML alike — both are drawn from the text of their
+source, so marks inside it would hand the renderer the old words and the new together,
+and an edit to part of a diagram shows the whole diagram, new above old. A diagram
+inside a list item or a quote takes the block around it with it: the list is shown
+new, with the old list behind **before**. See
+[Change marks](changes.md#how-the-diff-works).

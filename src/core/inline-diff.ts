@@ -21,6 +21,13 @@ const BRIDGE_WORDS = 3;
 const MIN_SIMILARITY = 0.4;
 const MAX_GROUPS = 12;
 const MAX_HTML = 200_000;
+// What a diagram looks like in a render (`diagramFences` in ./render.ts): the `.diagram` box both
+// kinds sit in, the source node the page reads back (`pre.mermaid`, `pre.plantuml`), and the SVG
+// of one already drawn. The page takes a diagram's source from its text, so a word diff that put
+// `<del>` and `<ins>` inside it would hand the renderer both versions at once. It has to name
+// every kind: a PlantUML fence is `pre.plantuml`, and was marked up in place while only
+// `class="mermaid"` was recognised.
+const DIAGRAM = /<svg|class="(?:diagram|mermaid|plantuml)\b/;
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
 
@@ -129,9 +136,9 @@ function bridge(ops: Op[]) {
  */
 export function inlineDiff(oldHtml: string, newHtml: string): string | null {
   // Diagrams are one opaque node (or thousands of SVG elements); a word diff
-  // of either is meaningless.
+  // of either is meaningless, and a diagram edited in part is shown whole.
   if (oldHtml.length + newHtml.length > MAX_HTML) return null;
-  if (/<svg|class="mermaid"/.test(oldHtml) || /<svg|class="mermaid"/.test(newHtml)) return null;
+  if (DIAGRAM.test(oldHtml) || DIAGRAM.test(newHtml)) return null;
 
   const before = tokenize(oldHtml);
   const after = tokenize(newHtml);
