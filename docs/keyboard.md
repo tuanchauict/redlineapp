@@ -27,7 +27,8 @@ the edge, so on the right-hand one it is ← that makes the column wider.
 ## In the web app
 
 `⌘O` (Ctrl+O off a Mac) is the browser's file picker, and the file you pick joins the open
-files. **Open file…** at the foot of the open files does the same. A CLI tab has neither:
+files. **Open file…** at the foot of the open files does the same, and so does **Open** at the
+left of the bar, which is there while that column is shut. A CLI tab has none of them:
 it is handed its file, and `⌘O` there is the browser's. Where the welcome comes up over a
 document, to ask again for a file whose grant lapsed, Escape or **Back to the document** goes
 back to it.

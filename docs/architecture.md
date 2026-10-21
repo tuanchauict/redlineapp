@@ -725,12 +725,17 @@ its connection on `versionchange`. The page learns the build from the shim the b
   file the reader has let go of) or `NeedsPermission` (and offers **Reopen** *name*: `reopen()`,
   then the page loads again, or opens the link that was refused). No other backend has a
   `welcome`, which is the whole of why a shell, VS Code and the CLI's tab never show one.
-  - **Open, with a document on screen**: ⌘O and **Open file…** at the foot of the open files
-    (`#newTab`, retitled `if (welcome)`) are the file picker itself, the `pickFile` that
+  - **Open, with a document on screen**: ⌘O, **Open file…** at the foot of the open files
+    (`#newTab`, retitled `if (welcome)`) and **Open** on the bar (`#openFile`, wired in the same
+    block) are the file picker itself, the `pickFile` that
     `mountWelcome` answers — the welcome's own **Open file…**, the picker or, with none, the
     component's `<input>`, called inside the click or the key, as a picker has to be —
     and not the welcome over the document: what is picked joins the open files, and the file
-    being read stays a click away in them. The bar has no button for it. The welcome still
+    being read stays a click away in them. The bar's button is there for the left column
+    being shut, where the other two are out of sight: CSS draws it under
+    `html.web:not(.side-open)`, both classes set by the head script before first paint, so it
+    is neither toggled with `hidden` nor drawn only to go when the column opens, and the
+    native window and a CLI tab, which have no `welcome`, never show it. The welcome still
     comes up over a document for a grant that lapsed on a file that is not the one on screen,
     with **Back to the document**, and Escape takes it down (`backToDocument`). `load()` takes
     it down only for a document opened (`keepScroll: false`) or a grant it was asking for.

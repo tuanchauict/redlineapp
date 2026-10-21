@@ -39,7 +39,10 @@ The welcome says what the web app leaves out before you go looking for it, with 
 
 There is no menu. With a document open, **⌘O** (Ctrl+O elsewhere) and **Open file…** at the
 foot of the left column are the browser's file picker, and the file you pick joins the open
-files ([the keys](keyboard.md#in-the-web-app)). A file dropped on the window joins them too; a
+files ([the keys](keyboard.md#in-the-web-app)). While that column is shut, which it is until a
+second file is open, an **Open** button at the left of the bar is the same picker, so the way
+to a file is never only a key or a column you have to know to open. A file dropped on the
+window joins them too; a
 folder dropped there is refused with a notice, and the document stays where it was.
 
 ### Open files

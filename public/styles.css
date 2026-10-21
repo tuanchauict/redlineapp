@@ -196,6 +196,23 @@ body {
   display: inline-block;
 }
 
+/* The web app's Open button, for when the left column that holds Open file… is shut. Off the
+   classes the head script sets, not `[hidden]`, which the `display` here would beat, and so
+   before first paint: the column's saved state is already on `<html>` when the bar is first
+   drawn, so the button is never drawn only to go. The native window and a CLI tab have no
+   file picker to call, so neither ever shows it. A word beside the icon, which the bar's other
+   buttons do without: what it replaces was a thing nobody could find. */
+.open-file {
+  display: none;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+.web:not(.side-open) .open-file {
+  display: inline-flex;
+}
+
 .welcome-title .beta {
   margin-left: 8px;
   vertical-align: 0.4em;

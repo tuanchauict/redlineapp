@@ -161,6 +161,19 @@
         >Beta</span
       >
 
+      <!-- The way to another file when the left column is shut. Open file… is at the foot of
+           that column and ⌘O is a key, so with the column shut (its default until a second
+           file is open) nothing on screen said a file could be opened at all. Drawn only under
+           `html.web:not(.side-open)`, both of which the head script sets before first paint,
+           so it is never drawn to be taken away when the column opens. Wired in app.js beside
+           `#newTab`, which it is the same picker as. -->
+      <button id="openFile" class="icon open-file" title="Open a file (⌘O)">
+        <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M2.75 4.75a1 1 0 0 1 1-1h2.6l1.4 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-8.5a1 1 0 0 1-1-1z" />
+        </svg>
+        Open
+      </button>
+
       <!-- Nothing at all while the file is being watched, which is all of the
            time: a light that is always on says nothing. It appears, red, only
            when that connection has dropped and the page has stopped following
