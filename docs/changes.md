@@ -62,8 +62,10 @@ mark `n` / `p` or a hover has made current. A hit area that was also the
 full width of its own colour read as a thick bar down the margin the moment it
 was made easy to land a pointer on; keeping the two separate gets both. Runs of
 changed lines merge into one band rather than becoming a row of hairlines, a
-change you check off fades to a trace the way its margin mark does, and the whole
-strip goes when the marks do. `n` / `p` widen and brighten whichever mark they
+change you check off turns from a solid stripe into a zebra — `//` stripes in the
+same colour, a little fainter, so it still says what kind of change it was — and the whole
+strip goes when the marks do. Solid is what is left to read; striped is dealt with.
+A band never mixes the two: checked and unchecked changes that touch are two bands. `n` / `p` widen and brighten whichever mark they
 just took you to, so the ruler also answers "where am I" — not only "where are
 the changes." Hovering a marked block does the same: the mark for the paragraph
 under the pointer widens the moment the margin tint does, without waiting for

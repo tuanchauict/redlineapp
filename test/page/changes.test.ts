@@ -531,3 +531,28 @@ test('change ruler wired end to end', async () => {
     'and asked the same of the one engine without it',
   );
 });
+
+// A checked change keeps its place on the ruler but is drawn differently: solid when there is
+// still something to check, a zebra once there is not. The bands already carried `ok` (a merged
+// band is never half checked, see `paintRuler`), so what has to hold is that it reaches the mark
+// as a class and that the class changes the stripe's pattern and not only its shade.
+test('the ruler draws a checked change as a zebra and an unchecked one solid', () => {
+  assert.match(pageJs, /ok && 'ruler-ok'/, 'a checked band is given the class');
+  assert.match(pageJs, /last\.ok === ok/, 'and a band merges only with one in the same state');
+
+  const solid = pageCss.match(/\.ruler-mark::after \{([^}]*)\}/);
+  assert.ok(solid, 'the stripe has a rule');
+  assert.match(solid[1], /background: var\(--mark\)/, 'solid in the change\'s colour by default');
+
+  const zebra = pageCss.match(/\.ruler-ok::after \{([^}]*)\}/);
+  assert.ok(zebra, 'a checked stripe has a rule of its own');
+  assert.match(zebra[1], /repeating-linear-gradient\(\s*135deg,/, 'which stripes it, leaning like //');
+  assert.match(zebra[1], /var\(--mark\)/, 'in the same colour, so the kind still reads');
+  assert.match(zebra[1], /transparent/, 'with gaps between');
+  // Same specificity as the solid rule, so source order is what decides which one wins.
+  assert.ok(pageCss.indexOf('.ruler-ok::after {') > pageCss.indexOf('.ruler-mark::after {'),
+    'and it comes after the solid one');
+  // The pattern is the signal; a fade deep enough to hide it would leave only a shade to go by.
+  const fade = pageCss.match(/\.ruler-ok \{[^}]*opacity: ([\d.]+)/);
+  assert.ok(fade && Number(fade[1]) >= 0.5, 'and the fade leaves the stripes visible');
+});

@@ -2117,10 +2117,29 @@ main::-webkit-scrollbar-thumb:hover {
   --mark: var(--del);
 }
 
-/* Checked off, but not gone: the same fade the margin mark takes, so the ruler
-   keeps saying where the change was while making clear it is dealt with. */
+/* Checked off, but not gone: the stripe goes from solid to a zebra, in the
+   change's own colour, so the ruler keeps saying where the change was and what
+   kind it was while making clear it is dealt with. The pattern is the signal,
+   which is why the fade is only partial: the old 0.22 left a zebra too faint to
+   tell from a solid one, and a mark told apart by shade alone is one you have to
+   remember the shade of. Slanted like `//`: a gradient's stripes run square to
+   its direction, so 135deg (towards the bottom right) gives the "/" lean. The
+   period is measured along that direction, which makes the stripes repeat about
+   every 5.7px down the ruler -- 2px on, 2px off is the finest that still reads as
+   a slant on a stripe 4px wide, and a coarser one would leave a short band a
+   single colour or a single gap (a one-line change is floored to 3px, see
+   `paintRuler`). */
 .ruler-ok {
-  opacity: 0.22;
+  opacity: 0.6;
+}
+.ruler-ok::after {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--mark) 0,
+    var(--mark) 2px,
+    transparent 2px,
+    transparent 4px
+  );
 }
 
 /* The one change `n`/`p` last took you to, brought to full opacity and widened
