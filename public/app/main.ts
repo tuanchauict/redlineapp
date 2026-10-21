@@ -55,6 +55,9 @@ if (welcome) {
   // read stays a click away in them.
   $('newTab').title = 'Open a file (⌘O)';
   $('newTab').addEventListener('click', () => pickFile());
+  // The same picker from the bar, for the web app with the left column shut, where neither
+  // that button nor a key the page never mentions is on screen. CSS shows it only then.
+  $('openFile').addEventListener('click', () => pickFile());
 }
 
 // The rows are drawn wherever the list is, the column open or shut, so opening it has nothing to

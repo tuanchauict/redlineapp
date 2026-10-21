@@ -1453,10 +1453,25 @@ test('the web app\'s reader: a worker per origin, and a permission the user can 
       );
 
       // The way from a document to another file, which only the web app has: Open file… at the
-      // foot of the open files, and ⌘O. The bar has no button of its own for it.
-      assert.ok(
-        ![pageHtml, appJs, pageCss].some((src) => /openBtn/.test(src)),
-        'there is no Open button by the name',
+      // foot of the open files, ⌘O, and — for when that column is shut, which is when neither is
+      // in sight — an Open button at the left of the bar.
+      assert.match(
+        pageHtml,
+        /<img class="app-icon"[^>]*>[\s\S]*?class="beta"[\s\S]*?<button id="openFile" class="icon open-file" title="Open a file \(⌘O\)">[\s\S]*?<\/button>[\s\S]*?id="live"/,
+        'the Open button is on the left of the bar, after the icon and the beta tag',
+      );
+      assert.match(
+        appJs,
+        new RegExp(
+          String.raw`if \(welcome\) \{[\s\S]{0,900}` +
+            String.raw`\$\('openFile'\)\.addEventListener\('click', \(\) => pickFile\(\)\);`,
+        ),
+        'and is the file picker, in the web app alone, as Open file… is',
+      );
+      assert.match(
+        pageCss,
+        /\.open-file \{\s*display: none;[^}]*\}\s*\.web:not\(\.side-open\) \.open-file \{\s*display: inline-flex;\s*\}/,
+        'drawn in the web app with the left column shut, and in neither of the others',
       );
       assert.match(
         appJs,

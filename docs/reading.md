@@ -195,7 +195,8 @@ open". The icon says the second thing.
   still a click away. Click a row to read it, back where you left it; × or a middle
   click closes one, and closing the file on screen goes to its neighbour, or to the
   welcome if it was the last. **Open file…** at the foot is the browser's file
-  picker, as ⌘O is. The list outlives a reload, and each browser tab has its own; a new tab on
+  picker, as ⌘O is, and with the column shut the bar's **Open** button stands in for it.
+  The list outlives a reload, and each browser tab has its own; a new tab on
   the app's bare address starts from the list a tab last had, and one whose files
   were all closed starts at the welcome rather than with the last of them back. As
   in the desktop app, the column opens by itself at the second file, until you have
