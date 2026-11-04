@@ -22,6 +22,15 @@ up behind a scrollbar that on macOS is invisible until something scrolls it, so 
 text is simply gone as far as the reader can tell. A wrapped path is the lesser
 evil in something you are reading rather than copying out.
 
+A diagram, or an image alone in its paragraph, that is wider than the reading column is
+allowed the whole pane — the window less whichever sidebars are open — instead of being
+shrunk into the column, where a large chart or SVG is too small to read. One that fits the
+column is centred in it and looks as it did; narrow the window past the column and there
+is nothing to break out of. It applies to blocks at the top level or in a change mark, not
+to one inside a "before" disclosure. `--pane-w` in `public/styles.css` is that width, and
+repeats the arithmetic of `main`'s padding, so a change to the sidebars' layout changes it too.
+Printing keeps the column.
+
 ## The header block
 
 A file that opens with a `---` fence — a skill's `name` and `description`, a post's
