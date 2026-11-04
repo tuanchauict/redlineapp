@@ -2717,9 +2717,13 @@ pre .w-del + .w-add {
   overflow-x: auto;
 }
 
+/* PlantUML writes `style="width:Wpx;height:Hpx"` on the svg itself, and an inline style
+   beats this sheet: `max-width` shrank the width and the inline height held, so a diagram
+   wider than the pane came out squashed. `!important` is the only way past it; with the
+   height auto, the viewBox keeps the ratio. */
 .diagram svg {
   max-width: 100%;
-  height: auto;
+  height: auto !important;
 }
 
 /* PlantUML renders opaque black-on-white, so give it a light card in dark mode. */
@@ -2727,6 +2731,7 @@ pre .w-del + .w-add {
   background: #fff;
   border-radius: 6px;
   padding: 8px;
+  box-sizing: border-box; /* so the padding is inside max-width, not past it */
 }
 
 .diagram pre.mermaid {
