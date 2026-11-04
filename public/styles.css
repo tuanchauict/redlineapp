@@ -2702,6 +2702,14 @@ pre .w-del + .w-add {
   text-align: center;
 }
 
+/* When the pane is narrower than the image, `max-width: 100%` (github-markdown-css) shrinks
+   the width, and a `height` attribute or an SVG's own would hold the old height and
+   stretch it. `auto` takes the height from the width, so it scales and keeps its ratio. */
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+}
+
 /* diagrams */
 .diagram {
   margin: 14px 0;
