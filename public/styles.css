@@ -2664,6 +2664,44 @@ pre .w-del + .w-add {
   margin: 0;
 }
 
+/* A big diagram or image may use the whole pane, not just the reading column.
+
+   The column is `--doc-width` so prose stays readable, but a 1400px diagram
+   shrunk into it is unreadable too. `--pane-w` is what `main` has inside its padding
+   and scrollbar -- the window less whichever sidebars are open, the same arithmetic as
+   `main`'s own padding and `right` above, so the two have to agree. A block's
+   negative inline margin of half the difference (`100%` is the column, or the
+   `.chg` that wraps it, which nets to the same width) widens it to the pane and
+   centres it; `min(0px, …)` makes that nothing once the pane is no wider than the
+   column. Content smaller than the column sits in the middle of the wider box, so
+   it looks as it did. Only the blocks that sit in the column directly or in a
+   change mark: one inside a "before" disclosure has a narrower `100%`, and the
+   same sum would put it off-centre. */
+:root {
+  --pane-w: calc(100vw - 58px);
+}
+:root.side-open {
+  --pane-w: calc(100vw - var(--side-w) - 82px);
+}
+:root.toc-open {
+  --pane-w: calc(100vw - var(--toc-w) - 58px);
+}
+:root.side-open.toc-open {
+  --pane-w: calc(100vw - var(--side-w) - var(--toc-w) - 82px);
+}
+
+.markdown-body > .diagram,
+.markdown-body > .chg > .diagram,
+.markdown-body > p:has(> img:only-child),
+.markdown-body > .chg > p:has(> img:only-child) {
+  margin-inline: min(0px, calc((100% - var(--pane-w)) / 2));
+}
+
+.markdown-body > p:has(> img:only-child),
+.markdown-body > .chg > p:has(> img:only-child) {
+  text-align: center;
+}
+
 /* diagrams */
 .diagram {
   margin: 14px 0;
@@ -2860,6 +2898,14 @@ pre .w-del + .w-add {
   .markdown-body {
     max-width: none;
     margin: 0;
+  }
+
+  /* A sheet has no pane to break out into. */
+  .markdown-body > .diagram,
+  .markdown-body > .chg > .diagram,
+  .markdown-body > p:has(> img:only-child),
+  .markdown-body > .chg > p:has(> img:only-child) {
+    margin-inline: 0;
   }
 
   /* `overflow: auto` means a scrollbar on screen and silent clipping on paper

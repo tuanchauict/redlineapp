@@ -129,6 +129,24 @@ test('long inline code in a table cell wraps', async () => {
   );
 });
 
+// A diagram or a lone image wider than the column may use the whole pane. The pane's width is
+// the window less whichever sidebars are open, so every combination of the two classes the
+// head script sets needs its own `--pane-w`, or one of them breaks out into a sidebar.
+test('a wide diagram or image breaks out of the column into the pane', () => {
+  for (const sel of [':root', ':root.side-open', ':root.toc-open', ':root.side-open.toc-open']) {
+    assert.ok(
+      pageCss.includes(`${sel} {\n  --pane-w: calc(`),
+      `${sel} says how wide the pane is`,
+    );
+  }
+  assert.match(
+    pageCss,
+    /\.markdown-body > \.diagram,[^{]*\{\s*margin-inline: min\(0px, calc\(\(100% - var\(--pane-w\)\) \/ 2\)\);/,
+    'the diagram is widened to the pane, and by nothing when the pane is the narrower',
+  );
+  assert.match(pageCss, /> p:has\(> img:only-child\)/, 'and so is an image on its own');
+});
+
 // `doc` in the client is the <article>, not a document, and an element has no
 // getElementById — the call parses, ships, and throws only once the line runs.
 // It cost a contents list, a diagram and an honest change count the last time:
