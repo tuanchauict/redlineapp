@@ -1,0 +1,65 @@
+# The VS Code extension, on its own: packaged on every pull request, so that a manifest the
+# Marketplace would refuse fails there, and published by a tag of its own, `ext-vN.N.N`.
+#
+# Not `v*`: that is the app's tag, and a tag starting with `v` would run ci.yml too and cut a Mac
+# release for it ("vscode-v1" matches `v*`). The extension has its own version, in
+# `vscode/package.json`, and the tag has to say the same one.
+#
+# The secret is `VSCE_PAT`, a Marketplace token (scope Manage, all organizations), and it is in
+# reach of one step: the publish, on a tag. A pull request, a fork's included, never sees it.
+name: VS Code extension
+
+on:
+  push:
+    tags: ['ext-v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The tag names the version that goes out; a tag that disagrees with the manifest would
+      # publish one number and say another.
+      - name: The tag is the manifest's version
+        if: startsWith(github.ref, 'refs/tags/ext-v')
+        run: |
+          want="${GITHUB_REF_NAME#ext-v}"
+          have="$(node -p "require('./vscode/package.json').version")"
+          if [ "$want" != "$have" ]; then
+            echo "::error::tag says $want, vscode/package.json says $have"
+            exit 1
+          fi
+
+      - run: npm run build:vscode
+      - name: Package the .vsix
+        working-directory: dist/vscode
+        run: npx --yes @vscode/vsce package --no-dependencies --out ../redline.vsix
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: redline-vsix
+          path: dist/redline.vsix
+          if-no-files-found: error
+
+      - name: Publish to the VS Code Marketplace
+        if: startsWith(github.ref, 'refs/tags/ext-v')
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --yes @vscode/vsce publish --no-dependencies --packagePath dist/redline.vsix

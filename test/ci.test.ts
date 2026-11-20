@@ -32,8 +32,8 @@ test('CI tests every change on two OSes, and signs only what a fork cannot reach
   const workflows = fs.readdirSync(rootUrl('.github/workflows/'));
   assert.deepStrictEqual(
     workflows.sort(),
-    ['ci.yml', 'pages.yml', 'webapp.yml'],
-    'three workflows, no more',
+    ['ci.yml', 'pages.yml', 'vscode.yml', 'webapp.yml'],
+    'four workflows, no more',
   );
   // Every change is tested, because a check that runs only when somebody thinks
   // to start it is the check that did not run on the change that broke things.
@@ -51,13 +51,14 @@ test('CI tests every change on two OSes, and signs only what a fork cannot reach
     ['ci.yml', ciCode],
     ['pages.yml', pagesCode],
     ['webapp.yml', webappCode],
+    ['vscode.yml', fs.readFileSync(rootUrl('.github/workflows/vscode.yml'), 'utf8')],
   ]) {
     assert.doesNotMatch(code, /pull_request_target/, `${name} never hands a fork the secrets`);
   }
 
   assert.deepStrictEqual(
     ci.slice(ci.indexOf('\njobs:')).match(/^ {2}[a-z]+:$/gm),
-    ['  lint:', '  test:', '  vscode:', '  bundle:', '  release:'],
+    ['  lint:', '  test:', '  bundle:', '  release:'],
     'the lint, the suite, the dmg, and the release',
   );
   const lintJob = ciCode.slice(ciCode.indexOf('\n  lint:'), ciCode.indexOf('\n  test:'));
@@ -65,7 +66,7 @@ test('CI tests every change on two OSes, and signs only what a fork cannot reach
   assert.match(lintJob, /runs-on: ubuntu-latest/, 'on Linux, the text being the same on either');
   assert.doesNotMatch(lintJob, /secrets\./, 'with no secret in reach of it');
   assert.doesNotMatch(lintJob, /needs:/, 'and beside the suite, not in front of it');
-  const testJob = ciCode.slice(ciCode.indexOf('\n  test:'), ciCode.indexOf('\n  vscode:'));
+  const testJob = ciCode.slice(ciCode.indexOf('\n  test:'), ciCode.indexOf('\n  bundle:'));
   // Both platforms: the font checks only really run on the Mac, and the Linux leg
   // is what notices a macOS assumption in code meant to be portable.
   assert.match(testJob, /os: \[ubuntu-latest, macos-latest\]/, 'the suite runs on Linux and macOS');
@@ -81,19 +82,10 @@ test('CI tests every change on two OSes, and signs only what a fork cannot reach
   );
   assert.match(testJob, /working-directory: shell/, 'run where the shell is');
   assert.doesNotMatch(testJob, /secrets\./, 'with no secret in reach of the code under test');
-  // The extension's job runs the build and `vsce package` on a fork's pull request too, so the
-  // Marketplace token is reachable by exactly one step: the one that publishes, on a tag.
-  const vscodeJob = ciCode.slice(ciCode.indexOf('\n  vscode:'), ciCode.indexOf('\n  bundle:'));
-  assert.strictEqual(vscodeJob.match(/secrets\./g)?.length, 1, 'one use of one secret');
-  assert.match(
-    vscodeJob,
-    /if: startsWith\(github\.ref, 'refs\/tags\/v'\)\n\s+env:\n\s+VSCE_PAT: \$\{\{ secrets\./,
-    'on a version tag only',
-  );
   assert.deepStrictEqual(
     ciCode.match(/needs: .*/g),
-    ['needs: [lint, test]', 'needs: [lint, test]', 'needs: bundle'],
-    'a dmg and a .vsix only from a reader that lints and passes, a release only from that dmg',
+    ['needs: [lint, test]', 'needs: bundle'],
+    'a dmg only from a reader that lints and passes, a release only from that dmg',
   );
 
   // A pull request from a fork runs a stranger's code. GitHub withholds secrets

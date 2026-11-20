@@ -6,8 +6,8 @@
 // The page is the one every host has, staged by the same code (stage-page.mts) for a host with no
 // server and a reader on the far side of `postMessage`; the extension host's side is bundled
 // into `extension.js`, as CommonJS because that is what the editor loads, with `vscode` left for
-// the editor to provide. The manifest is `vscode/package.json`, with the version of the rest of
-// the repository written over its placeholder, so that this is not a sixth place to bump.
+// the editor to provide. The manifest is `vscode/package.json`, copied as it is: the extension has a version of its
+// own, released on its own tag (`ext-vN.N.N`, .github/workflows/vscode.yml), apart from the app's.
 //
 // `dist/vscode/` is gitignored, and emptied on every run.
 import fs from 'node:fs';
@@ -15,7 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 import { ROOT } from '../src/hosts/node/root.js';
-import { buildVersion, megabytes, stagePage } from './stage-page.mjs';
+import { megabytes, stagePage } from './stage-page.mjs';
 
 export const VSCODE_DIST = 'dist/vscode';
 
@@ -37,7 +37,6 @@ export async function buildVscode(dest = VSCODE_DIST): Promise<{ dest: string; b
   });
 
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'vscode', 'package.json'), 'utf8'));
-  manifest.version = buildVersion();
   fs.writeFileSync(path.join(out, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   for (const f of ['.vscodeignore', 'README.md', 'icon.png']) {
     const from = path.join(ROOT, 'vscode', f);
