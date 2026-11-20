@@ -275,16 +275,24 @@ test('the bar sits at the bottom, without the title, and the scrollbar is not th
   assert.match(read('public/index.html'), /contains\("vscode"\) \? 30/);
 });
 
-test('the extension can be published: a publisher, an icon that ships, and a job that packages it', () => {
+test('the extension can be published: a publisher, an icon that ships, and a workflow of its own', () => {
   const manifest = JSON.parse(read('vscode/package.json'));
   assert.strictEqual(manifest.publisher, 'tuanchauict');
   assert.strictEqual(manifest.icon, 'icon.png');
   assert.ok(fs.existsSync(path.join(ROOT, 'vscode', manifest.icon)), 'the icon is in the repository');
   assert.match(read('scripts/build-vscode.mts'), /'README\.md', 'icon\.png'/);
-  const ci = read('.github/workflows/ci.yml');
-  assert.match(ci, /vsce package/);
-  assert.match(ci, /vsce publish[^\n]*--packagePath/);
-  assert.match(ci, /startsWith\(github\.ref, 'refs\/tags\/v'\)[\s\S]*VSCE_PAT/);
+  assert.ok(!/vscode|vsce/.test(read('.github/workflows/ci.yml')), "the app's CI is the app's");
+  const wf = read('.github/workflows/vscode.yml');
+  const code = wf.replace(/^\s*#.*$/gm, '');
+  // `v*` would match `vscode-v1` and cut a Mac release; the extension's tag must not start with v.
+  assert.match(code, /tags: \['ext-v\*'\]/);
+  assert.match(code, /vsce package/);
+  assert.match(code, /vsce publish --pre-release[^\n]*--packagePath/, 'an alpha is a pre-release');
+  assert.match(code, /vsce package --pre-release/, 'packaged the same way it is published');
+  assert.strictEqual(code.match(/secrets\./g)?.length, 1, 'one use of one secret');
+  assert.match(code, /if: startsWith\(github\.ref, 'refs\/tags\/ext-v'\)\n\s+env:\n\s+VSCE_PAT/);
+  assert.match(code, /GITHUB_REF_NAME#ext-v/, 'the tag is checked against the manifest');
+  assert.doesNotMatch(code, /pull_request_target/);
 });
 
 test('the extension is wired: staged, bundled, declared, and loaded only by its own flag', () => {

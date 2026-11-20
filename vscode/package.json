@@ -2,7 +2,7 @@
   "name": "redline-preview",
   "displayName": "Redline",
   "description": "A Markdown preview that marks what changed since you last read it, with History and Contents.",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "publisher": "tuanchauict",
   "license": "MIT",
   "icon": "icon.png",
