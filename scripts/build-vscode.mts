@@ -39,7 +39,7 @@ export async function buildVscode(dest = VSCODE_DIST): Promise<{ dest: string; b
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'vscode', 'package.json'), 'utf8'));
   manifest.version = buildVersion();
   fs.writeFileSync(path.join(out, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-  for (const f of ['.vscodeignore', 'README.md']) {
+  for (const f of ['.vscodeignore', 'README.md', 'icon.png']) {
     const from = path.join(ROOT, 'vscode', f);
     if (fs.existsSync(from)) fs.copyFileSync(from, path.join(out, f));
   }

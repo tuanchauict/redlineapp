@@ -3,29 +3,74 @@
   "displayName": "Redline",
   "description": "A Markdown preview that marks what changed since you last read it, with History and Contents.",
   "version": "0.0.0",
-  "publisher": "redline",
+  "publisher": "tuanchauict",
   "license": "MIT",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Other"],
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tuanchauict/redlineapp.git"
+  },
+  "homepage": "https://github.com/tuanchauict/redlineapp",
+  "bugs": {
+    "url": "https://github.com/tuanchauict/redlineapp/issues"
+  },
+  "keywords": [
+    "markdown",
+    "preview",
+    "diff",
+    "changes",
+    "history",
+    "review"
+  ],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
   "main": "./extension.js",
-  "activationEvents": ["onWebviewPanel:redline.preview"],
-  "extensionKind": ["workspace"],
+  "activationEvents": [
+    "onWebviewPanel:redline.preview"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
   "capabilities": {
-    "untrustedWorkspaces": { "supported": false, "description": "Redline reads and diffs the files you open." },
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Redline reads and diffs the files you open."
+    },
     "virtualWorkspaces": false
   },
   "contributes": {
     "commands": [
-      { "command": "redline.open", "title": "Redline: Open Preview to the Side", "icon": "$(preview)" }
+      {
+        "command": "redline.open",
+        "title": "Redline: Open Preview to the Side",
+        "icon": "$(preview)"
+      }
     ],
     "menus": {
       "editor/title": [
-        { "command": "redline.open", "when": "resourceLangId == markdown", "group": "navigation" }
+        {
+          "command": "redline.open",
+          "when": "resourceLangId == markdown",
+          "group": "navigation"
+        }
       ],
       "explorer/context": [
-        { "command": "redline.open", "when": "resourceLangId == markdown", "group": "navigation" }
+        {
+          "command": "redline.open",
+          "when": "resourceLangId == markdown",
+          "group": "navigation"
+        }
       ],
-      "commandPalette": [{ "command": "redline.open", "when": "editorLangId == markdown" }]
+      "commandPalette": [
+        {
+          "command": "redline.open",
+          "when": "editorLangId == markdown"
+        }
+      ]
     }
   }
 }

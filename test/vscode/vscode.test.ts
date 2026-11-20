@@ -13,6 +13,7 @@ import {
   isRemoteAddress,
 } from '../../src/hosts/vscode/platform.js';
 import { HOSTS } from '../../scripts/stage-page.mjs';
+import { ROOT } from '../../src/hosts/node/root.js';
 import { pageHtml, read, scratch } from '../support.js';
 
 const tmp = scratch('redline-vscode-');
@@ -272,6 +273,18 @@ test('the bar sits at the bottom, without the title, and the scrollbar is not th
   // The bar's height is spoken for in three places, and this is the one in each.
   assert.match(read('public/app/layout/toc-height.ts'), /contains\('vscode'\) \? 30/);
   assert.match(read('public/index.html'), /contains\("vscode"\) \? 30/);
+});
+
+test('the extension can be published: a publisher, an icon that ships, and a job that packages it', () => {
+  const manifest = JSON.parse(read('vscode/package.json'));
+  assert.strictEqual(manifest.publisher, 'tuanchauict');
+  assert.strictEqual(manifest.icon, 'icon.png');
+  assert.ok(fs.existsSync(path.join(ROOT, 'vscode', manifest.icon)), 'the icon is in the repository');
+  assert.match(read('scripts/build-vscode.mts'), /'README\.md', 'icon\.png'/);
+  const ci = read('.github/workflows/ci.yml');
+  assert.match(ci, /vsce package/);
+  assert.match(ci, /vsce publish[^\n]*--packagePath/);
+  assert.match(ci, /startsWith\(github\.ref, 'refs\/tags\/v'\)[\s\S]*VSCE_PAT/);
 });
 
 test('the extension is wired: staged, bundled, declared, and loaded only by its own flag', () => {

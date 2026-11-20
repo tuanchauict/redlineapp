@@ -55,6 +55,16 @@ npm run build:vscode          # -> dist/vscode/
 cd dist/vscode && npx @vscode/vsce package
 ```
 
+## Releasing it
+
+The `vscode` job in `ci.yml` builds `dist/vscode/`, packages it with `vsce` and uploads the
+`.vsix` as an artifact on every run, so a manifest the Marketplace would refuse fails on the pull
+request. On a `v*` tag it also publishes, as publisher `tuanchauict`, with the repository secret
+`VSCE_PAT`: an Azure DevOps token with scope Marketplace > Manage and "All accessible
+organizations". It expires (the first one on 2027-11-19) and publishing then fails with a 401;
+make a new one and replace the secret. With no secret the step warns and publishes nothing. The
+version is the repository's (`package.json`), the same as the app's.
+
 ## Not there, and not verified
 
 - Relative images in a document are not loaded: the webview may only read the extension's own
