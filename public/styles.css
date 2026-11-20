@@ -1672,6 +1672,49 @@ html:not(.native) [data-shell] {
   display: none;
 }
 
+/* ---------- inside the VS Code panel ---------- */
+
+/* The editor's tab already names the file, so the bar carries only what a reading needs, and
+   sits on the bottom edge, out of the way of the first lines. Every rule that anchored to
+   `--bar-h` from the top is flipped here: the offset from the top goes to nothing and the one
+   from the bottom takes the bar's height, so the places that say `var(--bar-h)` keep working. */
+.vscode {
+  --bar-h: 0px;
+  --bar-b: 30px;
+  /* A webview's default stylesheet sets `scrollbar-color` on the root, and Chromium ignores
+     the `::-webkit-scrollbar` rules for main once any `scrollbar-color` is inherited, so the
+     editor's dark track showed through as a strip beside a light page. */
+  scrollbar-color: var(--line) transparent;
+}
+
+.vscode .bar {
+  inset: auto 0 0 0;
+  height: var(--bar-b);
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
+}
+
+.vscode .app-icon,
+.vscode .beta,
+.vscode .open-file,
+.vscode #tabMenuSlot,
+.vscode #nameSlot {
+  display: none;
+}
+
+.vscode main {
+  inset: 0 0 var(--bar-b) 0;
+  scrollbar-color: var(--line) transparent;
+}
+
+.vscode.side-open #files,
+.vscode.toc-open #tocSide,
+.vscode.side-open #sideGrip,
+.vscode.toc-open #tocGrip,
+.vscode .ruler {
+  bottom: var(--bar-b);
+}
+
 /* ---------- inside the native window ---------- */
 
 /* The window has no OS title bar: the bar below *is* the title bar, with the

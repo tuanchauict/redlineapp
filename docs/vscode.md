@@ -38,6 +38,16 @@ The fourth shell on the one reader ([architecture](architecture.md)): the reader
 - **A restart** brings each panel back: `host.js` keeps the file in the webview's state and the
   serializer reopens it.
 
+## The page in the panel
+
+`host.js` puts a `vscode` class on the root, and `styles.css` keys on it. The editor's tab already
+names the file, so the bar goes to the bottom edge and drops the title, the icon, the Beta tag and
+Open; the top offset (`--bar-h`) becomes nothing and `--bar-b` (30px) is taken from the bottom of
+the document, the columns and the ruler. The bar's height is also in
+`public/app/layout/toc-height.ts` and the head script of `index.html`. `scrollbar-color` is set
+on the root because the webview's default stylesheet sets its own, and Chromium then ignores the
+`::-webkit-scrollbar` rules, leaving the editor's dark track beside a light page.
+
 ## Building it
 
 ```

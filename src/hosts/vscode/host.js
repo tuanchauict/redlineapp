@@ -18,6 +18,9 @@
 // extension's build stages this file over it (`stage-page.mts`), so that a change here cannot
 // reach the Mac app, the CLI or the web app.
 globalThis.__REDLINE_VSCODE = true;
+// Layout that differs here (the bar at the bottom, no title) keys on this class, which has to be
+// on the root before the head script reads the bar's height and before first paint.
+document.documentElement.classList.add('vscode');
 
 (() => {
   const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content;

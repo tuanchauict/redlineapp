@@ -262,6 +262,18 @@ test('a callout is not left to the editor\'s own blockquote style', () => {
   assert.match(read('public/styles.css'), /\.markdown-body blockquote \{[^}]*background: transparent/);
 });
 
+test('the bar sits at the bottom, without the title, and the scrollbar is not the editor\'s', () => {
+  const css = read('public/styles.css');
+  // The class is how every rule below finds the extension; without it they are dead.
+  assert.match(read('src/hosts/vscode/host.js'), /classList\.add\('vscode'\)/);
+  assert.match(css, /\.vscode \.bar \{[^}]*inset: auto 0 0 0/);
+  assert.match(css, /\.vscode #nameSlot[^{]*\{[^}]*display: none/);
+  assert.match(css, /\.vscode \{[^}]*scrollbar-color: var\(--line\) transparent/);
+  // The bar's height is spoken for in three places, and this is the one in each.
+  assert.match(read('public/app/layout/toc-height.ts'), /contains\('vscode'\) \? 30/);
+  assert.match(read('public/index.html'), /contains\("vscode"\) \? 30/);
+});
+
 test('the extension is wired: staged, bundled, declared, and loaded only by its own flag', () => {
   assert.deepStrictEqual(HOSTS.vscode.bundles, ['backend-vscode.js']);
   assert.strictEqual(HOSTS.vscode.shim, 'src/hosts/vscode/host.js');
