@@ -75,10 +75,11 @@ It is published as a **pre-release** while the extension is alpha (`--pre-releas
 `package` and `publish`, which must agree), so the editor offers it only to those who opt in; drop
 the flag from `vscode.yml` to make it the default.
 
-The display name has to be unique across the Marketplace: "Redline" was taken, so it is "Redline
-Markdown Preview". Nothing was uploaded under 0.0.1 (the name was refused), and 0.0.2 was the
-first version. The Marketplace refuses a version it already has, so a failed publish after the
-upload needs a new number.
+The display name has to be unique, and not merely close to another extension's: "Redline" was
+taken and "Redline Markdown Preview" was refused as too like "Offline Markdown Preview", so it is
+"Redline: spot what an AI agent edited in your docs". Nothing was uploaded under 0.0.1 or 0.0.2
+(the name was refused each time), so 0.0.3 is the first version. The Marketplace refuses a version
+it already has, so a failed publish after the upload needs a new number.
 
 ## Not there, and not verified
 
