@@ -315,3 +315,18 @@ test('the extension is wired: staged, bundled, declared, and loaded only by its 
   assert.match(read('src/hosts/vscode/extension-node.ts'), /export function activate\(/, 'the entry exports activate');
   assert.match(read('src/hosts/vscode/host.js'), /setState\(\{ path \}\)/, 'and a panel keeps its file for a restart');
 });
+
+test('a Markdown file another extension gave its own language is still offered the preview', () => {
+  // SKILL.md is "Skill" in the status bar when an agent extension claims it, and a menu gated on
+  // the language alone never appeared for it.
+  const manifest = JSON.parse(read('vscode/package.json'));
+  const menus = manifest.contributes.menus;
+  for (const when of [
+    menus['editor/title'][0].when,
+    menus['explorer/context'][0].when,
+    menus.commandPalette[0].when,
+  ]) {
+    assert.match(when, /resourceExtname =~ \/\\\.\(md\|markdown\)\$\//, `${when} matches by name`);
+  }
+  assert.match(read('src/hosts/vscode/extension.ts'), /\\\.\(md\|markdown\)\$\/i\.test\(doc\.uri\.path\)/);
+});
