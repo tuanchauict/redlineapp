@@ -19,10 +19,14 @@ const HIST_H_MIN = 110;
 
 /**
  * 34px on the web, 38 in the native window, where the titlebar is taller to
- * hold the traffic lights. Mirrors `--bar-h` in styles.css — the two have to
+ * hold the traffic lights, 30 in VS Code, where the bar is at the bottom and the
+ * column loses the same height to it. Mirrors `--bar-h` in styles.css — the two have to
  * agree, the same deal as the widths.
  */
-const barH = () => (document.documentElement.classList.contains('native') ? 38 : 34);
+const barH = () => {
+  const cl = document.documentElement.classList;
+  return cl.contains('vscode') ? 30 : cl.contains('native') ? 38 : 34;
+};
 
 // The column's own padding (6px top and bottom) and the grip between the two
 // sections (its own 9px, plus the 2px gap either side of it) are spoken for

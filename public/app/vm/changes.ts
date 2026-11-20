@@ -242,6 +242,43 @@ addEventListener('resize', queueRuler);
 
 // ---------- change navigation ----------
 
+let glide = 0;
+
+/**
+ * Scroll the pane so `node` is centred, over a few frames of our own. The browser's own smooth
+ * scroll (`scrollIntoView({ behavior: 'smooth' })`) is abandoned part-way by a webview when
+ * anything about the scroller changes under it -- the ruler repainting as the scroll fires its
+ * events was enough -- so a click on the ruler stopped short of the change. A scroll we drive
+ * ends where we said; the wheel or a touch takes it back from us.
+ */
+function glideTo(node) {
+  cancelAnimationFrame(glide);
+  const view = pane.getBoundingClientRect();
+  const rect = node.getBoundingClientRect();
+  const from = pane.scrollTop;
+  const max = pane.scrollHeight - pane.clientHeight;
+  const centred = from + rect.top - view.top - (view.height - rect.height) / 2;
+  const to = Math.max(0, Math.min(max, centred));
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches || Math.abs(to - from) < 2) {
+    return void pane.scrollTo(0, to);
+  }
+  const start = performance.now();
+  const ms = Math.min(450, 150 + Math.abs(to - from) / 4);
+  const stop = () => cancelAnimationFrame(glide);
+  pane.addEventListener('wheel', stop, { once: true, passive: true });
+  pane.addEventListener('touchstart', stop, { once: true, passive: true });
+  const step = (now) => {
+    const t = Math.min(1, (now - start) / ms);
+    pane.scrollTo(0, from + (to - from) * (1 - (1 - t) ** 3));
+    if (t < 1) glide = requestAnimationFrame(step);
+    else {
+      pane.removeEventListener('wheel', stop);
+      pane.removeEventListener('touchstart', stop);
+    }
+  };
+  glide = requestAnimationFrame(step);
+}
+
 /**
  * The landing behaviour `n`/`p` and a ruler click share: scroll, flash, and
  * bring the ruler's own idea of "current" along with it. Takes any node, not
@@ -251,7 +288,7 @@ addEventListener('resize', queueRuler);
  */
 export function goToNode(node) {
   landedAt = performance.now();
-  node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  glideTo(node);
   for (const n of doc.querySelectorAll('.flash')) n.classList.remove('flash');
   node.classList.add('flash');
   setTimeout(() => node.classList.remove('flash'), 1200);

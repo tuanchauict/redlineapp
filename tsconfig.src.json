@@ -6,6 +6,6 @@
     "noImplicitAny": true,
     "tsBuildInfoFile": "out/tsconfig.src.tsbuildinfo"
   },
-  "include": ["src"],
-  "exclude": ["src/hosts/node"]
+  "include": ["src", "types/vscode.d.ts"],
+  "exclude": ["src/hosts/node", "src/hosts/vscode/extension-node.ts"]
 }

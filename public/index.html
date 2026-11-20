@@ -82,9 +82,10 @@
       // `applyTocH` and `tocHMax` in public/app/layout/toc-height.ts, which
       // takes over from the first frame on. 90 is
       // the least Contents can be and still be a list; 110 is what History
-      // needs below it to still be one too; 34/38 is the titlebar, web or native.
+      // needs below it to still be one too; 34/38/30 is the bar, web, native or VS Code.
       const tocH = Number(prefs.getItem("redline:toch")) || 180;
-      const barH = document.documentElement.classList.contains("native") ? 38 : 34;
+      const cl = document.documentElement.classList;
+      const barH = cl.contains("vscode") ? 30 : cl.contains("native") ? 38 : 34;
       const tocHMax = Math.max(90, innerHeight - barH - 25 - 110);
       root.setProperty("--toc-h", Math.round(Math.min(Math.max(tocH, 90), tocHMax)) + "px");
 

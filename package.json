@@ -19,6 +19,7 @@
     "build:web": "npm run build:ts && node out/scripts/build-web.mjs",
     "build:dist": "npm run build:ts && node out/scripts/build-dist.mjs",
     "build:webapp": "npm run build:ts && node out/scripts/build-webapp.mjs",
+    "build:vscode": "npm run build:web && node out/scripts/build-vscode.mjs",
     "build:site": "npm run build:ts && node out/scripts/build-site.mjs",
     "prestart": "npm run build:web",
     "start": "node out/bin/redline.js",
