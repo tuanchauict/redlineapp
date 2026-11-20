@@ -165,6 +165,11 @@ names nothing a release makes. Independent, a deploy that fails, with no project
 token, cannot hold a release up or turn it red. It does not run the suite again: the tag is cut
 on a merge `ci.yml` has passed, and it checks the half that could differ, that the web app
 builds, and that the tag agrees with `package.json`, since the worker's name carries the version.
+`ci.yml`'s `webapp` job runs the same two build commands on every pull request and push, so a
+change that breaks the web app's build is red there, and a tag is not the first time
+`npm run build:webapp` has been run as a command: the suite stages `dist/web` too, but
+in-process, through the functions the scripts export. Nothing waits on it and it uploads nothing;
+the dmg does not need the web bundles, and the deploy builds its own copy.
 
 It is **two jobs**. `build` runs `npm ci`, `build:web` and `build:webapp` and uploads `dist/web`
 as an artifact, with no secret. `deploy` downloads it and runs `wrangler pages deploy`, and it
@@ -374,7 +379,7 @@ remembered to ask about.
 
 | | |
 | --- | --- |
-| `.github/workflows/ci.yml` | Four jobs. **`lint`**: `npm run lint` on `ubuntu-latest`, beside the suite rather than in front of it. **`test`**: `npm ci` and `npm test` on `ubuntu-latest` and `macos-latest`, and on the Mac `cargo test` in `shell/` too. **`bundle`**, once both have passed: `npm run bundle` on `macos-latest`, uploaded as an artifact — **`Redline-universal-dmg`** or **`Redline-arm64-dmg`**. **`release`**: only for a `vN.N.N` tag or a ticked **Deploy**, and [published](#publishing-a-release) |
+| `.github/workflows/ci.yml` | Five jobs. **`lint`**: `npm run lint` on `ubuntu-latest`, beside the suite rather than in front of it. **`webapp`**: `npm run build:web` and `npm run build:webapp` on `ubuntu-latest`, [the web app's build](#publishing-the-web-app) as its own workflow runs it on a tag, here on every change. **`test`**: `npm ci` and `npm test` on `ubuntu-latest` and `macos-latest`, and on the Mac `cargo test` in `shell/` too. **`bundle`**, once both have passed: `npm run bundle` on `macos-latest`, uploaded as an artifact — **`Redline-universal-dmg`** or **`Redline-arm64-dmg`**. **`release`**: only for a `vN.N.N` tag or a ticked **Deploy**, and [published](#publishing-a-release) |
 | `.github/workflows/pages.yml` | the landing page, built in one job and [deployed](#deploying-it) to Cloudflare Pages from another |
 | `.github/workflows/webapp.yml` | the web app, [published](#publishing-the-web-app) to a Cloudflare Pages project of its own |
 
@@ -382,7 +387,7 @@ What starts `ci.yml`, and what it does:
 
 | | |
 | --- | --- |
-| a pull request | the lint, the suite on both, then a universal dmg signed **ad hoc**, as an artifact |
+| a pull request | the lint, the web app's build, the suite on both, then a universal dmg signed **ad hoc**, as an artifact |
 | a push to `main` | the same, the dmg **signed and notarized** |
 | a push of a `v*` tag | the same, then the release |
 | Run workflow | the same from any branch, one arch unless **Universal** is ticked; with **Deploy** ticked, the release |

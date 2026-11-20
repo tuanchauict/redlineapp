@@ -57,14 +57,25 @@ test('CI tests every change on two OSes, and signs only what a fork cannot reach
 
   assert.deepStrictEqual(
     ci.slice(ci.indexOf('\njobs:')).match(/^ {2}[a-z]+:$/gm),
-    ['  lint:', '  test:', '  bundle:', '  release:'],
-    'the lint, the suite, the dmg, and the release',
+    ['  lint:', '  webapp:', '  test:', '  bundle:', '  release:'],
+    'the lint, the web app build, the suite, the dmg, and the release',
   );
-  const lintJob = ciCode.slice(ciCode.indexOf('\n  lint:'), ciCode.indexOf('\n  test:'));
+  const lintJob = ciCode.slice(ciCode.indexOf('\n  lint:'), ciCode.indexOf('\n  webapp:'));
   assert.match(lintJob, /run: npm run lint/, 'the lint is the npm script, as it is run by hand');
   assert.match(lintJob, /runs-on: ubuntu-latest/, 'on Linux, the text being the same on either');
   assert.doesNotMatch(lintJob, /secrets\./, 'with no secret in reach of it');
   assert.doesNotMatch(lintJob, /needs:/, 'and beside the suite, not in front of it');
+  // The web app's build, run as the commands webapp.yml runs on a tag, so that a change which
+  // breaks it is red on the pull request and not on the release. Not asserted as a step of that
+  // workflow: the two only have to agree on the commands, and the order they run in.
+  const webappJob = ciCode.slice(ciCode.indexOf('\n  webapp:'), ciCode.indexOf('\n  test:'));
+  assert.match(webappJob, /run: npm run build:web\n[\s\S]*run: npm run build:webapp\n/,
+    'the bundles, then the page staged around them, as the commands the deploy runs');
+  assert.match(webappJob, /run: npm ci\n[\s\S]*run: npm run build:web\n/, 'on a clean install');
+  assert.match(webappJob, /runs-on: ubuntu-latest/, 'on Linux, where it is published from');
+  assert.doesNotMatch(webappJob, /secrets\./, 'with no secret in reach of it');
+  assert.doesNotMatch(webappJob, /needs:/, 'and beside the suite, like the lint');
+  assert.doesNotMatch(webappJob, /upload-artifact/, 'and nothing kept: the deploy builds its own');
   const testJob = ciCode.slice(ciCode.indexOf('\n  test:'), ciCode.indexOf('\n  bundle:'));
   // Both platforms: the font checks only really run on the Mac, and the Linux leg
   // is what notices a macOS assumption in code meant to be portable.

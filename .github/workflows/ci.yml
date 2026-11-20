@@ -7,8 +7,9 @@
 # line. The landing page is the exception and deploys from pages.yml -- from
 # the end of a release, or by hand, and never on a push.
 #
-#   pull request          the lint and the suite on Linux and macOS, then a
-#                         universal dmg, signed ad hoc, as an artifact
+#   pull request          the lint, the web app's build and the suite on Linux
+#                         and macOS, then a universal dmg, signed ad hoc, as an
+#                         artifact
 #   push to main          the same, signed and notarized
 #   push of a `v*` tag    the same, then a GitHub release with the dmg, the
 #                         Homebrew cask pointed at it, latest.json, and the
@@ -76,6 +77,28 @@ jobs:
 
       - run: npm ci
       - run: npm run lint
+
+  # The web app's build, as the workflow that publishes it runs it, on every change instead of
+  # only on a tag. The suite stages dist/web too, but in-process, through the functions the
+  # scripts export; this is the commands themselves, which is what that workflow runs, so the
+  # first time `npm run build:webapp` is run as a command is not the day a release is cut. A job
+  # of its own and beside the suite, like the lint, and the dmg does not wait for it: the app
+  # embeds the page from build:dist and has no use for the web bundles. Linux alone, since that
+  # is where it is published from, and nothing is uploaded: the deploy builds its own.
+  webapp:
+    name: web app build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build:web
+      - run: npm run build:webapp
 
   test:
     name: test (${{ matrix.os }})
