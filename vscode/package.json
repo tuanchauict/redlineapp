@@ -2,7 +2,7 @@
   "name": "redline-preview",
   "displayName": "Redline: spot what an AI agent edited in your docs",
   "description": "A Markdown preview that marks what changed since you last read it, with History and Contents.",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "tuanchauict",
   "license": "MIT",
   "icon": "icon.png",
@@ -54,21 +54,21 @@
       "editor/title": [
         {
           "command": "redline.open",
-          "when": "resourceLangId == markdown",
+          "when": "resourceLangId == markdown || resourceExtname =~ /\\.(md|markdown)$/",
           "group": "navigation"
         }
       ],
       "explorer/context": [
         {
           "command": "redline.open",
-          "when": "resourceLangId == markdown",
+          "when": "resourceLangId == markdown || resourceExtname =~ /\\.(md|markdown)$/",
           "group": "navigation"
         }
       ],
       "commandPalette": [
         {
           "command": "redline.open",
-          "when": "editorLangId == markdown"
+          "when": "editorLangId == markdown || resourceExtname =~ /\\.(md|markdown)$/"
         }
       ]
     }

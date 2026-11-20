@@ -120,5 +120,8 @@ export async function activateWith(
 
 function activeMarkdown(): string | null {
   const doc = vscode.window.activeTextEditor?.document;
-  return doc && doc.languageId === 'markdown' ? fromUri(doc.uri) : null;
+  // By name as well as by language: another extension can claim a file such as SKILL.md for a
+  // language of its own, and the menus (package.json) match the name too.
+  const markdown = doc && (doc.languageId === 'markdown' || /\.(md|markdown)$/i.test(doc.uri.path));
+  return doc && markdown ? fromUri(doc.uri) : null;
 }

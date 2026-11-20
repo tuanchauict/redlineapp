@@ -5,7 +5,7 @@ own Markdown preview with a memory: the paragraphs that moved since you last rea
 marked, and the versions Redline has seen are a click away. There is no list of open files and no
 tabs; the editor has both.
 
-`Redline: Open Preview to the Side` (`redline.open`) is in the editor title bar and the
+`Redline: Open Preview to the Side` (`redline.open`) is, for a file named `.md` or `.markdown` whatever its language mode (an agent extension can make `SKILL.md` "Skill"), in the editor title bar and the
 Explorer's context menu for a Markdown file, and in the Command Palette while one is active. Each
 call opens a panel; two panels on two files are two documents, and the same file twice is one
 document held twice.
