@@ -50,7 +50,7 @@ jobs:
       - run: npm run build:vscode
       - name: Package the .vsix
         working-directory: dist/vscode
-        run: npx --yes @vscode/vsce package --no-dependencies --out ../redline.vsix
+        run: npx --yes @vscode/vsce package --pre-release --no-dependencies --out ../redline.vsix
 
       - uses: actions/upload-artifact@v7
         with:
@@ -62,4 +62,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/ext-v')
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx --yes @vscode/vsce publish --no-dependencies --packagePath dist/redline.vsix
+        # Alpha: a pre-release, which the editor offers only to those who opt in. Drop the flag when
+        # the extension is ready to be the default.
+        run: npx --yes @vscode/vsce publish --pre-release --no-dependencies --packagePath dist/redline.vsix

@@ -71,7 +71,9 @@ git tag ext-v0.0.2 && git push origin ext-v0.0.2
 The token is the repository secret `VSCE_PAT`: an Azure DevOps token with scope Marketplace >
 Manage and "All accessible organizations", used by the publish step alone. It expires (the first
 one on 2027-11-19) and publishing then fails with a 401; make a new one and replace the secret.
-The Marketplace refuses a version it already has, so a failed publish after the upload needs a
+It is published as a **pre-release** while the extension is alpha (`--pre-release` on both
+`package` and `publish`, which must agree), so the editor offers it only to those who opt in; drop
+the flag from `vscode.yml` to make it the default. The Marketplace refuses a version it already has, so a failed publish after the upload needs a
 new number.
 
 ## Not there, and not verified

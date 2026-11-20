@@ -287,7 +287,8 @@ test('the extension can be published: a publisher, an icon that ships, and a wor
   // `v*` would match `vscode-v1` and cut a Mac release; the extension's tag must not start with v.
   assert.match(code, /tags: \['ext-v\*'\]/);
   assert.match(code, /vsce package/);
-  assert.match(code, /vsce publish[^\n]*--packagePath/);
+  assert.match(code, /vsce publish --pre-release[^\n]*--packagePath/, 'an alpha is a pre-release');
+  assert.match(code, /vsce package --pre-release/, 'packaged the same way it is published');
   assert.strictEqual(code.match(/secrets\./g)?.length, 1, 'one use of one secret');
   assert.match(code, /if: startsWith\(github\.ref, 'refs\/tags\/ext-v'\)\n\s+env:\n\s+VSCE_PAT/);
   assert.match(code, /GITHUB_REF_NAME#ext-v/, 'the tag is checked against the manifest');
