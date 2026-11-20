@@ -61,6 +61,12 @@ export async function createBackend({
     const { createWebBackend } = await import('./vendor/backend-web.js');
     return createWebBackend({ docId });
   }
+  // The VS Code extension: the reader is in the extension host, on the far side of the webview's
+  // postMessage. Its `host.js` leaves the flag, as the web app's does.
+  if (globalThis.__REDLINE_VSCODE) {
+    const { createVscodeBackend } = await import('./vendor/backend-vscode.js');
+    return createVscodeBackend({ docId });
+  }
   return httpBackend({ docId });
 }
 

@@ -418,11 +418,15 @@ test('the web app\'s build: one page staged per host, and the headers a static h
       for (const [, , spec] of staged(f).matchAll(specifier)) {
         (found[f] ??= []).push(spec);
         assert.ok(spec.endsWith(`?v=${v}`), `${f} imports ${spec}, which is not this build`);
-        // The desktop app's bundle is named by `backend.js` for the branch that is never taken
-        // here, and is left out of this staging on purpose (12e above): the one import with no
-        // file.
+        // The desktop app's and the VS Code extension's bundles are named by `backend.js` for
+        // branches that are never taken here, and are left out of this staging on purpose (12e
+        // above): the two imports with no file.
         const there = fs.existsSync(path.join(built, path.dirname(f), spec.replace(/\?.*/, '')));
-        assert.strictEqual(there, !spec.includes('backend-tauri.js'), `${spec} is a file, or not`);
+        assert.strictEqual(
+          there,
+          !/backend-(?:tauri|vscode)\.js/.test(spec),
+          `${spec} is a file, or not`,
+        );
       }
     }
     assert.deepStrictEqual(Object.keys(found).sort(), ['app.js', 'backend.js'],
@@ -431,7 +435,7 @@ test('the web app\'s build: one page staged per host, and the headers a static h
     // imported by main.ts and by vm/peek.ts is two lines of app.js for one file.
     assert.strictEqual(new Set(found['app.js']).size, 4,
       'app.js: renderer, DOMPurify, backend, Mermaid');
-    assert.strictEqual(found['backend.js'].length, 2, 'backend.js: the two readers it may load');
+    assert.strictEqual(found['backend.js'].length, 3, 'backend.js: the three readers it may load');
 
     // ... Mermaid's own chunks are named for their content, so they need no query
     const chunks = walk(built).filter((f) => f.includes(`mermaid${path.sep}chunks`));

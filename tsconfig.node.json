@@ -4,6 +4,13 @@
     "types": ["node"],
     "tsBuildInfoFile": "out/tsconfig.node.tsbuildinfo"
   },
-  "include": ["src/hosts/node", "bin", "scripts", "test"],
+  "include": [
+    "types/vscode.d.ts",
+    "src/hosts/node",
+    "src/hosts/vscode/extension-node.ts",
+    "bin",
+    "scripts",
+    "test"
+  ],
   "references": [{ "path": "./tsconfig.src.json" }]
 }

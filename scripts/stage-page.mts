@@ -31,7 +31,7 @@ import { ROOT } from '../src/hosts/node/root.js';
 
 const require = createRequire(import.meta.url);
 
-export type HostName = 'tauri' | 'web';
+export type HostName = 'tauri' | 'web' | 'vscode';
 
 interface HostSpec {
   bundles: string[];
@@ -61,6 +61,13 @@ export const HOSTS: Record<HostName, HostSpec> = {
     // The page is fetched over the network, and from a cache that is meant to hold it for a year.
     // The desktop app has its files inside the binary, and the CLI's server never caches them.
     versioned: true,
+  },
+  // The extension's files are inside the .vsix and are served by the editor from there, under a
+  // path that changes with the extension's version: nothing to cache-bust.
+  vscode: {
+    bundles: ['backend-vscode.js'],
+    shim: 'src/hosts/vscode/host.js',
+    versioned: false,
   },
 };
 

@@ -39,11 +39,11 @@ test('the import graph obeys the layers', async () => {
   const forbidden = (file, spec) => {
     const from = layerOf(file);
     if (spec.startsWith('node:')) {
-      const ok = from === 'hosts/node' || file === 'hosts/vscode/extension-node.js';
+      const ok = from === 'hosts/node' || /^hosts\/vscode\/extension-node\.(js|ts)$/.test(file);
       return ok ? null : 'node: is for hosts/node and extension-node.js only';
     }
     if (spec === 'vscode') {
-      const ok = from === 'hosts/vscode' && !/\/(backend|host)\.js$/.test(file);
+      const ok = from === 'hosts/vscode' && !/\/(backend|host)\.(js|ts)$/.test(file);
       return ok ? null : 'vscode is for the extension host only, never for the page side';
     }
     if (spec.startsWith('@tauri-apps/api')) {

@@ -2,7 +2,7 @@
 //
 //   npm run build:web
 //
-// Five bundles, all of them code that started life in src/ and has to end up
+// Six bundles, all of them code that started life in src/ and has to end up
 // running in a webview:
 //
 //   render.js         src/core/document.ts -- the diff and the markdown rendering.
@@ -18,6 +18,9 @@
 //   reader-worker.js  src/hosts/web/worker.ts -- the reader, the store and the web
 //                     platform, as the SharedWorker's script, and as the module a
 //                     page without SharedWorker imports to be its own worker.
+//   backend-vscode.js src/hosts/vscode/backend.ts -- the page's end of the VS Code extension:
+//                     the rpc client over the webview's postMessage. The reader is in the
+//                     extension host, so this is as small as the web app's.
 //
 // No entry point touches node:, which is the property that makes this
 // possible and the one src/reader/platform.ts exists to preserve.
@@ -56,6 +59,7 @@ const BUNDLES = [
   { entry: 'src/hosts/tauri/backend.ts', out: 'backend-tauri.js' },
   { entry: 'src/hosts/web/backend.ts', out: 'backend-web.js' },
   { entry: 'src/hosts/web/worker.ts', out: 'reader-worker.js' },
+  { entry: 'src/hosts/vscode/backend.ts', out: 'backend-vscode.js' },
 ];
 
 const dev = process.argv.includes('--dev');

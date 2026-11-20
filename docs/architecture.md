@@ -77,6 +77,16 @@ src/hosts/web/          the web app's shell: no server, no node, files in Indexe
                         they come to is a view the page draws (`public/app/ui/Welcome.tsx`)
   host.js               the shim that makes a page the web app's; `stage-page.mts` puts it over
                         `public/host.js`, with the build's version after it
+src/hosts/vscode/       the VS Code extension: the reader in the extension host, the page in a webview
+  extension-node.ts     the entry point (`activate`) and the one file that imports `node:`:
+                        home, the environment, running a program
+  extension.ts          the command, the panel serializer, the theme listener, the preferences
+  panel.ts              one preview: pins the page to its own document, answers preference writes
+  platform.ts           the platform over `vscode.workspace.fs`, with the `vscode` module handed in
+  html.ts               the webview's page: its policy, its files named by the editor, the `<meta>`s
+  backend.ts            the page's end: the rpc client over `postMessage`
+  host.js               the shim: the flag, preferences over messages, the editor's theme as
+                        `prefers-color-scheme`
 
 public/host.js          a classic script, first in the head, empty here; a host's own shim
                         (the web app's is `src/hosts/web/host.js`, put over this one by its build)
@@ -814,10 +824,11 @@ its connection on `versionchange`. The page learns the build from the shim the b
 `scripts/stage-page.mts` is `stagePage(dest, { host })`: `public/`, the vendored CSS, Mermaid's
 minified ESM tree and the icon, laid out the way the CLI's server routes them, so that the page's
 relative `vendor/...` links hold unchanged. Two things are the host's: the bundles it loads (the
-desktop app's `backend-tauri.js`, the web app's `backend-web.js` and `reader-worker.js`) and the
-shim over `public/host.js`. `build:web` writes every host's bundles into `public/vendor/` and
-`public/` is copied whole, so each host leaves out the others'. `build-dist.mts` and
-`build-webapp.mts` are one call each.
+desktop app's `backend-tauri.js`, the web app's `backend-web.js` and `reader-worker.js`, the
+VS Code extension's `backend-vscode.js`) and the shim over `public/host.js`. `build:web` writes every host's bundles into `public/vendor/` and
+`public/` is copied whole, so each host leaves out the others'. `build-dist.mts`,
+`build-webapp.mts` and `build-vscode.mts` are one call each (the last adds the extension's bundle
+and manifest; see [the VS Code extension](vscode.md)).
 
 - **The shim** is `src/hosts/web/host.js` with one line added, `__REDLINE_VERSION`: the version
   from `package.json` and a hash of the staged web bundles, `0.7.0+3fa9c2d1e0b4`. Only the staged

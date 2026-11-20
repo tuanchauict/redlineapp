@@ -2796,6 +2796,16 @@ pre .w-del + .w-add {
   margin: 0 0 2px !important;
 }
 
+/* A VS Code webview injects its own stylesheet, and it styles `blockquote` -- a callout is one --
+   with the editor theme's quote background and radius. The page's scheme is its own (Appearance,
+   or the editor's through host.js), so a light page in a dark editor was dark text on the
+   editor's dark quote. Said here rather than in the extension's shim: nothing else sets these,
+   so they cost no other host anything. */
+.markdown-body blockquote {
+  background: transparent;
+  border-radius: 0;
+}
+
 /* GitHub alerts */
 .markdown-alert {
   border-left: 4px solid var(--line);
