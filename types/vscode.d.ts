@@ -5,7 +5,7 @@
 // dependencies it already has -- the same reason types/vendor/ holds one-line shims -- and so
 // that what the extension is allowed to reach for is a list a reviewer can read.
 // The real API declares this globally, and its signatures are written against it.
-interface Thenable<T> extends PromiseLike<T> {}
+type Thenable<T> = PromiseLike<T>;
 
 declare module 'vscode' {
   export interface Disposable {

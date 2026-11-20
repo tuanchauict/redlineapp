@@ -47,6 +47,11 @@ export default tseslint.config(
     languageOptions: { globals: globals.browser },
   },
   {
+    // The webview's first script: a page, plus the one function the editor puts on it.
+    files: ['src/hosts/vscode/host.js'],
+    languageOptions: { globals: { ...globals.browser, acquireVsCodeApi: 'readonly' } },
+  },
+  {
     // The fake DOM walks its tree from the node it is called on, and `let n: Node = this` is
     // that walk's first step, not an alias kept to get round an arrow function.
     files: ['test/support.ts'],

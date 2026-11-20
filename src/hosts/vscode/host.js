@@ -35,7 +35,9 @@ document.documentElement.classList.add('vscode');
   let seed = {};
   try {
     seed = JSON.parse(meta('redline-prefs') || '{}');
-  } catch {}
+  } catch {
+    // A seed that does not parse is no seed: the page starts from its defaults.
+  }
   const kept = new Map(Object.entries(seed));
   globalThis.__REDLINE_PREFS = {
     getItem: (k) => (kept.has(k) ? kept.get(k) : null),
