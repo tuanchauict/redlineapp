@@ -89,6 +89,7 @@ declare module 'vscode' {
     readonly webview: Webview;
     readonly visible: boolean;
     title: string;
+    reveal(viewColumn?: ViewColumn, preserveFocus?: boolean): void;
     onDidDispose: Event<void>;
   }
   export interface WebviewPanelSerializer {
