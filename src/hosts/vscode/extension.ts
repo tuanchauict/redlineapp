@@ -52,7 +52,10 @@ export async function activateWith(
     },
   };
 
+  // Each Panel beside the editor panel it drives, to bring the one a file is already in to the
+  // front instead of opening a second copy of it.
   const panels = new Set<Panel>();
+  const shown = new Map<Panel, vscode.WebviewPanel>();
 
   const attach = async (panel: vscode.WebviewPanel, path: string): Promise<void> => {
     try {
@@ -68,7 +71,11 @@ export async function activateWith(
         path,
       );
       panels.add(attached);
-      panel.onDidDispose(() => panels.delete(attached));
+      shown.set(attached, panel);
+      panel.onDidDispose(() => {
+        panels.delete(attached);
+        shown.delete(attached);
+      });
     } catch (err) {
       // Nothing was retained, and the panel has nothing in it: it goes, and the reason is said.
       panel.dispose();
@@ -82,6 +89,13 @@ export async function activateWith(
       if (!path) {
         void vscode.window.showInformationMessage('Redline: open a Markdown file first.');
         return;
+      }
+      // `path` is live: a panel that followed a link is on the file it moved to.
+      for (const [attached, existing] of shown) {
+        if (attached.path === path) {
+          existing.reveal();
+          return;
+        }
       }
       const panel = vscode.window.createWebviewPanel(
         VIEW_TYPE,
