@@ -235,7 +235,7 @@ export function createWebHost({
       post({ t: 'live', on, why, needs });
 
     return {
-      async doc(id, baseline) {
+      async doc(id, baseline, to) {
         await readerP;
         // A document still waiting to be allowed is asked about again on every call, so that
         // allowing it in the browser's own settings works as well as the Reopen button.
@@ -260,7 +260,7 @@ export function createWebHost({
           }
         }
         try {
-          return await session.doc(held, baseline);
+          return await session.doc(held, baseline, to);
         } catch (err) {
           // `queryPermission` and the read can disagree for a moment; the read is right.
           if (was && err?.name === 'NotAllowedError') {

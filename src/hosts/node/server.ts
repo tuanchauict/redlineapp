@@ -185,7 +185,7 @@ export async function createServer({
     if (url.pathname === '/api/doc') {
       // No `baseline` means "open it": whatever it was last compared against,
       // and the read mark only if it never has been. See `reader.doc`.
-      return answer(() => session.doc(id, param('baseline')));
+      return answer(() => session.doc(id, param('baseline'), param('to')));
     }
     if (url.pathname === '/api/mark-read' && post) {
       return answer(() => session.markRead(id, param('at')));

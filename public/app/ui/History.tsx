@@ -56,7 +56,7 @@ function bytes(n) {
 
 export interface HistoryActions {
   /** A row clicked: compare against that version, or for the newest, against nothing. */
-  pick(v): void;
+  pick(v, opts?: { span?: boolean }): void;
   /** The row's menu, under its "…" (`from`) or at the pointer. `n` is how many Forget takes. */
   menu(row: HTMLElement, v, n: number, at: { from?: Element | null; keyboard?: boolean;
     x?: number; y?: number }): void;
@@ -119,7 +119,11 @@ function VersionRow({ d, v, i, actions }: { d; v; i: number; actions: HistoryAct
   // marks are measured from. They can be the same version, and often are. Set
   // as quiet text rather than a filled chip — the row already says which
   // version it is by its name, so these are a note, not a badge.
-  const flags = [v.current && 'now', v.baseline && 'read'].filter(Boolean);
+  const flags = [
+    v.current && 'now',
+    v.baseline && 'read',
+    state.compareTo === v.hash && 'to',
+  ].filter(Boolean);
 
   // Underneath, the particulars, in one shape for every row: how long ago this
   // was, and how far the file moved arriving here.
@@ -153,7 +157,7 @@ function VersionRow({ d, v, i, actions }: { d; v; i: number; actions: HistoryAct
       class={cls.filter(Boolean).join(' ')}
       title={title}
       aria-current={on ? 'true' : undefined}
-      onClick={() => actions.pick(v)}
+      onClick={(e) => actions.pick(v, { span: e.shiftKey })}
       onContextMenu={onContextMenu}
     >
       <span class="ver-text">

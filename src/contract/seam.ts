@@ -29,7 +29,7 @@ export interface WatchHandlers {
 
 /** The reader as a transport serves it. Ids may be stale or null; the session resolves them. */
 export interface Session {
-  doc(id: string | null, baseline?: string): Promise<DocPayload>;
+  doc(id: string | null, baseline?: string, to?: string | null): Promise<DocPayload>;
   markRead(id: string | null, at?: string): Promise<DocPayload>;
   /** Answers `{ acked }`, the checked keys, which is all a check-off changes. */
   ack(id: string | null, opts?: AckOptions): Promise<{ acked: string[] }>;
@@ -45,7 +45,8 @@ export interface Session {
 
 /** What the page calls. The same document throughout, so no ids. */
 export interface Backend {
-  doc(baseline?: string): Promise<DocPayload>;
+  /** `to`: a version to compare `baseline` against instead of the file. See `reader.doc`. */
+  doc(baseline?: string, to?: string | null): Promise<DocPayload>;
   markRead(at?: string): Promise<DocPayload>;
   /** The checked keys. The `{ acked }` wrapper is the session's and does not reach the page. */
   ack(opts: AckOptions): Promise<string[]>;

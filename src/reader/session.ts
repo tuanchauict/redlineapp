@@ -32,7 +32,7 @@ export class BadRequest extends Error {
 export function createSession(reader: Reader): Session {
   return {
     /** The document, built against `baseline`; blank means whichever it was last compared to. */
-    doc: (id, baseline) => reader.doc(id, baseline || 'last:read'),
+    doc: (id, baseline, to) => reader.doc(id, baseline || 'last:read', to || null),
 
     /**
      * Count a version as read: the one named by `at`, or the one on disk when it is blank, which

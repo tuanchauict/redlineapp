@@ -69,7 +69,7 @@ test('a document loaded: the id in the address, the payload taken, the page draw
   c.state.baseline = 'snap:x';
   c.pane.scrollTop = 50;
   assert.strictEqual(await c.load({ keepScroll: false }), true, 'it says it painted');
-  assert.deepStrictEqual(plain(c.backend.doc.calls), [['snap:x']], 'asking with the baseline held');
+  assert.deepStrictEqual(plain(c.backend.doc.calls), [['snap:x', null]], 'asking with the baseline held');
   assert.strictEqual(c.state.docId, 'd1', 'the reader\'s id is the page\'s');
   assert.strictEqual(c.win.location.search, '?id=d1&x=1');
   assert.strictEqual(c.state.baseline, 'read', 'and the baseline it could honour is the one kept');

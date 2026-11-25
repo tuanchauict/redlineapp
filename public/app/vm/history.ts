@@ -63,6 +63,13 @@ export const versionName = (v) => (v.git ? v.git.subject || 'Commit' : clockName
  * against itself is the plain document, which is the marks put away.
  */
 export function isBaseline(d, v) {
+  // The newer end of a comparison between two versions is filled as the older end is.
+  if (state.compareTo && v.hash === state.compareTo) return true;
+  return isOlderEnd(d, v);
+}
+
+/** `isBaseline` without the newer end of a comparison: the version everything is measured from. */
+function isOlderEnd(d, v) {
   if (v.current) return !state.diff;
   if (!state.diff) return false;
   if (d.baseline === `snap:${v.hash}`) return true;
@@ -87,9 +94,12 @@ export function paintHistory(d) {
 }
 
 /** What a click on a row does: History hands it the version, and this decides what that means. */
-export function pickVersion(v) {
+export function pickVersion(v, { span = false } = {}) {
   state.pruneAsk = null;
   state.restoreAsk = null;
+  // Shift-click: the other end of a comparison, not a new baseline.
+  if (span && compareWith(v)) return;
+  state.compareTo = null;
   if (v.current) {
     setMarks(false);
     return;
@@ -112,6 +122,33 @@ export function pickVersion(v) {
   // would pin the document to it with nothing in the list to unpin it.
   state.baseline = v.baseline ? 'read' : `snap:${v.hash}`;
   load({ keepScroll: true });
+}
+
+// ---------- comparing two versions ----------
+
+/**
+ * Compare the version being compared against with `v`, the older of the two as the baseline and
+ * the newer as what is on the page, whichever was picked first. Answers false, having done
+ * nothing, when there is no comparison to put it beside: the marks are off, or `v` is the one
+ * already picked.
+ *
+ * The file as the newer end is no end at all, and is how the comparison is put away.
+ */
+export function compareWith(v) {
+  const d = state.data;
+  if (!d || !state.diff || state.solo) return false;
+  const rows = d.history ?? [];
+  const from = rows.findIndex((r) => !r.current && isOlderEnd(d, r));
+  const at = rows.findIndex((r) => r.hash === v.hash);
+  if (from < 0 || at < 0 || at === from) return false;
+  // Newest first, so the larger index is the older version.
+  const [older, newer] = at > from ? [rows[at], rows[from]] : [rows[from], rows[at]];
+  state.pruneAsk = null;
+  state.restoreAsk = null;
+  state.baseline = older.baseline ? 'read' : `snap:${older.hash}`;
+  state.compareTo = newer.current ? null : newer.hash;
+  load({ keepScroll: true });
+  return true;
 }
 
 // ---------- reading one version alone ----------
@@ -243,6 +280,20 @@ export function openVerMenu(row, v, n, { from, keyboard = false, x = 0, y = 0 })
     markRead(v.current ? undefined : v.hash);
   });
   const items = [read];
+
+  // The other end of a comparison. Offered where a version is already picked to compare
+  // against, on every other row: the older of the two is compared with the newer.
+  if (state.data && state.diff && !state.solo && !v.current && !isBaseline(state.data, v)) {
+    const span = el('button', null, 'Compare to this version');
+    span.type = 'button';
+    span.role = 'menuitem';
+    span.title = 'Show what changed between the version picked and this one (⇧-click)';
+    span.addEventListener('click', () => {
+      closeVerMenu();
+      compareWith(v);
+    });
+    items.push(span);
+  }
 
   // Where the host may write the file, and never the version that is already on disk.
   if (state.caps?.restore && !v.current) {

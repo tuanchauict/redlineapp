@@ -63,7 +63,7 @@ export async function createTauriBackend({
   // document -- because the page is written against one surface and this is
   // the other implementation of it.
   return {
-    doc: (baseline) => reader.doc(docId(), baseline),
+    doc: (baseline, to) => reader.doc(docId(), baseline, to),
     markRead: (at) => reader.markRead(docId(), at),
     ack: (opts) => reader.ack(docId(), opts),
     prune: (upto, baseline) => reader.prune(docId(), upto, baseline),

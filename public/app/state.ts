@@ -65,6 +65,10 @@ const initial = {
   // The version waiting to be put back as the file. Asked in the row, like forgetting, because
   // it overwrites the file and a dialog over the window is not something every host allows.
   restoreAsk: null,
+  // The newer end of a comparison between two versions, by hash, when it is not the file. The
+  // older is the baseline. Set from the payload (`adopt`) and sent back with every load, so it
+  // follows the file's own changes; never saved, like reading one version alone.
+  compareTo: null,
 };
 
 type State = typeof initial;
