@@ -272,6 +272,9 @@ export function createWebHost({
 
       markRead: async (id, at) => session.markRead(await owned(conn, id), at),
       ack: async (id, opts) => session.ack(await owned(conn, id), opts),
+      // Refused by the reader, which has no `writeFile` here: the page never offers it.
+      restore: async (id, hash, baseline) =>
+        session.restore(await owned(conn, id), hash, baseline),
       prune: async (id, upto, baseline) => session.prune(await owned(conn, id), upto, baseline),
       plantumlSvg: async (code) => (await readerP, session.plantumlSvg(code)),
       fonts: async () => (await readerP, session.fonts()),

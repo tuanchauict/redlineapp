@@ -56,7 +56,7 @@ test('a reader with no spawn opens, diffs and prunes, and says what it lacks', a
   const mem = await createReader({ platform: memory, pollMs: 20 });
   const memId = await mem.retain(doc);
   const first = await mem.doc(memId, 'last:read');
-  assert.deepStrictEqual(first.caps, { git: false, plantuml: false }, 'caps say what this host lacks');
+  assert.deepStrictEqual(first.caps, { git: false, plantuml: false, restore: false }, 'caps say what this host lacks');
   assert.strictEqual(first.tracked, false, 'no file is in a repo');
   assert.strictEqual(first.pathLabel, '~/notes/a.md', 'and the default label still shortens home');
   assert.deepStrictEqual(await mem.fonts(), [], 'no font list');
@@ -91,7 +91,7 @@ test('a reader with no spawn opens, diffs and prunes, and says what it lacks', a
   const customId = await custom.retain(doc);
   const shown = await custom.doc(customId, 'last:read');
   assert.deepStrictEqual(calls, [doc], 'a provider is asked, not the default');
-  assert.deepStrictEqual(shown.caps, { git: true, plantuml: false }, 'and it is what caps report');
+  assert.deepStrictEqual(shown.caps, { git: true, plantuml: false, restore: false }, 'and it is what caps report');
   assert.deepStrictEqual([shown.dirLabel, shown.pathLabel], ['D', 'a.md'], 'the label is the host\'s');
   assert.deepStrictEqual(await custom.fonts(), ['Serif'], 'so are the fonts');
   custom.closeAll();

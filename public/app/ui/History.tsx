@@ -63,6 +63,8 @@ export interface HistoryActions {
   closeMenu(): void;
   /** Forget `hash` and every version older than it. */
   prune(hash: string): void;
+  /** Put `hash` back as the file. */
+  restore(hash: string): void;
 }
 
 function History({ actions }: { actions: HistoryActions }) {
@@ -77,6 +79,8 @@ function History({ actions }: { actions: HistoryActions }) {
       {versions.map((v, i) =>
         state.pruneAsk === v.hash ? (
           <PruneAsk key={v.hash} v={v} n={versions.length - i} actions={actions} />
+        ) : state.restoreAsk === v.hash ? (
+          <RestoreAsk key={v.hash} v={v} actions={actions} />
         ) : (
           <VersionRow key={v.hash} d={d} v={v} i={i} actions={actions} />
         ),
@@ -238,6 +242,33 @@ function PruneAsk({ v, n, actions }: { v; n: number; actions: HistoryActions }) 
         Forget
       </button>
       <button type="button" class="btn ask-no" onClick={() => (state.pruneAsk = null)}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+/** The row, turned into the question of whether to put it back as the file. */
+function RestoreAsk({ v, actions }: { v; actions: HistoryActions }) {
+  const go = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!pruneFocus.asked) return;
+    pruneFocus.asked = false;
+    go.current?.focus();
+  }, []);
+  return (
+    <div class="ver ask">
+      <span class="ask-text">Replace the file?</span>
+      <button
+        ref={go}
+        type="button"
+        class="btn ask-go"
+        title="The file as it is now stays in History"
+        onClick={() => actions.restore(v.hash)}
+      >
+        Restore
+      </button>
+      <button type="button" class="btn ask-no" onClick={() => (state.restoreAsk = null)}>
         Cancel
       </button>
     </div>

@@ -212,6 +212,9 @@ export async function createServer({
     if (url.pathname === '/api/open' && post) {
       return answer(() => session.open(id, param('path')));
     }
+    if (url.pathname === '/api/restore' && post) {
+      return answer(() => session.restore(id, param('hash'), param('baseline')));
+    }
     if (url.pathname === '/api/prune' && post) {
       return answer(() => session.prune(id, param('upto'), param('baseline')));
     }

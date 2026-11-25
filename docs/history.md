@@ -70,6 +70,20 @@ Importing adds versions to compare against — it does not move your baseline, s
 never decides for you that you have or have not read something. The read is done in
 the background: the file opens immediately and the rows appear a moment later.
 
+## Putting a version back
+
+**Restore this version…**, in the row's menu, overwrites the file with that version. The row turns
+into its own question — *Replace the file?* — and **Restore** answers it. What was on disk is
+recorded as a version first, so nothing is lost and a restore is undone by restoring the version it
+replaced. The version put back becomes the one on disk, and the page shows the file as it now is.
+
+It is offered only where the host may write the file, which is `caps.restore`: **the browser tab
+the command line serves and the VS Code extension**. The desktop app writes only into the store
+and the web app holds a read permission, so neither shows the item, and the reader refuses the call
+there too. It is the one place Redline writes your file, and it writes it in place (not by rename),
+so permissions and links are kept. An editor with unsaved changes in that file will say the file
+changed on disk.
+
 ## Cleaning up
 
 Each row has a **…** at its end, out of sight until the row is pointed at. It and a

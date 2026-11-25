@@ -122,7 +122,11 @@ export async function createReader({
   }
   // Said once, in every payload: what this host can do at all, as opposed to `tracked`, which
   // says whether this one file is in a repo. The page hides what cannot work.
-  const caps = Object.freeze({ git: git !== NO_GIT, plantuml: plantuml.available });
+  const caps = Object.freeze({
+    git: git !== NO_GIT,
+    plantuml: plantuml.available,
+    restore: typeof platform.writeFile === 'function',
+  });
 
   // --- open documents ------------------------------------------------------
   // One entry per distinct file being read, keyed by a hash of its path, so
@@ -620,6 +624,33 @@ export async function createReader({
       // documents, so only a sweep of every one of them can say.
       if (removed) await DocStore.gc(platform);
       return { ...(await buildDoc(doc, baseline)), removed };
+    },
+
+    /**
+     * Put a version back as the file. The one call here that writes the user's own file, so it
+     * is refused where the host cannot (`caps.restore`), and what is on disk now is recorded
+     * first: a restore loses nothing, and is undone by restoring the version it replaced.
+     *
+     * Not answered from the watcher: it would find the file changed a moment later and say so,
+     * but the page that asked wants the document now.
+     */
+    async restore(id: string | null, hash: string, baseline = 'last:read'): Promise<DocPayload> {
+      const doc = need(id);
+      if (!platform.writeFile) throw new Error('this host cannot write the file');
+      const text = await doc.store.read(hash);
+      if (text == null) throw new Error('that version is no longer kept');
+      // The disk, not `doc.current`: an edit the watcher has not settled on yet is exactly the
+      // text that would be lost.
+      const onDisk = await platform.readText(doc.abs);
+      if (onDisk != null) doc.current = onDisk;
+      await doc.store.record(doc.current);
+      if (text !== doc.current) {
+        await platform.writeFile(doc.abs, text);
+        doc.current = text;
+        await doc.store.record(text);
+        emit(doc.id, { type: 'change', hash: hashContent(text) });
+      }
+      return buildDoc(doc, baseline);
     },
 
     /** Render one PlantUML fence to inline SVG, or say why not. */

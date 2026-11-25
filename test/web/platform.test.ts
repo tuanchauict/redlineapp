@@ -411,7 +411,7 @@ test('the store over a key-value store, and the web platform', async (t) => {
     const dropId = await rdr.retain('drop:d.md');
     assert.deepStrictEqual(
       (await rdr.doc(dropId, 'last:read')).caps,
-      { git: false, plantuml: false },
+      { git: false, plantuml: false, restore: false },
       'a reader on it says what it lacks',
     );
     drops.set('d.md', { text: async () => '# Dropped\n\nAgain.\n', lastModified: 401 });

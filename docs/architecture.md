@@ -290,7 +290,7 @@ sequence of round trips:
 | `baseline`, `baselineAvailable` | What it is being compared against, and whether that can still be honoured |
 | `history` | Every version, newest first, with `current` / `baseline` marked |
 | `tracked` | Whether git knows about the file |
-| `caps` | `{ git, plantuml }`: whether this host can do each at all, which `tracked` is not — it is per file. A host with no `spawn` has neither |
+| `caps` | `{ git, plantuml, restore }`: whether this host can do each at all, which `tracked` is not — it is per file. A host with no `spawn` has neither git nor PlantUML; one with no `writeFile` cannot restore |
 
 **The document itself is not in here** — no `html`, no `rawHtml`, no stats, changes
 or contents list. Those come from `renderDocument(root, text, base)` in

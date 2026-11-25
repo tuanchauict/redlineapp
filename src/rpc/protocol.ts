@@ -61,6 +61,7 @@ export const SESSION_METHODS = Object.freeze([
   'markRead',
   'ack',
   'open',
+  'restore',
   'prune',
   'plantumlSvg',
   'fonts',

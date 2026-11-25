@@ -41,6 +41,7 @@ import {
   openVerMenu,
   closeVerMenu,
   prune,
+  restore,
 } from './vm/history.js';
 import { openFiles, setDocId, load, connect } from './vm/core.js';
 import { scrollMemory, selectTab, closeTab } from './vm/files.js';
@@ -92,6 +93,7 @@ mountHistory($('histList'), {
   menu: openVerMenu,
   closeMenu: () => closeVerMenu(),
   prune,
+  restore,
 });
 
 // ---------- changes ----------

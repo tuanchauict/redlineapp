@@ -85,6 +85,11 @@ export function createVscodePlatform(vs: VscodeApi, node: NodeBits): Platform {
         throw err;
       }
     },
+    // The user's file, in place and not by rename (writeText's way), so the editor that has it
+    // open sees one file change and not a file replaced.
+    writeFile: async (p, text) => {
+      await fs.writeFile(uri(p), new TextEncoder().encode(text));
+    },
     mkdirp: async (p) => void (await fs.createDirectory(uri(p))),
     readDir: async (p) => (await fs.readDirectory(uri(p))).map(([name]) => name),
     async remove(p) {

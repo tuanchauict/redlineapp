@@ -66,6 +66,11 @@ export function createSession(reader: Reader): Session {
       return { id: opened.id, path: opened.abs };
     },
 
+    restore(id, hash, baseline) {
+      if (typeof hash !== 'string' || !hash) throw new BadRequest('no version named');
+      return reader.restore(id, hash, baseline || 'last:read');
+    },
+
     prune: (id, upto, baseline) => reader.prune(id, upto, baseline || 'last:read'),
 
     /**

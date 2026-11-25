@@ -9,6 +9,8 @@
 export interface Caps {
   git: boolean;
   plantuml: boolean;
+  /** Whether a version can be put back as the file: only where the host may write it. */
+  restore: boolean;
 }
 
 /** The commit a version came from, when git is where the history found it. */
