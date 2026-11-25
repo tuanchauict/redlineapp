@@ -100,6 +100,7 @@ export function createRpcBackend({
     markRead: (at) => call<DocPayload>('markRead', docId(), at),
     ack: (opts) => call<{ acked?: string[] }>('ack', docId(), opts).then((r) => r.acked ?? []),
     open: (path) => call<{ id: string; path: string }>('open', docId(), path),
+    restore: (hash, baseline) => call<DocPayload>('restore', docId(), hash, baseline),
     prune: (upto, baseline) => call<PrunedPayload>('prune', docId(), upto, baseline),
     plantumlSvg: (code) => call<PlantumlResult>('plantumlSvg', code),
     fonts: () => call<{ fonts?: string[] }>('fonts').then((r) => r.fonts ?? []),

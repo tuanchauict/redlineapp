@@ -62,6 +62,9 @@ const initial = {
   // Deleting is the one thing in the sidebar that cannot be undone, so it asks
   // in the row itself rather than throwing a dialog over the window.
   pruneAsk: null,
+  // The version waiting to be put back as the file. Asked in the row, like forgetting, because
+  // it overwrites the file and a dialog over the window is not something every host allows.
+  restoreAsk: null,
 };
 
 type State = typeof initial;

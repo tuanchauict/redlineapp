@@ -52,6 +52,14 @@ export interface Platform {
    * temporary file beside it and rename it over the top.
    */
   writeText: (p: string, text: string) => Promise<void>;
+  /**
+   * Replaces the text of the **user's** file, which `writeText` -- the store's -- is not for: it
+   * is written in place and not by rename, so the file keeps its permissions, its links and
+   * whatever else has hold of it. Absent where the host may not write the file (the desktop
+   * shell writes only into the store, and the web app holds a read permission), and the reader
+   * says so in `caps.restore`.
+   */
+  writeFile?: (p: string, text: string) => Promise<void>;
   mkdirp: (p: string) => Promise<void>;
   /** File names, not paths. */
   readDir: (p: string) => Promise<string[]>;

@@ -68,6 +68,7 @@ function pinned(
       moved(to);
       return to;
     },
+    restore: (_id, hash, baseline) => session.restore(id(), hash, baseline),
     prune: (_id, upto, baseline) => session.prune(id(), upto, baseline),
     plantumlSvg: (code) => session.plantumlSvg(code),
     fonts: () => session.fonts(),

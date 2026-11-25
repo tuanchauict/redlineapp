@@ -137,6 +137,9 @@ function httpBackend({ docId }: { docId: () => string | null }): Backend {
      */
     open: (path) => post('/api/open', { path }),
 
+    /** Put a version back as the file. Answers with the document as it is then. */
+    restore: (hash, baseline) => post('/api/restore', { hash, baseline }),
+
     /** Forget `upto` and everything older. Answers with the document that is left. */
     prune: (upto, baseline) => post('/api/prune', { upto, baseline }),
 

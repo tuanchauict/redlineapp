@@ -39,6 +39,9 @@ export const nodePlatform: Platform = {
       throw err;
     }
   },
+  // The user's file, in place: a rename would swap the inode, and with it the permissions, the
+  // links and the editor's hold on it.
+  writeFile: (p, text) => fs.writeFile(p, text),
   mkdirp: async (p) => void (await fs.mkdir(p, { recursive: true })),
   readDir: (p) => fs.readdir(p),
   remove: (p) => fs.rm(p, { force: true }),

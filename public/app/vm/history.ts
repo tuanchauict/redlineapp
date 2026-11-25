@@ -12,6 +12,7 @@ import { $, pane } from '../dom.js';
 import { backend } from '../backend.js';
 import { load, adopt, paint, rerender } from './document.js';
 import { setMarks } from './view.js';
+import { notify } from './notice.js';
 
 // ---------- naming a version ----------
 
@@ -88,6 +89,7 @@ export function paintHistory(d) {
 /** What a click on a row does: History hands it the version, and this decides what that means. */
 export function pickVersion(v) {
   state.pruneAsk = null;
+  state.restoreAsk = null;
   if (v.current) {
     setMarks(false);
     return;
@@ -177,6 +179,7 @@ function readDone(d) {
 async function markRead(at?) {
   const y = pane.scrollTop;
   state.pruneAsk = null;
+  state.restoreAsk = null;
   if (at) setMarks(true, { redraw: false });
   adopt(await backend.markRead(at));
   paint();
@@ -240,6 +243,19 @@ export function openVerMenu(row, v, n, { from, keyboard = false, x = 0, y = 0 })
     markRead(v.current ? undefined : v.hash);
   });
   const items = [read];
+
+  // Where the host may write the file, and never the version that is already on disk.
+  if (state.caps?.restore && !v.current) {
+    const restore = el('button', null, 'Restore this version…');
+    restore.type = 'button';
+    restore.role = 'menuitem';
+    restore.title = 'Put this version back as the file. The file as it is now stays in History';
+    restore.addEventListener('click', () => {
+      closeVerMenu();
+      askRestore(v.hash);
+    });
+    items.push(restore);
+  }
 
   // Never the version on disk: everything else is compared against it.
   if (!v.current) {
@@ -347,7 +363,34 @@ export const pruneFocus = { asked: false };
 /** Turn a row into its own question, and put the keyboard on the answer. */
 function askPrune(hash: string) {
   pruneFocus.asked = true;
+  state.restoreAsk = null;
   state.pruneAsk = hash;
+}
+
+// ---------- restoring ----------
+
+/** Turn a row into its own question, and put the keyboard on the answer. */
+function askRestore(hash: string) {
+  pruneFocus.asked = true;
+  state.pruneAsk = null;
+  state.restoreAsk = hash;
+}
+
+/**
+ * Put a version back as the file. What was on disk is kept in History by the reader, so this is
+ * undone by restoring the version it replaced.
+ */
+export async function restore(hash: string) {
+  const y = pane.scrollTop;
+  state.restoreAsk = null;
+  try {
+    adopt(await backend.restore!(hash, state.baseline));
+  } catch (err) {
+    notify(`Could not restore: ${(err as Error).message}`);
+    return;
+  }
+  paint();
+  pane.scrollTo(0, y);
 }
 
 export async function prune(upto) {

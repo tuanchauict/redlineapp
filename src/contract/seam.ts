@@ -34,6 +34,8 @@ export interface Session {
   /** Answers `{ acked }`, the checked keys, which is all a check-off changes. */
   ack(id: string | null, opts?: AckOptions): Promise<{ acked: string[] }>;
   open(id: string | null, path: string): Promise<{ id: string; path: string }>;
+  /** Put a version back as the file; only where `caps.restore` says the host may write it. */
+  restore(id: string | null, hash: string, baseline?: string): Promise<DocPayload>;
   prune(id: string | null, upto: string, baseline?: string): Promise<PrunedPayload>;
   plantumlSvg(code: string): Promise<PlantumlResult>;
   fonts(): Promise<{ fonts: string[] }>;
@@ -49,6 +51,8 @@ export interface Backend {
   ack(opts: AckOptions): Promise<string[]>;
   /** Absent where the shell, not the page, opens files: the desktop app has tabs for that. */
   open?(path: string): Promise<{ id: string; path: string }>;
+  /** Absent where the host cannot write the file: the desktop app and the web app. */
+  restore?(hash: string, baseline?: string): Promise<DocPayload>;
   prune(upto: string, baseline?: string): Promise<PrunedPayload>;
   plantumlSvg(code: string): Promise<PlantumlResult>;
   fonts(): Promise<string[]>;
