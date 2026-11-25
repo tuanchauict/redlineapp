@@ -27,7 +27,7 @@ test('calls are answered by id, and an answer for no call is dropped', async () 
   const doc = w.rpc.doc('read');
   const fonts = w.rpc.fonts();
   assert.deepStrictEqual(w.posted.slice(1), [
-    { t: 'call', id: 1, m: 'doc', a: ['d1', 'read'] },
+    { t: 'call', id: 1, m: 'doc', a: ['d1', 'read', undefined] },
     { t: 'call', id: 2, m: 'fonts', a: [] },
   ], 'each call is numbered, with the document where the reader takes one');
   w.deliver({ t: 'ret', id: 2, v: {} });

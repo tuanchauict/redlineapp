@@ -61,6 +61,12 @@ export interface DocPayload {
   baselineAvailable: boolean;
   history: HistoryRow[];
   tracked: boolean;
+  /**
+   * The version the page asked to compare `base` against, instead of the file, and its text; both
+   * null when it asked for none or the version is gone, and the document is then the file.
+   */
+  to: string | null;
+  toText: string | null;
   caps: Caps;
 }
 

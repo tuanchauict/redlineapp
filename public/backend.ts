@@ -109,7 +109,7 @@ function httpBackend({ docId }: { docId: () => string | null }): Backend {
 
   return {
     /** The document, built against `baseline`. */
-    doc: (baseline) => get('/api/doc', { baseline }),
+    doc: (baseline, to) => get('/api/doc', { baseline, to }),
 
     /**
      * Move the read mark to `at`, a version's hash, or to what is on disk

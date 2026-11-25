@@ -233,9 +233,9 @@ export async function createWebBackend({
   const api: WebBackend = {
     ...inner,
 
-    async doc(baseline) {
+    async doc(baseline, to) {
       try {
-        return await inner.doc(baseline);
+        return await inner.doc(baseline, to);
       } catch (err) {
         if (err?.name === 'NeedsPermission') await needsPermission(err.rootId);
         throw err;

@@ -96,7 +96,7 @@ export function createRpcBackend({
   return {
     host,
 
-    doc: (baseline) => call<DocPayload>('doc', docId(), baseline),
+    doc: (baseline, to) => call<DocPayload>('doc', docId(), baseline, to),
     markRead: (at) => call<DocPayload>('markRead', docId(), at),
     ack: (opts) => call<{ acked?: string[] }>('ack', docId(), opts).then((r) => r.acked ?? []),
     open: (path) => call<{ id: string; path: string }>('open', docId(), path),

@@ -71,9 +71,15 @@ export function adopt(data) {
   // Reading one version by itself is the same payload rendered differently:
   // the version chosen in the history is already here as `base`, so it costs
   // no request and the reader keeps no second notion of what is chosen.
+  // Two versions compared with each other: the newer is what is on the page and the file is only
+  // the title. No check-offs: they are made against the file, and there is no file here.
+  const between = !state.solo && state.diff && data.toText != null;
   const rendered = state.solo
     ? { ...renderDocument(md, soloText(data), null), title: titleOf(md, data.text) }
-    : renderDocument(md, data.text, data.base, checked);
+    : between
+      ? { ...renderDocument(md, data.toText, data.base), title: titleOf(md, data.text) }
+      : renderDocument(md, data.text, data.base, checked);
+  state.compareTo = between ? data.to : null;
   state.data = Object.assign(data, rendered);
   state.caps = data.caps ?? null;
   // The id is assigned by the reader when this page did not name one.
@@ -92,7 +98,7 @@ export async function load({ keepScroll = true } = {}) {
   const want = state.docId;
   let data;
   try {
-    data = await backend.doc(state.baseline);
+    data = await backend.doc(state.baseline, state.compareTo);
   } catch (err) {
     // The two things a page with nothing handed to it is told: there is no document, or there
     // is one that has to be asked for again. Anything else is the reader failing.

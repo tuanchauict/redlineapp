@@ -464,7 +464,7 @@ export async function createReader({
     return out;
   }
 
-  async function buildDoc(doc: OpenDoc, wanted: string): Promise<DocPayload> {
+  async function buildDoc(doc: OpenDoc, wanted: string, to?: string | null): Promise<DocPayload> {
     const { abs, current } = doc;
     const baselineId = validBaseline(doc, wanted);
     const base = await resolveBaseline(doc, baselineId);
@@ -484,6 +484,14 @@ export async function createReader({
     if (!wanted?.startsWith('last:') && baselineId !== 'none') {
       await doc.store.setCompare(baselineId);
     }
+
+    // The other end of a comparison between two versions, where the page asked for one. Not the
+    // file's own version, which is what no `to` means, and not one the store has forgotten: the
+    // page is told by `to` coming back null and shows the file.
+    const toText =
+      to && to !== hashContent(current) && doc.store.data.history.some((h) => h.hash === to)
+        ? await doc.store.read(to)
+        : null;
 
     // Two versions of the text, and everything only this side can know: where
     // the file is, when it changed, what the store remembers about it.
@@ -519,6 +527,8 @@ export async function createReader({
       baselineAvailable: base != null,
       history: historyPayload(doc),
       tracked: Boolean(doc.git),
+      to: toText == null ? null : to,
+      toText,
       caps,
     };
   }
@@ -552,8 +562,13 @@ export async function createReader({
      *   against, and the named one only if it never has been. Asking this way
      *   is how a document is *opened*; the four above are how a baseline is
      *   *chosen*, and choosing one is what the next `last:` will answer with.
+     *
+     * `to` names a version by hash to compare the baseline against instead of the file: the
+     * payload then carries its text as `toText`. It is not kept, and is dropped when it is the
+     * file's own version or one the history no longer holds.
      */
-    doc: (id: string | null, baseline = 'last:read') => buildDoc(need(id), baseline),
+    doc: (id: string | null, baseline = 'last:read', to?: string | null) =>
+      buildDoc(need(id), baseline, to),
 
     /**
      * Count a version as read: everything in it stops being a change. `at` is

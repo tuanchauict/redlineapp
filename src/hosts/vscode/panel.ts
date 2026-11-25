@@ -60,7 +60,7 @@ function pinned(
   moved: (to: { id: string; path: string }) => void,
 ): Session {
   return {
-    doc: (_id, baseline) => session.doc(id(), baseline),
+    doc: (_id, baseline, to) => session.doc(id(), baseline, to),
     markRead: (_id, at) => session.markRead(id(), at),
     ack: (_id, opts) => session.ack(id(), opts),
     async open(_id, path) {

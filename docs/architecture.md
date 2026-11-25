@@ -261,7 +261,7 @@ later poll succeeds. Nothing else listens for them yet but the web worker.
 
 | | |
 | --- | --- |
-| `GET /api/doc?id&baseline` | The whole document payload (below) |
+| `GET /api/doc?id&baseline&to` | The whole document payload (below) |
 | `GET /events?id` | SSE: `{type:'change'}`, `{type:'file'}`, `{type:'history'}` |
 | `POST /api/mark-read?id&at` | Move the read mark to the current version, clearing the check-offs, or with `at` to that version in the history, keeping them. Answers with a fresh payload |
 | `POST /api/ack?id&key&on&at&block` | Check one change off, or bring it back. `at` is the version the page was showing and `block` the change's own block in it, so an edit to it later is marked against what was read. `?clear=1` for all of them. Answers with the key list and nothing else — the page has already hidden the mark |
@@ -287,6 +287,7 @@ sequence of round trips:
 | `base` | The version it is being compared against, or `null` for none |
 | `acked` | Which change keys are checked off |
 | `ackedFrom` | The versions those were checked off in, `[{ hash, text, blocks }]`, for the diff to find the text you read (see [below](#the-diff)). Empty when there is no diff |
+| `to`, `toText` | Set when two versions are being compared with each other (`GET /api/doc?baseline&to`): the newer one's hash and text, which the page shows in place of `text`. `null` when `to` is unset, is the file, or is no longer kept |
 | `baseline`, `baselineAvailable` | What it is being compared against, and whether that can still be honoured |
 | `history` | Every version, newest first, with `current` / `baseline` marked |
 | `tracked` | Whether git knows about the file |

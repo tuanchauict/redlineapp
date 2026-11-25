@@ -70,6 +70,16 @@ Importing adds versions to compare against — it does not move your baseline, s
 never decides for you that you have or have not read something. The read is done in
 the background: the file opens immediately and the rows appear a moment later.
 
+## Comparing two versions
+
+A click on a row compares the file with that version. **⇧-click** a second row (or *Compare
+to this version* in its menu) and the two are compared with each other instead: the older of
+the two is the baseline, the newer is what is shown, whichever you picked first, and the
+newer row carries a `to` flag. The file is only the title. Nothing is checked off in this view
+(check-offs are made against the file), and it is never saved: clicking any row, the newest
+row, marking read, turning the marks off or reading one version alone puts it away. Its
+payload is `to` / `toText` ([architecture](architecture.md)).
+
 ## Putting a version back
 
 **Restore this version…**, in the row's menu, overwrites the file with that version. The row turns
