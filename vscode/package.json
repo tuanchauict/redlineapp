@@ -46,7 +46,7 @@
     "commands": [
       {
         "command": "redline.open",
-        "title": "Redline: Open Preview to the Side",
+        "title": "Redline: Open Preview",
         "icon": "$(preview)"
       }
     ],

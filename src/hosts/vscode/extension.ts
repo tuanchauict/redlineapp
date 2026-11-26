@@ -100,7 +100,9 @@ export async function activateWith(
       const panel = vscode.window.createWebviewPanel(
         VIEW_TYPE,
         'Redline',
-        vscode.ViewColumn.Beside,
+        // The pane the file is in, not beside it: Redline has its own raw view, and nothing here
+        // edits, so a second pane of the same text has nothing to show.
+        vscode.ViewColumn.Active,
         {
           enableScripts: true,
           localResourceRoots: [pageRoot],

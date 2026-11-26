@@ -1,6 +1,6 @@
 # Redline for VS Code
 
-A Markdown preview that remembers what you last read. Run **Redline: Open Preview to the Side**
+A Markdown preview that remembers what you last read. Run **Redline: Open Preview**
 (from the editor title bar, the Explorer's context menu or the Command Palette) and the file opens
 beside the editor, with the paragraphs that changed since you last read it marked, a **History** of
 the versions Redline has seen, and **Contents**.

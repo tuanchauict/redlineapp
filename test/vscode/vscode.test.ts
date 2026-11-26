@@ -335,5 +335,7 @@ test('opening a file that already has a preview brings that one forward', () => 
   const extension = read('src/hosts/vscode/extension.ts');
   // Checked before createWebviewPanel, or the check is for nothing.
   assert.match(extension, /attached\.path === path[\s\S]*existing\.reveal\(\)[\s\S]*createWebviewPanel/);
+  assert.match(extension, /createWebviewPanel\([\s\S]*?ViewColumn\.Active/, 'in the pane the file is in');
+  assert.doesNotMatch(extension, /ViewColumn\.Beside/, 'not beside it');
   assert.match(extension, /shown\.delete\(attached\)/, 'and a closed panel is forgotten');
 });
